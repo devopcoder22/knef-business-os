@@ -1,0 +1,49 @@
+version: '3.8'
+
+# Development overrides — hot reload with volume mounts
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+      target: development
+    volumes:
+      - ./apps/api:/app/apps/api:delegated
+      - ./packages:/app/packages:delegated
+      - /app/node_modules
+      - /app/apps/api/node_modules
+    command: pnpm --filter @knef/api dev
+    environment:
+      - NODE_ENV=development
+
+  web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/web.Dockerfile
+      target: development
+    volumes:
+      - ./apps/web:/app/apps/web:delegated
+      - ./packages:/app/packages:delegated
+      - /app/node_modules
+      - /app/apps/web/node_modules
+    command: pnpm --filter @knef/web dev
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_API_URL=http://localhost:4000/api/v1
+    ports:
+      - "3000:3000"
+
+  db:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  # No caddy in dev — use direct ports
+  caddy:
+    profiles:
+      - production
