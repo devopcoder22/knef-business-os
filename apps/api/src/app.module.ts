@@ -1,7 +1,9 @@
-import { Module } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { LoggerMiddleware } from './common/middleware/logger.middleware';
 import appConfig, { validateConfig } from './config/app.config';
 import { CommonModule } from './common/services/common.module';
 import { HealthModule } from './modules/health/health.module';
@@ -58,23 +60,11 @@ import { AIActionsModule } from './modules/ai-actions/ai-actions.module';
       verboseMemoryLeak: true,
     }),
 
-    // Rate limiting
+    // Rate limiting — global limits; auth endpoints use stricter @Throttle() overrides
     ThrottlerModule.forRoot([
-      {
-        name: 'short',
-        ttl: 1000,
-        limit: 20,
-      },
-      {
-        name: 'medium',
-        ttl: 10000,
-        limit: 100,
-      },
-      {
-        name: 'long',
-        ttl: 60000,
-        limit: 500,
-      },
+      { name: 'short', ttl: 1000, limit: 20 },       // 20 req/s
+      { name: 'medium', ttl: 60000, limit: 200 },    // 200 req/min
+      { name: 'long', ttl: 3600000, limit: 2000 },   // 2000 req/hour
     ]),
 
     // Shared infrastructure
@@ -117,5 +107,13 @@ import { AIActionsModule } from './modules/ai-actions/ai-actions.module';
     AIModule,
     AIActionsModule,
   ],
+  providers: [
+    // Apply ThrottlerGuard globally to all routes
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+  ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(LoggerMiddleware).forRoutes('*');
+  }
+}

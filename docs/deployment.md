@@ -209,3 +209,20 @@ docker compose -f docker-compose.dev.yml up -d
 # The web app is at http://localhost:3000
 # API docs at http://localhost:4000/api/docs
 ```
+
+---
+
+## 10. Production Hardening Checklist
+
+Before going live, verify each item:
+
+- [ ] Set strong JWT_SECRET and JWT_REFRESH_SECRET (min 32 chars, use `openssl rand -hex 32`)
+- [ ] Set ENCRYPTION_KEY to 64-char hex (`openssl rand -hex 32`)
+- [ ] Enable firewall: only ports 80, 443 open externally
+- [ ] Set up automatic backups (scripts/backup.sh) as daily cron
+- [ ] Configure monitoring: set up `/api/v1/health` uptime checks
+- [ ] Review feature flags: enable only features ready for production
+- [ ] Set up log aggregation (e.g., tail -f /var/log/caddy/access.log)
+- [ ] Test backup restore procedure before go-live
+- [ ] Change default admin password (admin@knef.local / Admin123!) immediately
+- [ ] Configure Telegram bot for critical alerts

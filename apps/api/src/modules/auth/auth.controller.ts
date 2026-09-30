@@ -9,6 +9,7 @@ import {
   Res,
   Req,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   ApiTags,
   ApiBearerAuth,
@@ -59,9 +60,10 @@ export class AuthController {
     };
   }
 
-  // POST /auth/login
+  // POST /auth/login — stricter rate limit: 5 attempts per minute
   @Post('login')
   @Public()
+  @Throttle({ short: { ttl: 60000, limit: 5 } })
   @UseGuards(AuthGuard('local'))
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Login with email and password' })
@@ -142,9 +144,10 @@ export class AuthController {
     return { data: profile };
   }
 
-  // POST /auth/forgot-password
+  // POST /auth/forgot-password — stricter rate limit: 5 attempts per minute
   @Post('forgot-password')
   @Public()
+  @Throttle({ short: { ttl: 60000, limit: 5 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Request a password reset email' })
   async forgotPassword(@Body() dto: ForgotPasswordDto) {

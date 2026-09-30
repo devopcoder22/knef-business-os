@@ -18,6 +18,19 @@ export class PrismaService
   }
 
   async onModuleInit(): Promise<void> {
+    // Log queries that take longer than 1 second
+    this.$use(async (params, next) => {
+      const start = Date.now();
+      const result = await next(params);
+      const ms = Date.now() - start;
+      if (ms > 1000) {
+        this.logger.warn(
+          `Slow query [${ms}ms]: ${params.model ?? 'unknown'}.${params.action}`,
+        );
+      }
+      return result;
+    });
+
     await this.$connect();
     this.logger.log('Database connection established');
   }
