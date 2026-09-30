@@ -151,6 +151,9 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Providers', href: '/ai/providers', icon: Server, permission: PERMISSIONS.AI.PROVIDERS },
       { label: 'Knowledge Base', href: '/ai/knowledge', icon: BookOpen, permission: PERMISSIONS.AI.KNOWLEDGE },
       { label: 'Usage', href: '/ai/usage', icon: BarChart3, permission: PERMISSIONS.AI.USAGE },
+      { label: 'Tools', href: '/ai/tools', icon: ClipboardList, permission: PERMISSIONS.AI.TOOLS },
+      { label: 'Approvals', href: '/ai/approvals', icon: CheckSquare, permission: PERMISSIONS.AI.APPROVALS },
+      { label: 'Agents', href: '/ai/agents', icon: Bot, permission: PERMISSIONS.AI.AGENTS },
     ],
   },
   {

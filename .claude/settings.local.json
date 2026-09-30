@@ -32,7 +32,9 @@
       "Bash(npx prisma *)",
       "Bash(node_modules/.bin/prisma generate *)",
       "Bash(packages/database/node_modules/.bin/prisma generate *)",
-      "Bash(node_modules/.bin/tsc --noEmit)"
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(git -C /Users/macbook/Desktop/knef-business-os log --oneline -5)",
+      "Bash(git -C /Users/macbook/Desktop/knef-business-os status --short)"
     ]
   }
 }

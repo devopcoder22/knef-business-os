@@ -108,6 +108,9 @@ export const PERMISSIONS = {
     MEMORY: 'ai.memory',
     KNOWLEDGE: 'ai.knowledge',
     USAGE: 'ai.usage',
+    TOOLS: 'ai.tools',
+    APPROVALS: 'ai.approvals',
+    AGENTS: 'ai.agents',
     // Legacy
     MANAGE_PROVIDERS: 'ai.manage_providers',
     VIEW_USAGE: 'ai.view_usage',
