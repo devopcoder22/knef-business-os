@@ -186,6 +186,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Email Providers', href: '/communications/email-providers', icon: Mail, permission: PERMISSIONS.COMMUNICATIONS.EMAIL_PROVIDERS },
       { label: 'Campaigns', href: '/communications/campaigns', icon: MessageSquare, permission: PERMISSIONS.COMMUNICATIONS.CAMPAIGNS },
       { label: 'Templates', href: '/communications/templates', icon: FileText, permission: PERMISSIONS.COMMUNICATIONS.TEMPLATES },
+      { label: 'Subscriptions', href: '/communications/subscriptions', icon: Users, permission: PERMISSIONS.COMMUNICATIONS.SUBSCRIPTIONS },
       { label: 'Telegram', href: '/communications/telegram', icon: MessageSquare, permission: PERMISSIONS.COMMUNICATIONS.TELEGRAM },
       { label: 'Webhooks', href: '/communications/webhooks', icon: Webhook, permission: PERMISSIONS.COMMUNICATIONS.WEBHOOKS },
     ],

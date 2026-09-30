@@ -131,9 +131,12 @@ export const PERMISSIONS = {
   COMMUNICATIONS: {
     EMAIL_PROVIDERS: 'communications.email_providers',
     CAMPAIGNS: 'communications.campaigns',
+    CAMPAIGNS_APPROVE: 'communications.campaigns.approve',
+    CAMPAIGNS_SEND: 'communications.campaigns.send',
     TEMPLATES: 'communications.templates',
     TELEGRAM: 'communications.telegram',
     WEBHOOKS: 'communications.webhooks',
+    SUBSCRIPTIONS: 'communications.subscriptions',
   },
   CALENDAR: {
     VIEW: 'calendar.view',

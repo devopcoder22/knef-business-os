@@ -6,7 +6,7 @@ import { Mail, Users, TrendingUp, MousePointerClick, AlertTriangle, Send, Calend
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
-type CampaignStatus = 'DRAFT' | 'SCHEDULED' | 'SENDING' | 'SENT' | 'CANCELLED' | 'FAILED';
+type CampaignStatus = 'DRAFT' | 'REVIEW' | 'APPROVED' | 'SCHEDULED' | 'SENDING' | 'SENT' | 'PAUSED' | 'CANCELLED' | 'FAILED';
 
 interface Campaign {
   id: string;
@@ -38,9 +38,12 @@ interface Recipient {
 
 const STATUS_STYLES: Record<CampaignStatus, string> = {
   DRAFT: 'bg-gray-100 text-gray-600',
+  REVIEW: 'bg-purple-100 text-purple-700',
+  APPROVED: 'bg-teal-100 text-teal-700',
   SCHEDULED: 'bg-blue-100 text-blue-700',
   SENDING: 'bg-yellow-100 text-yellow-700',
   SENT: 'bg-green-100 text-green-700',
+  PAUSED: 'bg-orange-100 text-orange-700',
   CANCELLED: 'bg-red-100 text-red-600',
   FAILED: 'bg-red-200 text-red-800',
 };
@@ -88,6 +91,26 @@ export default function CampaignDetailPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['email-campaign', id] }),
   });
 
+  const submitMutation = useMutation({
+    mutationFn: () => api().post(`/email-campaigns/${id}/submit`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['email-campaign', id] }),
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: () => api().post(`/email-campaigns/${id}/approve`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['email-campaign', id] }),
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: () => api().post(`/email-campaigns/${id}/reject`, { reason: 'Rejected by reviewer' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['email-campaign', id] }),
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: () => api().post(`/email-campaigns/${id}/cancel`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['email-campaign', id] }),
+  });
+
   if (isLoading) {
     return <div className="text-center py-12 text-gray-400">Loading...</div>;
   }
@@ -120,16 +143,54 @@ export default function CampaignDetailPage() {
           </div>
           <p className="text-sm text-gray-500">{campaign.subject}</p>
         </div>
-        {(campaign.status === 'DRAFT' || campaign.status === 'SCHEDULED') && (
-          <button
-            onClick={() => sendMutation.mutate()}
-            disabled={sendMutation.isPending}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            <Send size={16} />
-            {sendMutation.isPending ? 'Sending...' : 'Send Now'}
-          </button>
-        )}
+        <div className="flex items-center gap-2 flex-wrap">
+          {campaign.status === 'DRAFT' && (
+            <button
+              onClick={() => submitMutation.mutate()}
+              disabled={submitMutation.isPending}
+              className="flex items-center gap-2 px-3 py-2 border border-purple-300 text-purple-700 text-sm rounded-lg hover:bg-purple-50 disabled:opacity-50"
+            >
+              {submitMutation.isPending ? 'Submitting...' : 'Submit for Approval'}
+            </button>
+          )}
+          {campaign.status === 'REVIEW' && (
+            <>
+              <button
+                onClick={() => approveMutation.mutate()}
+                disabled={approveMutation.isPending}
+                className="flex items-center gap-2 px-3 py-2 bg-teal-600 text-white text-sm rounded-lg hover:bg-teal-700 disabled:opacity-50"
+              >
+                {approveMutation.isPending ? 'Approving...' : 'Approve'}
+              </button>
+              <button
+                onClick={() => rejectMutation.mutate()}
+                disabled={rejectMutation.isPending}
+                className="flex items-center gap-2 px-3 py-2 border border-red-300 text-red-700 text-sm rounded-lg hover:bg-red-50 disabled:opacity-50"
+              >
+                {rejectMutation.isPending ? 'Rejecting...' : 'Reject'}
+              </button>
+            </>
+          )}
+          {(campaign.status === 'APPROVED' || campaign.status === 'SCHEDULED') && (
+            <button
+              onClick={() => sendMutation.mutate()}
+              disabled={sendMutation.isPending}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              <Send size={16} />
+              {sendMutation.isPending ? 'Sending...' : 'Send Now'}
+            </button>
+          )}
+          {['DRAFT', 'REVIEW', 'APPROVED', 'SCHEDULED'].includes(campaign.status) && (
+            <button
+              onClick={() => cancelMutation.mutate()}
+              disabled={cancelMutation.isPending}
+              className="flex items-center gap-2 px-3 py-2 border border-gray-200 text-gray-600 text-sm rounded-lg hover:bg-gray-50 disabled:opacity-50"
+            >
+              {cancelMutation.isPending ? 'Cancelling...' : 'Cancel'}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Stats */}

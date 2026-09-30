@@ -159,12 +159,20 @@ export class CreateCampaignDto {
   subject!: string;
 
   @IsOptional()
+  @IsString()
+  previewText?: string;
+
+  @IsOptional()
   @IsEmail()
   fromEmail?: string;
 
   @IsOptional()
   @IsString()
   fromName?: string;
+
+  @IsOptional()
+  @IsEmail()
+  replyTo?: string;
 
   @IsOptional()
   @IsString()
@@ -177,6 +185,14 @@ export class CreateCampaignDto {
   @IsOptional()
   @IsString()
   providerId?: string;
+
+  @IsOptional()
+  @IsEnum(['MARKETING', 'NEWSLETTER', 'TRANSACTIONAL'])
+  campaignType?: 'MARKETING' | 'NEWSLETTER' | 'TRANSACTIONAL';
+
+  @IsOptional()
+  @IsEnum(['GENERAL_MARKETING', 'NEWSLETTERS', 'PROMOTIONS', 'PRODUCT_UPDATES'])
+  subscriptionList?: 'GENERAL_MARKETING' | 'NEWSLETTERS' | 'PROMOTIONS' | 'PRODUCT_UPDATES';
 }
 
 export class UpdateCampaignDto {
@@ -189,12 +205,20 @@ export class UpdateCampaignDto {
   subject?: string;
 
   @IsOptional()
+  @IsString()
+  previewText?: string;
+
+  @IsOptional()
   @IsEmail()
   fromEmail?: string;
 
   @IsOptional()
   @IsString()
   fromName?: string;
+
+  @IsOptional()
+  @IsEmail()
+  replyTo?: string;
 
   @IsOptional()
   @IsString()
@@ -207,6 +231,45 @@ export class UpdateCampaignDto {
   @IsOptional()
   @IsString()
   providerId?: string;
+
+  @IsOptional()
+  @IsEnum(['GENERAL_MARKETING', 'NEWSLETTERS', 'PROMOTIONS', 'PRODUCT_UPDATES'])
+  subscriptionList?: string;
+}
+
+export class ApproveCampaignDto {
+  @IsOptional()
+  @IsString()
+  note?: string;
+}
+
+export class RejectCampaignDto {
+  @IsString()
+  reason!: string;
+}
+
+export class UpdateSubscriptionDto {
+  @IsEnum(['SUBSCRIBED', 'UNSUBSCRIBED', 'SUPPRESSED'])
+  status!: 'SUBSCRIBED' | 'UNSUBSCRIBED' | 'SUPPRESSED';
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+export class UpdatePreferencesDto {
+  @IsObject()
+  preferences!: Record<string, boolean>;
+}
+
+export class ProviderWebhookDto {
+  @IsOptional()
+  @IsString()
+  signature?: string;
+
+  @IsOptional()
+  @IsString()
+  timestamp?: string;
 }
 
 export class AddRecipientsDto {

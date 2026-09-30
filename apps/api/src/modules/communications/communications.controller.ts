@@ -11,15 +11,18 @@ import {
   HttpStatus,
   ParseIntPipe,
   DefaultValuePipe,
-  Optional,
+  Headers,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { CommunicationsService } from './communications.service';
 import { NotificationsService } from './notifications.service';
 import { TelegramService } from './telegram.service';
 import { WebhooksService } from './webhooks.service';
+import { EmailSubscriptionService } from './email-subscription.service';
+import { ProviderWebhooksService } from './provider-webhooks.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
+import { Public } from '../../common/decorators/public.decorator';
 import { PERMISSIONS } from '@knef/constants';
 import type { AuthUser } from '@knef/types';
 import {
@@ -32,6 +35,10 @@ import {
   UpdateCampaignDto,
   AddRecipientsDto,
   ScheduleCampaignDto,
+  ApproveCampaignDto,
+  RejectCampaignDto,
+  UpdateSubscriptionDto,
+  UpdatePreferencesDto,
   UpsertTelegramConfigDto,
   UpdateTelegramSettingsDto,
   CreateWebhookEndpointDto,
@@ -189,7 +196,7 @@ export class CampaignsController {
   @Permissions(PERMISSIONS.COMMUNICATIONS.CAMPAIGNS)
   @ApiOperation({ summary: 'Create draft campaign' })
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateCampaignDto) {
-    return this.commsService.createCampaign(user.organizationId, dto);
+    return this.commsService.createCampaign(user.organizationId, user.id, dto);
   }
 
   @Get(':id')
@@ -207,7 +214,46 @@ export class CampaignsController {
     @Param('id') id: string,
     @Body() dto: UpdateCampaignDto,
   ) {
-    return this.commsService.updateCampaign(user.organizationId, id, dto);
+    return this.commsService.updateCampaign(user.organizationId, id, user.id, dto);
+  }
+
+  @Post(':id/submit')
+  @Permissions(PERMISSIONS.COMMUNICATIONS.CAMPAIGNS)
+  @ApiOperation({ summary: 'Submit campaign for review/approval' })
+  @HttpCode(HttpStatus.OK)
+  submit(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.commsService.submitCampaignForReview(user.organizationId, id, user.id);
+  }
+
+  @Post(':id/approve')
+  @Permissions(PERMISSIONS.COMMUNICATIONS.CAMPAIGNS_APPROVE)
+  @ApiOperation({ summary: 'Approve campaign' })
+  @HttpCode(HttpStatus.OK)
+  approve(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ApproveCampaignDto) {
+    return this.commsService.approveCampaign(user.organizationId, id, user.id, dto.note);
+  }
+
+  @Post(':id/reject')
+  @Permissions(PERMISSIONS.COMMUNICATIONS.CAMPAIGNS_APPROVE)
+  @ApiOperation({ summary: 'Reject campaign back to DRAFT' })
+  @HttpCode(HttpStatus.OK)
+  reject(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: RejectCampaignDto) {
+    return this.commsService.rejectCampaign(user.organizationId, id, user.id, dto.reason);
+  }
+
+  @Post(':id/cancel')
+  @Permissions(PERMISSIONS.COMMUNICATIONS.CAMPAIGNS)
+  @ApiOperation({ summary: 'Cancel campaign' })
+  @HttpCode(HttpStatus.OK)
+  cancel(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.commsService.cancelCampaign(user.organizationId, id, user.id);
+  }
+
+  @Get(':id/compliance')
+  @Permissions(PERMISSIONS.COMMUNICATIONS.CAMPAIGNS)
+  @ApiOperation({ summary: 'Run pre-send compliance checks' })
+  compliance(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.commsService.getCampaignCompliance(user.organizationId, id);
   }
 
   @Post(':id/recipients')
@@ -235,7 +281,7 @@ export class CampaignsController {
   }
 
   @Post(':id/schedule')
-  @Permissions(PERMISSIONS.COMMUNICATIONS.CAMPAIGNS)
+  @Permissions(PERMISSIONS.COMMUNICATIONS.CAMPAIGNS_SEND)
   @ApiOperation({ summary: 'Schedule campaign' })
   @HttpCode(HttpStatus.OK)
   schedule(
@@ -243,15 +289,15 @@ export class CampaignsController {
     @Param('id') id: string,
     @Body() dto: ScheduleCampaignDto,
   ) {
-    return this.commsService.scheduleCampaign(user.organizationId, id, dto.scheduledAt);
+    return this.commsService.scheduleCampaign(user.organizationId, id, user.id, dto.scheduledAt);
   }
 
   @Post(':id/send')
-  @Permissions(PERMISSIONS.COMMUNICATIONS.CAMPAIGNS)
+  @Permissions(PERMISSIONS.COMMUNICATIONS.CAMPAIGNS_SEND)
   @ApiOperation({ summary: 'Send campaign immediately' })
   @HttpCode(HttpStatus.OK)
   send(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.commsService.sendCampaign(user.organizationId, id);
+    return this.commsService.sendCampaign(user.organizationId, id, user.id);
   }
 
   @Delete(':id')
@@ -260,6 +306,111 @@ export class CampaignsController {
   @HttpCode(HttpStatus.OK)
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.commsService.deleteCampaign(user.organizationId, id);
+  }
+}
+
+// ── Subscriptions (admin) ────────────────────────────────────────
+
+@ApiTags('email-subscriptions')
+@ApiBearerAuth('JWT')
+@Controller('email-subscriptions')
+export class SubscriptionsController {
+  constructor(private readonly subscriptionService: EmailSubscriptionService) {}
+
+  @Get()
+  @Permissions(PERMISSIONS.COMMUNICATIONS.SUBSCRIPTIONS)
+  @ApiOperation({ summary: 'List email subscriptions / suppression' })
+  list(
+    @CurrentUser() user: AuthUser,
+    @Query('email') email?: string,
+    @Query('list') list?: string,
+    @Query('status') status?: string,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
+    @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit = 50,
+  ) {
+    return this.subscriptionService.listSubscriptions(user.organizationId, { email, list, status, page, limit });
+  }
+
+  @Patch(':email')
+  @Permissions(PERMISSIONS.COMMUNICATIONS.SUBSCRIPTIONS)
+  @ApiOperation({ summary: 'Update subscription status for an email address' })
+  @HttpCode(HttpStatus.OK)
+  update(
+    @CurrentUser() user: AuthUser,
+    @Param('email') email: string,
+    @Query('list') list = 'GENERAL_MARKETING',
+    @Body() dto: UpdateSubscriptionDto,
+  ) {
+    return this.subscriptionService.updateSubscription(
+      user.organizationId, decodeURIComponent(email), list,
+      dto.status, { reason: dto.reason, userId: user.id },
+    );
+  }
+}
+
+// ── Public Unsubscribe (no auth) ─────────────────────────────────
+
+@ApiTags('email-preferences')
+@Controller('email')
+export class PublicEmailController {
+  constructor(private readonly subscriptionService: EmailSubscriptionService) {}
+
+  @Public()
+  @Get('preferences/:token')
+  @ApiOperation({ summary: 'Get email preferences (public, token-authenticated)' })
+  getPreferences(@Param('token') token: string) {
+    return this.subscriptionService.getPreferences(token);
+  }
+
+  @Public()
+  @Post('preferences/:token')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Update email preferences (public, token-authenticated)' })
+  updatePreferences(@Param('token') token: string, @Body() dto: UpdatePreferencesDto) {
+    return this.subscriptionService.updatePreferences(token, dto.preferences);
+  }
+
+  @Public()
+  @Post('unsubscribe/:token')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Unsubscribe from a list (public, token-authenticated)' })
+  unsubscribe(@Param('token') token: string, @Query('list') list?: string) {
+    return this.subscriptionService.unsubscribeByToken(token, list);
+  }
+}
+
+// ── Provider Webhooks (public, signature-verified) ───────────────
+
+@ApiTags('provider-webhooks')
+@Controller('provider-webhooks')
+export class ProviderWebhooksController {
+  constructor(private readonly providerWebhooksService: ProviderWebhooksService) {}
+
+  @Public()
+  @Post('sendgrid/:organizationId')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Receive SendGrid delivery events' })
+  async sendgrid(
+    @Param('organizationId') organizationId: string,
+    @Body() body: unknown[],
+    @Headers('X-Twilio-Email-Event-Webhook-Signature') signature: string,
+    @Headers('X-Twilio-Email-Event-Webhook-Timestamp') timestamp: string,
+  ) {
+    const rawPayload = JSON.stringify(body);
+    return this.providerWebhooksService.handleSendgridEvents(
+      rawPayload, signature, timestamp, organizationId,
+    );
+  }
+
+  @Public()
+  @Post('mailgun/:organizationId')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Receive Mailgun delivery events' })
+  async mailgun(
+    @Param('organizationId') organizationId: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.providerWebhooksService.handleMailgunEvent(body, organizationId);
   }
 }
 

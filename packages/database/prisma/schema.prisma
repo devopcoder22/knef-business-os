@@ -1895,18 +1895,32 @@ model EmailCampaign {
   providerId      String?
   name            String
   subject         String
+  previewText     String?
   fromEmail       String?
   fromName        String?
+  replyTo         String?
   htmlContent     String?
   textContent     String?
+  campaignType    String         @default("MARKETING")
+  subscriptionList String        @default("GENERAL_MARKETING")
   status          CampaignStatus @default(DRAFT)
   scheduledAt     DateTime?
   sentAt          DateTime?
+  createdById     String?
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  approvedBy      String?
+  approvedAt      DateTime?
   totalRecipients Int            @default(0)
+  eligibleCount   Int            @default(0)
+  suppressedCount Int            @default(0)
   sentCount       Int            @default(0)
+  deliveredCount  Int            @default(0)
   openCount       Int            @default(0)
   clickCount      Int            @default(0)
   bounceCount     Int            @default(0)
+  complainedCount Int            @default(0)
+  failedCount     Int            @default(0)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
@@ -1915,33 +1929,63 @@ model EmailCampaign {
 
   @@index([organizationId])
   @@index([status])
+  @@index([campaignType])
 }
 
 enum CampaignStatus {
   DRAFT
+  REVIEW
+  APPROVED
   SCHEDULED
   SENDING
   SENT
+  PAUSED
   CANCELLED
   FAILED
 }
 
 model EmailCampaignRecipient {
-  id          String   @id @default(cuid())
-  campaignId  String
-  email       String
-  name        String?
-  status      String   @default("PENDING")
-  sentAt      DateTime?
-  openedAt    DateTime?
-  clickedAt   DateTime?
-  bouncedAt   DateTime?
-  metadata    Json?
+  id                String    @id @default(cuid())
+  campaignId        String
+  email             String
+  name              String?
+  status            String    @default("PENDING")
+  providerMessageId String?
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  openedAt          DateTime?
+  clickedAt         DateTime?
+  bouncedAt         DateTime?
+  failedAt          DateTime?
+  complainedAt      DateTime?
+  errorMessage      String?
+  metadata          Json?
 
   campaign EmailCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
   @@unique([campaignId, email])
   @@index([campaignId])
+}
+
+model EmailSubscription {
+  id               String    @id @default(cuid())
+  organizationId   String
+  email            String
+  customerId       String?
+  subscriptionList String    @default("GENERAL_MARKETING")
+  status           String    @default("SUBSCRIBED")
+  source           String?
+  consentAt        DateTime?
+  unsubscribedAt   DateTime?
+  suppressedAt     DateTime?
+  suppressionReason String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([organizationId, email, subscriptionList])
+  @@index([organizationId])
+  @@index([email])
+  @@index([status])
 }
 
 model CommunicationTemplate {
