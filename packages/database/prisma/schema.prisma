@@ -2163,22 +2163,61 @@ model AutomationRule {
 }
 
 model CalendarIntegration {
-  id             String   @id @default(cuid())
-  organizationId String
-  userId         String
-  provider       String
+  id                   String   @id @default(cuid())
+  organizationId       String
+  userId               String
+  provider             String
   accessTokenEncrypted String?
   refreshTokenEncrypted String?
-  expiresAt      DateTime?
-  calendarId     String?
-  isActive       Boolean  @default(true)
-  syncEnabled    Boolean  @default(true)
-  lastSyncAt     DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  expiresAt            DateTime?
+  calendarId           String?
+  calendarName         String?
+  scope                String?
+  syncToken            String?
+  isActive             Boolean  @default(true)
+  syncEnabled          Boolean  @default(true)
+  lastSyncAt           DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  events CalendarEvent[]
 
   @@unique([organizationId, userId, provider])
   @@index([organizationId])
+  @@index([userId])
+}
+
+model CalendarEvent {
+  id                 String   @id @default(cuid())
+  organizationId     String
+  userId             String
+  integrationId      String
+  externalEventId    String
+  externalCalendarId String
+  provider           String
+  title              String
+  description        String?
+  location           String?
+  startAt            DateTime
+  endAt              DateTime
+  timezone           String   @default("UTC")
+  isAllDay           Boolean  @default(false)
+  status             String   @default("confirmed")
+  attendees          Json?
+  recurrence         Json?
+  reminders          Json?
+  htmlLink           String?
+  syncedAt           DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  integration CalendarIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@unique([integrationId, externalEventId])
+  @@index([organizationId])
+  @@index([userId])
+  @@index([startAt])
+  @@index([integrationId])
 }
 
 model Integration {

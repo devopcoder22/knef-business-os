@@ -135,6 +135,14 @@ export const PERMISSIONS = {
     TELEGRAM: 'communications.telegram',
     WEBHOOKS: 'communications.webhooks',
   },
+  CALENDAR: {
+    VIEW: 'calendar.view',
+    CREATE: 'calendar.create',
+    UPDATE: 'calendar.update',
+    DELETE: 'calendar.delete',
+    MANAGE_CONNECTIONS: 'calendar.manage_connections',
+    VIEW_AVAILABILITY: 'calendar.view_availability',
+  },
   NOTIFICATIONS: {
     VIEW: 'notifications.view',
   },

@@ -37,6 +37,7 @@ import {
   FileText,
   Server,
   BookOpen,
+  Calendar,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -126,6 +127,16 @@ const NAV_ITEMS: NavItem[] = [
   },
   { label: 'Tasks', href: '/tasks', icon: CheckSquare, permission: PERMISSIONS.TASKS.VIEW },
   { label: 'Goals', href: '/goals', icon: Target, permission: PERMISSIONS.GOALS.VIEW },
+  {
+    label: 'Calendar',
+    href: '/calendar',
+    icon: Calendar,
+    permission: PERMISSIONS.CALENDAR.VIEW,
+    children: [
+      { label: 'My Calendar', href: '/calendar', icon: Calendar, permission: PERMISSIONS.CALENDAR.VIEW },
+      { label: 'Settings', href: '/calendar/settings', icon: Settings, permission: PERMISSIONS.CALENDAR.MANAGE_CONNECTIONS },
+    ],
+  },
   {
     label: 'Reports',
     href: '/reports',
