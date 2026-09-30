@@ -13,6 +13,8 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiSecurity } from '@nestjs/swagg
 import { Request } from 'express';
 import { EcommerceService } from './ecommerce.service';
 import { ApiKeyGuard } from '../../common/guards/api-key.guard';
+import { ApiKeyScopeGuard } from '../../common/guards/api-key-scope.guard';
+import { RequireApiScope } from '../../common/decorators/require-api-scope.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { PERMISSIONS } from '@knef/constants';
@@ -31,12 +33,13 @@ interface ApiKeyRequest extends Request {
 
 @ApiTags('ecommerce-public')
 @ApiSecurity('x-api-key')
-@UseGuards(ApiKeyGuard)
+@UseGuards(ApiKeyGuard, ApiKeyScopeGuard)
 @Controller('ecommerce/public')
 export class EcommercePublicController {
   constructor(private readonly ecommerceService: EcommerceService) {}
 
   @Get('products')
+  @RequireApiScope('products:read')
   @ApiOperation({ summary: 'List active products (public)' })
   getProducts(
     @Req() req: ApiKeyRequest,
@@ -46,6 +49,7 @@ export class EcommercePublicController {
   }
 
   @Get('products/:id')
+  @RequireApiScope('products:read')
   @ApiOperation({ summary: 'Get a single active product (public)' })
   getProduct(
     @Req() req: ApiKeyRequest,
@@ -55,12 +59,14 @@ export class EcommercePublicController {
   }
 
   @Get('categories')
+  @RequireApiScope('products:read')
   @ApiOperation({ summary: 'Get category tree (public)' })
   getCategories(@Req() req: ApiKeyRequest) {
     return this.ecommerceService.getPublicCategories(req.organizationId);
   }
 
   @Get('search')
+  @RequireApiScope('products:read')
   @ApiOperation({ summary: 'Full-text product search (public)' })
   searchProducts(
     @Req() req: ApiKeyRequest,
@@ -77,6 +83,7 @@ export class EcommercePublicController {
   }
 
   @Post('orders')
+  @RequireApiScope('sales:write')
   @ApiOperation({ summary: 'Create online order (public)' })
   createOrder(
     @Req() req: ApiKeyRequest,
@@ -86,6 +93,7 @@ export class EcommercePublicController {
   }
 
   @Get('orders/:reference')
+  @RequireApiScope('sales:read')
   @ApiOperation({ summary: 'Get order status (public, email verification)' })
   getOrder(
     @Req() req: ApiKeyRequest,
@@ -96,6 +104,7 @@ export class EcommercePublicController {
   }
 
   @Get('inventory')
+  @RequireApiScope('inventory:read')
   @ApiOperation({ summary: 'Get inventory levels (public)' })
   getInventory(
     @Req() req: ApiKeyRequest,

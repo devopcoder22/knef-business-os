@@ -294,20 +294,50 @@ Every agent request is:
 
 ## 7. API Scopes (for API keys)
 
+API key scopes are **actively enforced** (V1.1). Every protected route declares required scopes via `@RequireApiScope()`. A valid key without the required scope receives `403 Forbidden`.
+
+### Authorization guard chain
+
+```
+Request (x-api-key header)
+  → ApiKeyGuard       — validates key existence, isActive, expiresAt; audits revoked/expired use
+  → ApiKeyScopeGuard  — checks requiredScopes ⊆ apiKey.scopes; audits scope denials
+  → Controller handler
+```
+
+### Scope registry (`packages/constants/src/api-scopes.ts`)
+
 ```
 products:read        products:write
 inventory:read       inventory:write
 sales:read           sales:write
 customers:read       customers:write
-finance:read
-purchasing:read      purchasing:write
-staff:read
+suppliers:read       suppliers:write
+purchasing:read      purchasing:create    purchasing:approve
+finance:read         finance:write        finance:approve
+staff:read           staff:write
 reports:read
 ai:read              ai:execute
 email:send
 telegram:send
 calendar:read        calendar:write
-admin:read           admin:write
 ```
 
-API keys are issued with the minimum scopes required. No key receives `admin:write` by default.
+### Public e-commerce endpoint → required scope mapping
+
+| Endpoint | Method | Required Scope |
+|----------|--------|----------------|
+| `/ecommerce/public/products` | GET | `products:read` |
+| `/ecommerce/public/products/:id` | GET | `products:read` |
+| `/ecommerce/public/categories` | GET | `products:read` |
+| `/ecommerce/public/search` | GET | `products:read` |
+| `/ecommerce/public/orders` | POST | `sales:write` |
+| `/ecommerce/public/orders/:reference` | GET | `sales:read` |
+| `/ecommerce/public/inventory` | GET | `inventory:read` |
+
+### Issuing API keys
+
+- Keys are issued via `POST /api/v1/ecommerce/api-keys` (internal, JWT auth, `settings.manage_integrations` permission)
+- Submitted `scopes[]` are validated against the registry — unknown scope names are rejected (400)
+- Keys are issued with the minimum scopes required; prefer narrow scopes over broad ones
+- External AI agents must receive only the scopes they need: `ai:read` + `inventory:read` is not the same as `ai:execute`

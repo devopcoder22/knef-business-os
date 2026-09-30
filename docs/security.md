@@ -78,11 +78,51 @@ The `ENCRYPTION_KEY` is a 32-byte hex string. Never stored in source code or dat
 External API keys (for KNEF platform external access):
 
 - Full key shown **only once** at creation
-- Stored as SHA-256 hash in database
+- Stored as SHA-256 hash in database — raw key is never persisted
 - Key format: `knef_<prefix8>_<random48>` — prefix allows identification without revealing the secret
-- Scoped: each key has an explicit list of permitted scopes
+- Scoped: each key has an explicit list of permitted scopes (V1.1 enforced)
 - Expiry: configurable or never
-- Revocation: immediate (hash deleted)
+- Revocation: `isActive = false` (hash retained so audit of revoked-key usage is possible)
+
+### V1.1 Scope Enforcement (implemented)
+
+Every API-key-protected route declares a required scope via `@RequireApiScope()`. The guard chain is:
+
+```
+ApiKeyGuard → ApiKeyScopeGuard → controller handler
+```
+
+**`ApiKeyGuard`**: Validates the raw key, hashes with SHA-256, looks up the record, checks `isActive`, checks `expiresAt`. Revoked and expired key usage is written to `AuditLog` (action: `API_KEY_AUTH_DENIED`).
+
+**`ApiKeyScopeGuard`**: Reads required scopes from route metadata (set by `@RequireApiScope()`), checks that all required scopes appear in `apiKey.scopes`. On denial: writes `AuditLog` (action: `API_KEY_SCOPE_DENIED`) with key ID, endpoint, required scopes, granted scopes, and missing scopes, then throws `403 Forbidden`. Never logs the raw key.
+
+**Scope registry** — `packages/constants/src/api-scopes.ts` — is the single source of truth:
+
+| Scope | Grants |
+|-------|--------|
+| `products:read` | Read products, categories, search |
+| `products:write` | Mutate products |
+| `inventory:read` | Read stock levels |
+| `inventory:write` | Adjust stock |
+| `sales:read` | Read orders/invoices |
+| `sales:write` | Create orders |
+| `customers:read/write` | Customer records |
+| `suppliers:read/write` | Supplier records |
+| `purchasing:read/create/approve` | Purchase orders |
+| `finance:read/write/approve` | Financial data |
+| `staff:read/write` | Staff records |
+| `reports:read` | Analytics & reports |
+| `ai:read` | AI conversation history |
+| `ai:execute` | Execute AI tools (required in addition to `ai:read`) |
+| `email:send` | Send email via API |
+| `telegram:send` | Send Telegram message via API |
+| `calendar:read/write` | Calendar integration |
+
+**CreateApiKeyDto** validates that submitted scopes are members of `ALL_API_SCOPES` — invalid scope names are rejected at the API boundary.
+
+**Organization isolation**: `organizationId` on the request context always comes from the database record, never from request parameters. Cross-organization access is structurally impossible.
+
+**Audit fields logged on denial**: `keyId` (not secret), `keyName`, `endpoint`, `requiredScopes`, `grantedScopes`, `missingScopes`, `organizationId`, `timestamp`.
 
 ---
 

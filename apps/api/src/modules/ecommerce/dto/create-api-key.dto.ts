@@ -1,4 +1,6 @@
-import { IsString, IsArray, IsOptional } from 'class-validator';
+import { IsString, IsArray, IsOptional, IsIn } from 'class-validator';
+import { ALL_API_SCOPES } from '@knef/constants';
+import type { ApiScope } from '@knef/constants';
 
 export class CreateApiKeyDto {
   @IsString()
@@ -6,7 +8,8 @@ export class CreateApiKeyDto {
 
   @IsArray()
   @IsString({ each: true })
-  scopes!: string[];
+  @IsIn(ALL_API_SCOPES, { each: true, message: 'Each scope must be a valid API scope' })
+  scopes!: ApiScope[];
 
   @IsOptional()
   @IsString()

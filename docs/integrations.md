@@ -155,7 +155,52 @@ See [ai.md](ai.md) for full AI provider documentation.
 
 ---
 
-## 9. Integration Status Page
+## 9. External API Key Access (V1.1)
+
+External systems — storefronts, marketplace adapters, external AI agents, partner integrations — authenticate via API keys issued by the organization.
+
+### Authentication flow
+
+```
+POST https://api.yourdomain.com/api/v1/ecommerce/public/products
+  X-API-Key: knef_abc12345_<secret>
+
+→ ApiKeyGuard:      hash key → find record → check isActive → check expiresAt
+→ ApiKeyScopeGuard: read @RequireApiScope('products:read') → check key.scopes → allow or 403
+→ Controller
+```
+
+### Key issuance
+
+```
+POST /api/v1/ecommerce/api-keys   (JWT auth, settings.manage_integrations permission)
+Body: { "name": "Storefront Key", "scopes": ["products:read", "sales:write"], "expiresAt": "2027-01-01" }
+Response: { "key": "knef_abc12345_...", ... }   ← shown once only
+```
+
+Submitted scopes are validated against the registry. Invalid scope names are rejected (400).
+
+### Principle of least privilege
+
+Issue keys with only the scopes required:
+
+| Use case | Recommended scopes |
+|----------|--------------------|
+| Storefront read-only | `products:read`, `inventory:read` |
+| Storefront with orders | `products:read`, `inventory:read`, `sales:write`, `sales:read` |
+| Read-only AI agent | `ai:read`, `inventory:read`, `reports:read` |
+| AI agent with execution | above + `ai:execute` |
+| Reporting partner | `reports:read`, `finance:read` |
+
+An AI agent with `ai:read` and `inventory:read` cannot create purchase orders (`purchasing:create`) or execute AI tools (`ai:execute`) unless those scopes are explicitly added.
+
+### Audit trail
+
+Every scope denial is written to `AuditLog` with `action: API_KEY_SCOPE_DENIED`, including key ID, endpoint, required scopes, granted scopes, and missing scopes. The raw API key is never logged.
+
+---
+
+## 10. Integration Status Page
 
 The admin Integrations page shows:
 
