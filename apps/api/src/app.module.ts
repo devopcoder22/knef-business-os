@@ -37,6 +37,7 @@ import { ReportsModule } from './modules/reports/reports.module';
 import { EcommerceModule } from './modules/ecommerce/ecommerce.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { CommunicationsModule } from './modules/communications/communications.module';
+import { AIModule } from './modules/ai/ai.module';
 
 @Module({
   imports: [
@@ -112,6 +113,7 @@ import { CommunicationsModule } from './modules/communications/communications.mo
     EcommerceModule,
     IntegrationsModule,
     CommunicationsModule,
+    AIModule,
   ],
 })
 export class AppModule {}

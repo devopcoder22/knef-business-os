@@ -103,6 +103,12 @@ export const PERMISSIONS = {
   },
   AI: {
     ACCESS: 'ai.access',
+    CHAT: 'ai.chat',
+    PROVIDERS: 'ai.providers',
+    MEMORY: 'ai.memory',
+    KNOWLEDGE: 'ai.knowledge',
+    USAGE: 'ai.usage',
+    // Legacy
     MANAGE_PROVIDERS: 'ai.manage_providers',
     VIEW_USAGE: 'ai.view_usage',
     MANAGE_BUDGET: 'ai.manage_budget',

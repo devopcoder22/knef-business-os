@@ -35,6 +35,8 @@ import {
   MessageSquare,
   Webhook,
   FileText,
+  Server,
+  BookOpen,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -138,7 +140,19 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Staff', href: '/reports/staff', icon: UserCog, permission: PERMISSIONS.REPORTS.VIEW },
     ],
   },
-  { label: 'AI Assistant', href: '/ai', icon: Bot, permission: PERMISSIONS.AI.ACCESS },
+  {
+    label: 'AI',
+    href: '/ai',
+    icon: Bot,
+    permission: PERMISSIONS.AI.ACCESS,
+    children: [
+      { label: 'AI Hub', href: '/ai', icon: Bot, permission: PERMISSIONS.AI.ACCESS },
+      { label: 'Chat', href: '/ai/chat', icon: MessageSquare, permission: PERMISSIONS.AI.CHAT },
+      { label: 'Providers', href: '/ai/providers', icon: Server, permission: PERMISSIONS.AI.PROVIDERS },
+      { label: 'Knowledge Base', href: '/ai/knowledge', icon: BookOpen, permission: PERMISSIONS.AI.KNOWLEDGE },
+      { label: 'Usage', href: '/ai/usage', icon: BarChart3, permission: PERMISSIONS.AI.USAGE },
+    ],
+  },
   {
     label: 'Channels',
     href: '/ecommerce',
@@ -268,6 +282,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     if (href === '/sales') return pathname === '/sales';
     if (href === '/purchasing') return pathname === '/purchasing';
     if (href === '/ecommerce') return pathname === '/ecommerce';
+    if (href === '/ai') return pathname === '/ai';
     return pathname === href || pathname.startsWith(`${href}/`);
   };
 
