@@ -15,6 +15,15 @@ import { PermissionsModule } from './modules/permissions/permissions.module';
 import { FeatureFlagsModule } from './modules/feature-flags/feature-flags.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { SettingsModule } from './modules/settings/settings.module';
+import { CategoriesModule } from './modules/categories/categories.module';
+import { BrandsModule } from './modules/brands/brands.module';
+import { ProductsModule } from './modules/products/products.module';
+import { SerializedUnitsModule } from './modules/serialized-units/serialized-units.module';
+import { InventoryModule } from './modules/inventory/inventory.module';
+import { StockTransfersModule } from './modules/stock-transfers/stock-transfers.module';
+import { StockAdjustmentsModule } from './modules/stock-adjustments/stock-adjustments.module';
+import { StockCountsModule } from './modules/stock-counts/stock-counts.module';
+import { SearchModule } from './modules/search/search.module';
 
 @Module({
   imports: [
@@ -68,6 +77,15 @@ import { SettingsModule } from './modules/settings/settings.module';
     FeatureFlagsModule,
     AuditModule,
     SettingsModule,
+    CategoriesModule,
+    BrandsModule,
+    ProductsModule,
+    SerializedUnitsModule,
+    InventoryModule,
+    StockTransfersModule,
+    StockAdjustmentsModule,
+    StockCountsModule,
+    SearchModule,
   ],
 })
 export class AppModule {}

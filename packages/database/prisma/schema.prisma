@@ -261,6 +261,7 @@ model Product {
   slug           String
   sku            String
   barcode        String?
+  gtin           String?
   description    String?
   shortDesc      String?
   costPrice      Decimal  @db.Decimal(15, 2)
@@ -315,6 +316,7 @@ model ProductVariant {
   name        String
   sku         String
   barcode     String?
+  gtin        String?
   costPrice   Decimal  @db.Decimal(15, 2)
   sellingPrice Decimal @db.Decimal(15, 2)
   options     Json     @default("{}")

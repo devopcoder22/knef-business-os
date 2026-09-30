@@ -6,7 +6,21 @@
       "Bash(git init *)",
       "Bash(git add *)",
       "Bash(git commit *)",
-      "Bash(chmod +x /Users/macbook/Desktop/knef-business-os/scripts/backup.sh /Users/macbook/Desktop/knef-business-os/scripts/restore.sh)"
+      "Bash(chmod +x /Users/macbook/Desktop/knef-business-os/scripts/backup.sh /Users/macbook/Desktop/knef-business-os/scripts/restore.sh)",
+      "Bash(pnpm install *)",
+      "Bash(npm install *)",
+      "Bash(npm i *)",
+      "Bash(curl -fsSL https://get.pnpm.io/install.sh)",
+      "Bash(sh -)",
+      "Bash(export PNPM_HOME='/Users/macbook/Library/pnpm')",
+      "Bash(export PATH=\"$PNPM_HOME/bin:$PATH\")",
+      "Bash(pnpm --version)",
+      "Bash(pnpm tsc *)",
+      "Bash(pnpm db:generate)",
+      "Bash(pnpm type-check *)",
+      "Bash(pnpm view *)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('exports', d.get\\('browser', d.get\\('main', 'not found'\\)\\)\\), indent=2\\)\\)\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('types:', d.get\\('types', 'not set'\\)\\); print\\('typings:', d.get\\('typings', 'not set'\\)\\); print\\('main:', d.get\\('main', 'not set'\\)\\)\")"
     ]
   }
 }

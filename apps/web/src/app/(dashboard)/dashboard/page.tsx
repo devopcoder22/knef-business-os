@@ -11,6 +11,7 @@ import {
   FileText,
   Package,
   Users,
+  type LucideIcon,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/stores/auth.store';
@@ -20,7 +21,7 @@ interface StatCardProps {
   title: string;
   value: string | number;
   subtitle?: string;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
+  icon: LucideIcon;
   trend?: { value: string; positive: boolean };
   loading?: boolean;
   color: string;
