@@ -34,6 +34,8 @@ import { StaffModule } from './modules/staff/staff.module';
 import { TasksModule } from './modules/tasks/tasks.module';
 import { GoalsModule } from './modules/goals/goals.module';
 import { ReportsModule } from './modules/reports/reports.module';
+import { EcommerceModule } from './modules/ecommerce/ecommerce.module';
+import { IntegrationsModule } from './modules/integrations/integrations.module';
 
 @Module({
   imports: [
@@ -106,6 +108,8 @@ import { ReportsModule } from './modules/reports/reports.module';
     TasksModule,
     GoalsModule,
     ReportsModule,
+    EcommerceModule,
+    IntegrationsModule,
   ],
 })
 export class AppModule {}

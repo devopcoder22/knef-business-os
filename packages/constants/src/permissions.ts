@@ -111,6 +111,13 @@ export const PERMISSIONS = {
     VIEW: 'settings.view',
     EDIT: 'settings.edit',
     MANAGE_INTEGRATIONS: 'settings.manage_integrations',
+    MANAGE: 'settings.manage',
+  },
+  ECOMMERCE: {
+    MANAGE: 'ecommerce.manage',
+  },
+  INTEGRATIONS: {
+    MANAGE: 'integrations.manage',
   },
   ADMIN: {
     MANAGE_USERS: 'admin.manage_users',

@@ -30,6 +30,7 @@ import {
   ArrowLeftRight,
   ClipboardList,
   ListOrdered,
+  Globe,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -134,7 +135,16 @@ const NAV_ITEMS: NavItem[] = [
     ],
   },
   { label: 'AI Assistant', href: '/ai', icon: Bot, permission: PERMISSIONS.AI.ACCESS },
-  { label: 'Integrations', href: '/integrations', icon: Plug, permission: PERMISSIONS.SETTINGS.MANAGE_INTEGRATIONS },
+  {
+    label: 'Channels',
+    href: '/ecommerce',
+    icon: Globe,
+    permission: PERMISSIONS.ECOMMERCE.MANAGE,
+    children: [
+      { label: 'E-commerce', href: '/ecommerce', icon: Globe, permission: PERMISSIONS.ECOMMERCE.MANAGE },
+      { label: 'Integrations', href: '/integrations', icon: Plug, permission: PERMISSIONS.INTEGRATIONS.MANAGE },
+    ],
+  },
 ];
 
 const BOTTOM_ITEMS: NavItem[] = [
@@ -240,6 +250,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     if (href === '/products') return pathname === '/products';
     if (href === '/sales') return pathname === '/sales';
     if (href === '/purchasing') return pathname === '/purchasing';
+    if (href === '/ecommerce') return pathname === '/ecommerce';
     return pathname === href || pathname.startsWith(`${href}/`);
   };
 
