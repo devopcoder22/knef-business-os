@@ -119,7 +119,20 @@ const NAV_ITEMS: NavItem[] = [
   },
   { label: 'Tasks', href: '/tasks', icon: CheckSquare, permission: PERMISSIONS.TASKS.VIEW },
   { label: 'Goals', href: '/goals', icon: Target, permission: PERMISSIONS.GOALS.VIEW },
-  { label: 'Reports', href: '/reports', icon: BarChart3, permission: PERMISSIONS.REPORTS.VIEW },
+  {
+    label: 'Reports',
+    href: '/reports',
+    icon: BarChart3,
+    permission: PERMISSIONS.REPORTS.VIEW,
+    children: [
+      { label: 'Overview', href: '/reports', icon: BarChart3, permission: PERMISSIONS.REPORTS.VIEW },
+      { label: 'Sales', href: '/reports/sales', icon: ShoppingCart, permission: PERMISSIONS.REPORTS.VIEW },
+      { label: 'Inventory', href: '/reports/inventory', icon: Warehouse, permission: PERMISSIONS.REPORTS.VIEW },
+      { label: 'Purchasing', href: '/reports/purchasing', icon: Truck, permission: PERMISSIONS.REPORTS.VIEW },
+      { label: 'Finance', href: '/reports/finance', icon: Banknote, permission: PERMISSIONS.REPORTS.VIEW },
+      { label: 'Staff', href: '/reports/staff', icon: UserCog, permission: PERMISSIONS.REPORTS.VIEW },
+    ],
+  },
   { label: 'AI Assistant', href: '/ai', icon: Bot, permission: PERMISSIONS.AI.ACCESS },
   { label: 'Integrations', href: '/integrations', icon: Plug, permission: PERMISSIONS.SETTINGS.MANAGE_INTEGRATIONS },
 ];
