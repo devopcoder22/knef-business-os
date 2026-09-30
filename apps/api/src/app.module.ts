@@ -29,6 +29,10 @@ import { PurchasingModule } from './modules/purchasing/purchasing.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { SalesModule } from './modules/sales/sales.module';
 import { POSModule } from './modules/pos/pos.module';
+import { FinanceModule } from './modules/finance/finance.module';
+import { StaffModule } from './modules/staff/staff.module';
+import { TasksModule } from './modules/tasks/tasks.module';
+import { GoalsModule } from './modules/goals/goals.module';
 
 @Module({
   imports: [
@@ -96,6 +100,10 @@ import { POSModule } from './modules/pos/pos.module';
     CustomersModule,
     SalesModule,
     POSModule,
+    FinanceModule,
+    StaffModule,
+    TasksModule,
+    GoalsModule,
   ],
 })
 export class AppModule {}

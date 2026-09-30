@@ -53,6 +53,14 @@ export const PERMISSIONS = {
   },
   FINANCE: {
     VIEW: 'finance.view',
+    MANAGE: 'finance.manage',
+    BANK_ACCOUNTS: 'finance.bank_accounts',
+    EXPENSES: {
+      VIEW: 'finance.expenses.view',
+      CREATE: 'finance.expenses.create',
+      APPROVE: 'finance.expenses.approve',
+    },
+    // Legacy keys kept for backward-compat
     MANAGE_ACCOUNTS: 'finance.manage_accounts',
     VIEW_REPORTS: 'finance.view_reports',
     MANAGE_EXPENSES: 'finance.manage_expenses',
@@ -61,6 +69,8 @@ export const PERMISSIONS = {
   },
   STAFF: {
     VIEW: 'staff.view',
+    MANAGE: 'staff.manage',
+    // Legacy
     CREATE: 'staff.create',
     EDIT: 'staff.edit',
     MANAGE_ATTENDANCE: 'staff.manage_attendance',
@@ -69,6 +79,8 @@ export const PERMISSIONS = {
   TASKS: {
     VIEW: 'tasks.view',
     CREATE: 'tasks.create',
+    MANAGE: 'tasks.manage',
+    // Legacy
     EDIT: 'tasks.edit',
     ASSIGN: 'tasks.assign',
     DELETE: 'tasks.delete',
@@ -76,6 +88,8 @@ export const PERMISSIONS = {
   GOALS: {
     VIEW: 'goals.view',
     CREATE: 'goals.create',
+    MANAGE: 'goals.manage',
+    // Legacy
     EDIT: 'goals.edit',
     DELETE: 'goals.delete',
   },
