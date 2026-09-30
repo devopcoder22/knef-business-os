@@ -31,6 +31,10 @@ import {
   ClipboardList,
   ListOrdered,
   Globe,
+  Mail,
+  MessageSquare,
+  Webhook,
+  FileText,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -143,6 +147,19 @@ const NAV_ITEMS: NavItem[] = [
     children: [
       { label: 'E-commerce', href: '/ecommerce', icon: Globe, permission: PERMISSIONS.ECOMMERCE.MANAGE },
       { label: 'Integrations', href: '/integrations', icon: Plug, permission: PERMISSIONS.INTEGRATIONS.MANAGE },
+    ],
+  },
+  {
+    label: 'Communications',
+    href: '/communications',
+    icon: Mail,
+    permission: PERMISSIONS.COMMUNICATIONS.EMAIL_PROVIDERS,
+    children: [
+      { label: 'Email Providers', href: '/communications/email-providers', icon: Mail, permission: PERMISSIONS.COMMUNICATIONS.EMAIL_PROVIDERS },
+      { label: 'Campaigns', href: '/communications/campaigns', icon: MessageSquare, permission: PERMISSIONS.COMMUNICATIONS.CAMPAIGNS },
+      { label: 'Templates', href: '/communications/templates', icon: FileText, permission: PERMISSIONS.COMMUNICATIONS.TEMPLATES },
+      { label: 'Telegram', href: '/communications/telegram', icon: MessageSquare, permission: PERMISSIONS.COMMUNICATIONS.TELEGRAM },
+      { label: 'Webhooks', href: '/communications/webhooks', icon: Webhook, permission: PERMISSIONS.COMMUNICATIONS.WEBHOOKS },
     ],
   },
 ];

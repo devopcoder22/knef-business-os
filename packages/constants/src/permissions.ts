@@ -119,6 +119,16 @@ export const PERMISSIONS = {
   INTEGRATIONS: {
     MANAGE: 'integrations.manage',
   },
+  COMMUNICATIONS: {
+    EMAIL_PROVIDERS: 'communications.email_providers',
+    CAMPAIGNS: 'communications.campaigns',
+    TEMPLATES: 'communications.templates',
+    TELEGRAM: 'communications.telegram',
+    WEBHOOKS: 'communications.webhooks',
+  },
+  NOTIFICATIONS: {
+    VIEW: 'notifications.view',
+  },
   ADMIN: {
     MANAGE_USERS: 'admin.manage_users',
     MANAGE_ROLES: 'admin.manage_roles',

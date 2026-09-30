@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Bell, Search, Menu } from 'lucide-react';
+import { Search, Menu } from 'lucide-react';
 import { Sidebar } from '@/components/layout/sidebar';
+import { NotificationBell } from '@/components/notifications/notification-bell';
 import { useAuthStore } from '@/stores/auth.store';
 
 export default function DashboardLayout({
@@ -85,10 +86,7 @@ export default function DashboardLayout({
 
           <div className="flex items-center gap-2 ml-auto">
             {/* Notifications */}
-            <button className="relative p-2 rounded-lg text-gray-500 hover:bg-gray-100">
-              <Bell size={20} />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500" />
-            </button>
+            <NotificationBell />
 
             {/* User avatar */}
             <div className="flex items-center gap-2 px-2">
