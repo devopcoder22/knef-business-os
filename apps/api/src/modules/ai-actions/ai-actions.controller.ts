@@ -19,6 +19,7 @@ import type { AuthUser } from '@knef/types';
 import { AIToolsService } from './ai-tools.service';
 import { AIApprovalsService } from './ai-approvals.service';
 import { AIScheduledAgentsService } from './ai-scheduled-agents.service';
+import { AIPermissionCheckerService } from './ai-permission-checker.service';
 
 import {
   CreateAIToolDto,
@@ -39,7 +40,10 @@ import {
 @ApiBearerAuth('JWT')
 @Controller('ai/tools')
 export class AIToolsController {
-  constructor(private readonly toolsService: AIToolsService) {}
+  constructor(
+    private readonly toolsService: AIToolsService,
+    private readonly permissionChecker: AIPermissionCheckerService,
+  ) {}
 
   @Get()
   @Permissions(PERMISSIONS.AI.TOOLS)
@@ -77,12 +81,13 @@ export class AIToolsController {
   @Post(':id/execute')
   @Permissions(PERMISSIONS.AI.TOOLS)
   @ApiOperation({ summary: 'Execute an AI tool' })
-  executeTool(
+  async executeTool(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: ExecuteToolDto,
   ) {
-    return this.toolsService.executeTool(user.organizationId, user.id, id, dto.parameters);
+    const context = await this.permissionChecker.resolveExecutionContext(user.id, user.organizationId);
+    return this.toolsService.executeTool(context, id, dto.parameters);
   }
 
   @Get('actions')

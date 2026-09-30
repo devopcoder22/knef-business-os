@@ -286,3 +286,71 @@ The AI Router checks budget before every call. When the budget is exceeded, AI r
 - Always cite the data source for factual claims
 - When the user lacks permission, say: "You don't have permission to access [data type]."
 - Autonomy level is enforced in code (tool registry), not just in the prompt
+
+---
+
+## 12. AI Permission Inheritance (V1.1)
+
+### Security Model
+
+Every AI tool execution is subject to the same permission system that governs direct API access. The AI cannot obtain data or execute actions that the calling user is not authorized to access, regardless of how the request was originated (chat, direct tool call, scheduled agent, or approval flow).
+
+Enforcement is performed server-side at the `AIPermissionCheckerService` layer, before any business service is reached. The check cannot be bypassed through prompt injection or parameter manipulation.
+
+### AI Tool Permission Registry
+
+The registry (`ai-tool-permission.registry.ts`) is the single authoritative source of truth for what permission each tool requires. It is a static TypeScript record — no database, no dynamic lookup. Tools not listed in the registry are **denied by default**.
+
+Each entry defines:
+
+| Field | Description |
+|---|---|
+| `toolName` | Exact tool name matching `AITool.name` in the database |
+| `requiredPermission` | Permission string from `@knef/constants` the user must hold |
+| `riskLevel` | `LOW`, `MEDIUM`, `HIGH`, or `CRITICAL` |
+| `approvalRequired` | `NONE`, `SOFT`, or `REQUIRED` |
+| `description` | Human-readable text for audit logs |
+
+Current registry:
+
+| Tool | Required Permission | Risk | Approval |
+|---|---|---|---|
+| `get_inventory_levels` | `inventory.view` | LOW | NONE |
+| `get_sales_summary` | `reports.view` | LOW | NONE |
+| `get_low_stock_products` | `inventory.view` | LOW | NONE |
+| `create_purchase_order` | `purchasing.create` | HIGH | REQUIRED |
+| `send_notification` | `notifications.view` | LOW | NONE |
+| `get_financial_summary` | `finance.view` | LOW | NONE |
+
+### How to Add a New Tool
+
+1. Register the tool in `AI_TOOL_PERMISSION_REGISTRY` in `ai-tool-permission.registry.ts`:
+   - Choose an existing permission string from `packages/constants/src/permissions.ts` — do not create new strings
+   - Assign an appropriate `riskLevel` and `approvalRequired`
+2. Add the execution logic to `AIToolExecutorService.execute()` switch statement
+3. Seed the `AITool` row in the database with the same `name` value
+
+Tools that exist in the database but are **not** in the registry will be denied when any user attempts to execute them.
+
+### Risk Levels and Approval Requirements
+
+- **LOW**: Read-only or low-impact actions — executed immediately if the user has permission
+- **MEDIUM**: Reversible write operations — executed immediately with audit trail
+- **HIGH**: Significant write operations (e.g. purchase orders) — always requires `approvalRequired: 'REQUIRED'`
+- **CRITICAL**: Irreversible or destructive operations — always requires `approvalRequired: 'REQUIRED'`
+
+When `approvalRequired` is `REQUIRED`, `AIToolsService.executeTool()` creates a pending `AIApproval` record instead of executing immediately.
+
+### Approval Flow and Permission Re-verification
+
+When an approver approves a pending action, `AIApprovalsService.approve()` re-verifies the **original requestor's** current permissions before executing. This prevents privilege escalation: if the requestor's permissions were revoked between request and approval, the execution is denied.
+
+### What Happens on Denial
+
+1. `AIPermissionCheckerService.checkToolPermission()` throws `ForbiddenException` with a user-facing message identifying the missing permission
+2. An `AI_TOOL_DENIED` audit log entry is written with:
+   - `action: 'AI_TOOL_DENIED'`
+   - `entity: 'AITool'`
+   - `entityId`: the tool name
+   - `metadata`: `{ toolName, reason, resolvedPermissions }`
+3. No business service code is reached — the denial is guaranteed before any database reads or writes

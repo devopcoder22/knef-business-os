@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { AIToolExecutorService } from './ai-tool-executor.service';
+import { AIPermissionCheckerService } from './ai-permission-checker.service';
 import type { ListApprovalsDto } from './dto/ai-actions.dto';
 
 @Injectable()
@@ -9,6 +10,7 @@ export class AIApprovalsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly executor: AIToolExecutorService,
+    private readonly permissionChecker: AIPermissionCheckerService,
   ) {}
 
   async listPending(orgId: string) {
@@ -57,6 +59,13 @@ export class AIApprovalsService {
       include: { tool: true },
     });
     if (!action || !action.tool) return { status: 'APPROVED' };
+
+    // Re-verify the original requestor still holds the required permission
+    // before executing — prevents privilege escalation via approval flow.
+    if (action.userId) {
+      const requestorContext = await this.permissionChecker.resolveExecutionContext(action.userId, orgId);
+      await this.permissionChecker.checkToolPermission(requestorContext, action.tool.name);
+    }
 
     await this.prisma.aIAction.update({
       where: { id: action.id },

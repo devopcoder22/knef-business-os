@@ -3,6 +3,7 @@ import { createId } from '@paralleldrive/cuid2';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { AIToolExecutorService } from './ai-tool-executor.service';
+import { AIPermissionCheckerService, type AIExecutionContext } from './ai-permission-checker.service';
 import type { CreateAIToolDto, UpdateAIToolDto, ListActionsDto } from './dto/ai-actions.dto';
 
 @Injectable()
@@ -10,6 +11,7 @@ export class AIToolsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly executor: AIToolExecutorService,
+    private readonly permissionChecker: AIPermissionCheckerService,
   ) {}
 
   async listTools(orgId: string) {
@@ -61,14 +63,19 @@ export class AIToolsService {
   }
 
   async executeTool(
-    orgId: string,
-    userId: string,
+    context: AIExecutionContext,
     toolId: string,
     parameters: Record<string, unknown>,
   ) {
+    const orgId = context.organizationId;
+    const userId = context.userId;
+
     const tool = await this.prisma.aITool.findFirst({ where: { id: toolId, organizationId: orgId } });
     if (!tool) throw new NotFoundException('Tool not found');
     if (!tool.isActive) throw new BadRequestException('Tool is not active');
+
+    // Enforce permission gate before any business logic
+    await this.permissionChecker.checkToolPermission(context, tool.name);
 
     const action = await this.prisma.aIAction.create({
       data: {

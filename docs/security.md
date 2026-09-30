@@ -155,3 +155,69 @@ Before going live:
 - [ ] Feature flags reviewed — disable unused features
 - [ ] Rate limiting tuned for expected traffic
 - [ ] Log rotation configured
+
+---
+
+## 12. AI Authorization (V1.1)
+
+### AI Cannot Bypass User Permissions
+
+The AI system is subject to the same permission model as every other part of the application. A user cannot obtain data or trigger actions through the AI that they could not access directly via the REST API.
+
+This guarantee holds regardless of:
+- What the user says in a chat prompt
+- How the AI chooses to phrase a tool call
+- What parameters the AI generates for a tool invocation
+- Whether the request flows through chat, direct tool execution, or a scheduled agent
+
+### Enforcement Point
+
+`AIPermissionCheckerService` (`apps/api/src/modules/ai-actions/ai-permission-checker.service.ts`) is the single enforcement point for all AI tool permissions. It is called:
+
+1. From `AIToolsService.executeTool()` — for all direct tool executions
+2. From `AIApprovalsService.approve()` — re-verified against the original requestor when an approver processes a pending approval
+
+The checker performs:
+1. Registry lookup — tools not in `AI_TOOL_PERMISSION_REGISTRY` are denied (deny-by-default)
+2. Permission check — `context.resolvedPermissions.includes(definition.requiredPermission)` must be true
+3. Audit log — every denial is recorded in `AuditLog` with `action: 'AI_TOOL_DENIED'`
+
+### Execution Context
+
+`AIExecutionContext` carries the authenticated user's `userId`, `organizationId`, and `resolvedPermissions` (their full effective permission set, including role permissions minus any denied overrides). The context is resolved once per request via `AIPermissionCheckerService.resolveExecutionContext()` and passed through to every tool call.
+
+Organization isolation is enforced at two layers:
+- Context always carries the JWT-authenticated user's `organizationId`
+- All database queries filter by `organizationId` from the context — not from AI-provided parameters
+
+### Audit Trail for Denied Actions
+
+Every AI tool denial produces an `AuditLog` row:
+
+```
+action:   'AI_TOOL_DENIED'
+entity:   'AITool'
+entityId: <toolName>
+metadata: {
+  toolName:            string
+  reason:              string   // 'Tool not registered' | 'Missing required permission: <perm>'
+  resolvedPermissions: string[] // what the user actually had at denial time
+}
+```
+
+Audit write failure never blocks the denial — the `ForbiddenException` is always thrown regardless of audit service availability.
+
+### Test Coverage
+
+The permission enforcement is covered by 18 unit tests in `ai-permission-checker.service.spec.ts` across 10 test groups:
+
+1. Finance user can query financial data
+2. Salesperson cannot obtain financial data via AI (+ audit log assertion)
+3. User without inventory permission cannot retrieve inventory data
+4. User with `notifications.view` can use `send_notification`
+5. User without `purchasing.create` cannot create purchase orders
+6. Organization isolation — context always uses authenticated user's `organizationId`
+7. Unregistered tools are denied (+ audit log assertion)
+8. Denied execution never reaches business service code
+9. AI-generated arguments cannot override authorization
+10. Authorized users retain full access to permitted tools
