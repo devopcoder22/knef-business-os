@@ -48,7 +48,16 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { label: 'Sales', href: '/sales', icon: ShoppingCart, permission: PERMISSIONS.SALES.VIEW },
+  {
+    label: 'Sales',
+    href: '/sales',
+    icon: ShoppingCart,
+    permission: PERMISSIONS.SALES.VIEW,
+    children: [
+      { label: 'Orders', href: '/sales/orders', icon: ShoppingCart, permission: PERMISSIONS.SALES.VIEW },
+      { label: 'Invoices', href: '/sales/invoices', icon: Receipt, permission: PERMISSIONS.SALES.VIEW },
+    ],
+  },
   { label: 'POS', href: '/pos', icon: Monitor, permission: PERMISSIONS.POS.ACCESS },
   {
     label: 'Products',
@@ -74,7 +83,16 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Stock Count', href: '/inventory/counts', icon: CheckSquare, permission: PERMISSIONS.INVENTORY.COUNT },
     ],
   },
-  { label: 'Purchasing', href: '/purchasing', icon: Truck, permission: PERMISSIONS.PURCHASING.VIEW },
+  {
+    label: 'Purchasing',
+    href: '/purchasing',
+    icon: Truck,
+    permission: PERMISSIONS.PURCHASING.VIEW,
+    children: [
+      { label: 'Orders', href: '/purchasing/orders', icon: ClipboardList, permission: PERMISSIONS.PURCHASING.VIEW },
+      { label: 'Receipts', href: '/purchasing/receipts', icon: CheckSquare, permission: PERMISSIONS.PURCHASING.RECEIVE },
+    ],
+  },
   { label: 'Customers', href: '/customers', icon: Users, permission: PERMISSIONS.CUSTOMERS.VIEW },
   { label: 'Suppliers', href: '/suppliers', icon: UserSquare, permission: PERMISSIONS.PURCHASING.MANAGE_SUPPLIERS },
   { label: 'Finance', href: '/finance', icon: Banknote, permission: PERMISSIONS.FINANCE.VIEW },
@@ -110,7 +128,6 @@ function NavItemComponent({
   canSee: (item: NavItem) => boolean;
   depth?: number;
 }) {
-  const pathname = usePathname();
   const hasChildren = item.children && item.children.length > 0;
   const isGroupActive = hasChildren && item.children!.some((c) => isActive(c.href));
   const [expanded, setExpanded] = useState(isGroupActive);
@@ -186,9 +203,11 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   );
 
   const isActive = (href: string) => {
-    // Exact match for /inventory (avoid matching /inventory/transfers etc. as "active" for root)
+    // Exact match for root module pages to avoid matching children as root active
     if (href === '/inventory') return pathname === '/inventory';
     if (href === '/products') return pathname === '/products';
+    if (href === '/sales') return pathname === '/sales';
+    if (href === '/purchasing') return pathname === '/purchasing';
     return pathname === href || pathname.startsWith(`${href}/`);
   };
 

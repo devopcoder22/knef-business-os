@@ -20,7 +20,19 @@
       "Bash(pnpm type-check *)",
       "Bash(pnpm view *)",
       "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('exports', d.get\\('browser', d.get\\('main', 'not found'\\)\\)\\), indent=2\\)\\)\")",
-      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('types:', d.get\\('types', 'not set'\\)\\); print\\('typings:', d.get\\('typings', 'not set'\\)\\); print\\('main:', d.get\\('main', 'not set'\\)\\)\")"
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('types:', d.get\\('types', 'not set'\\)\\); print\\('typings:', d.get\\('typings', 'not set'\\)\\); print\\('main:', d.get\\('main', 'not set'\\)\\)\")",
+      "Bash(pnpm build *)",
+      "Bash(/opt/homebrew/bin/pnpm build *)",
+      "Read(//usr/local/bin/**)",
+      "Read(//Users/macbook/.local/share/pnpm/**)",
+      "Read(//Users/macbook/Library/pnpm/**)",
+      "Bash(npm ls *)",
+      "Bash(node -e \"require\\('child_process'\\).execSync\\('npx pnpm --version', {stdio:'inherit'}\\)\")",
+      "Bash(npx pnpm *)",
+      "Bash(npx prisma *)",
+      "Bash(node_modules/.bin/prisma generate *)",
+      "Bash(packages/database/node_modules/.bin/prisma generate *)",
+      "Bash(node_modules/.bin/tsc --noEmit)"
     ]
   }
 }

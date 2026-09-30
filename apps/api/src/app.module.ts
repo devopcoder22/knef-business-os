@@ -24,6 +24,11 @@ import { StockTransfersModule } from './modules/stock-transfers/stock-transfers.
 import { StockAdjustmentsModule } from './modules/stock-adjustments/stock-adjustments.module';
 import { StockCountsModule } from './modules/stock-counts/stock-counts.module';
 import { SearchModule } from './modules/search/search.module';
+import { SuppliersModule } from './modules/suppliers/suppliers.module';
+import { PurchasingModule } from './modules/purchasing/purchasing.module';
+import { CustomersModule } from './modules/customers/customers.module';
+import { SalesModule } from './modules/sales/sales.module';
+import { POSModule } from './modules/pos/pos.module';
 
 @Module({
   imports: [
@@ -86,6 +91,11 @@ import { SearchModule } from './modules/search/search.module';
     StockAdjustmentsModule,
     StockCountsModule,
     SearchModule,
+    SuppliersModule,
+    PurchasingModule,
+    CustomersModule,
+    SalesModule,
+    POSModule,
   ],
 })
 export class AppModule {}
