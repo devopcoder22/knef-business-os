@@ -111,6 +111,7 @@ export const PERMISSIONS = {
     TOOLS: 'ai.tools',
     APPROVALS: 'ai.approvals',
     AGENTS: 'ai.agents',
+    AUTONOMY: 'ai.autonomy',
     // Legacy
     MANAGE_PROVIDERS: 'ai.manage_providers',
     VIEW_USAGE: 'ai.view_usage',
@@ -146,8 +147,20 @@ export const PERMISSIONS = {
     MANAGE_CONNECTIONS: 'calendar.manage_connections',
     VIEW_AVAILABILITY: 'calendar.view_availability',
   },
+  PLANNER: {
+    VIEW: 'planner.view',
+    CREATE: 'planner.create',
+    MANAGE: 'planner.manage',
+    BUSINESS: 'planner.business',
+  },
   NOTIFICATIONS: {
     VIEW: 'notifications.view',
+  },
+  EXTERNAL_AGENTS: {
+    VIEW: 'external_agents.view',
+    CREATE: 'external_agents.create',
+    MANAGE: 'external_agents.manage',
+    DELETE: 'external_agents.delete',
   },
   ADMIN: {
     MANAGE_USERS: 'admin.manage_users',

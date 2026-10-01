@@ -50,6 +50,20 @@ export const API_SCOPES = {
     READ: 'calendar:read',
     WRITE: 'calendar:write',
   },
+  TASKS: {
+    READ: 'tasks:read',
+    WRITE: 'tasks:write',
+  },
+  GOALS: {
+    READ: 'goals:read',
+  },
+  NOTIFICATIONS: {
+    WRITE: 'notifications:write',
+  },
+  AGENTS: {
+    READ: 'agents:read',
+    WRITE: 'agents:write',
+  },
 } as const;
 
 type ApiScopesType = typeof API_SCOPES;

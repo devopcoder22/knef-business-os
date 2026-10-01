@@ -1740,42 +1740,210 @@ model AIDocumentChunk {
   @@index([documentId])
 }
 
-model AITool {
+// ─────────────────────────────────────────────────────────────
+// PLANNER MODELS
+// ─────────────────────────────────────────────────────────────
+
+enum PlanType {
+  PERSONAL
+  BUSINESS
+  PROJECT
+  CAMPAIGN
+  OPERATIONAL
+  STRATEGIC
+}
+
+enum PlanStatus {
+  DRAFT
+  REVIEW
+  APPROVED
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+model Plan {
+  id             String     @id @default(cuid())
+  organizationId String
+  ownerId        String?
+  title          String
+  description    String?
+  objective      String?
+  type           PlanType   @default(PERSONAL)
+  status         PlanStatus @default(DRAFT)
+  startDate      DateTime?
+  targetDate     DateTime?
+  goalId         String?
+  metadata       Json?      // assumptions, expected outcomes, AI context
+  previewData    Json?      // proposed tasks/events before execution
+  createdBy      String
+  approvedBy     String?
+  approvedAt     DateTime?
+  templateId     String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  steps     PlanStep[]
+  taskLinks PlanTaskLink[]
+  template  PlanTemplate?  @relation(fields: [templateId], references: [id])
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([ownerId])
+}
+
+model PlanStep {
+  id          String    @id @default(cuid())
+  planId      String
+  title       String
+  description String?
+  objective   String?
+  ownerId     String?
+  startDate   DateTime?
+  targetDate  DateTime?
+  status      String    @default("PENDING")
+  sortOrder   Int       @default(0)
+  kpiName     String?
+  kpiTarget   String?
+  kpiUnit     String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  plan      Plan          @relation(fields: [planId], references: [id], onDelete: Cascade)
+  taskLinks PlanTaskLink[]
+
+  @@index([planId])
+}
+
+model PlanTaskLink {
+  id           String   @id @default(cuid())
+  planId       String
+  stepId       String?
+  taskId       String?  // null while proposed; set after execution
+  isProposed   Boolean  @default(true)
+  proposedData Json?    // task fields for proposed tasks
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  plan Plan      @relation(fields: [planId], references: [id], onDelete: Cascade)
+  step PlanStep? @relation(fields: [stepId], references: [id], onDelete: SetNull)
+
+  @@index([planId])
+  @@index([taskId])
+}
+
+model PlanTemplate {
   id             String   @id @default(cuid())
   organizationId String
   name           String
-  description    String
-  inputSchema    Json
+  description    String?
+  type           PlanType @default(BUSINESS)
+  structure      Json     // steps, task templates, KPI templates
   isActive       Boolean  @default(true)
-  requiresApproval Boolean @default(false)
-  category       String?
+  createdBy      String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  actions AIAction[]
+  plans Plan[]
 
   @@unique([organizationId, name])
   @@index([organizationId])
 }
 
-model AIAction {
-  id             String       @id @default(cuid())
+model AITool {
+  id               String   @id @default(cuid())
+  organizationId   String
+  name             String
+  description      String
+  inputSchema      Json
+  isActive         Boolean  @default(true)
+  requiresApproval Boolean  @default(false)
+  category         String?
+  riskLevel        String   @default("LOW")
+  externalExposure String   @default("NOT_EXPOSED")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  actions AIAction[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@index([externalExposure])
+}
+
+enum AutonomyLevel {
+  ADVISORY
+  DRAFT
+  APPROVAL_REQUIRED
+  LIMITED_AUTONOMY
+  SCHEDULED_AUTONOMY
+}
+
+model AiAutonomyPolicy {
+  id             String        @id @default(cuid())
   organizationId String
-  toolId         String?
-  conversationId String?
-  userId         String?
-  action         String
-  parameters     Json
-  result         Json?
-  status         ActionStatus @default(PENDING)
-  approvalId     String?
-  executedAt     DateTime?
-  createdAt      DateTime     @default(now())
+  scope          String
+  scopeId        String?
+  level          AutonomyLevel @default(APPROVAL_REQUIRED)
+  scopeLimits    Json          @default("{}")
+  isActive       Boolean       @default(true)
+  createdBy      String?
+  updatedBy      String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([organizationId, scope, scopeId])
+  @@index([organizationId])
+}
+
+model ExternalAgent {
+  id                 String    @id @default(cuid())
+  organizationId     String
+  name               String
+  description        String?
+  ownerId            String?
+  status             String    @default("ACTIVE")
+  scopes             String[]
+  allowedTools       String[]
+  autonomyLevel      String    @default("APPROVAL_REQUIRED")
+  rateLimitPerMinute Int       @default(60)
+  apiKeyId           String?
+  metadata           Json?
+  lastUsedAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([organizationId])
+  @@index([apiKeyId])
+  @@unique([organizationId, name])
+}
+
+model AIAction {
+  id              String       @id @default(cuid())
+  organizationId  String
+  toolId          String?
+  conversationId  String?
+  userId          String?
+  externalAgentId String?
+  requestId       String?
+  action          String
+  parameters      Json
+  result          Json?
+  status          ActionStatus @default(PENDING)
+  approvalId      String?
+  executedAt      DateTime?
+  autonomyLevel   String?
+  policyDecision  String?
+  expiresAt       DateTime?
+  createdAt       DateTime     @default(now())
 
   tool AITool? @relation(fields: [toolId], references: [id])
 
   @@index([organizationId])
   @@index([status])
+  @@index([externalAgentId])
+  @@index([requestId])
 }
 
 enum ActionStatus {
@@ -2006,29 +2174,38 @@ model CommunicationTemplate {
 }
 
 model TelegramConfig {
-  id              String   @id @default(cuid())
-  organizationId  String   @unique
+  id                String   @id @default(cuid())
+  organizationId    String   @unique
   botTokenEncrypted String
-  chatId          String?
-  username        String?
-  isActive        Boolean  @default(true)
-  notifyOrders    Boolean  @default(true)
-  notifyInventory Boolean  @default(true)
-  notifyFinance   Boolean  @default(false)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  chatId            String?
+  username          String?
+  webhookSecret     String?
+  isActive          Boolean  @default(true)
+  notifyOrders      Boolean  @default(true)
+  notifyInventory   Boolean  @default(true)
+  notifyFinance     Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   @@index([organizationId])
 }
 
 model TelegramUserLink {
-  id             String   @id @default(cuid())
-  organizationId String
-  userId         String
-  telegramId     String
+  id               String    @id @default(cuid())
+  organizationId   String
+  userId           String
+  telegramId       String
   telegramUsername String?
-  isVerified     Boolean  @default(false)
-  createdAt      DateTime @default(now())
+  telegramChatId   String?
+  isVerified       Boolean   @default(false)
+  verifiedAt       DateTime?
+  notifyOrders     Boolean   @default(true)
+  notifyInventory  Boolean   @default(true)
+  notifyFinance    Boolean   @default(false)
+  notifyTasks      Boolean   @default(true)
+  notifyLowStock   Boolean   @default(true)
+  notifyTargets    Boolean   @default(false)
+  createdAt        DateTime  @default(now())
 
   @@unique([organizationId, userId])
   @@unique([organizationId, telegramId])

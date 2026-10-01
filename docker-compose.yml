@@ -66,6 +66,21 @@ services:
     volumes:
       - uploads:/app/uploads
 
+  mcp-server:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/mcp-server.Dockerfile
+    env_file:
+      - .env
+    environment:
+      - MCP_SERVER_PORT=4100
+      - KNEF_API_URL=http://api:4000
+    networks:
+      - public
+    depends_on:
+      - api
+    restart: unless-stopped
+
   db:
     image: pgvector/pgvector:pg16
     environment:

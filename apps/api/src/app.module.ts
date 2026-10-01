@@ -42,6 +42,9 @@ import { CommunicationsModule } from './modules/communications/communications.mo
 import { AIModule } from './modules/ai/ai.module';
 import { AIActionsModule } from './modules/ai-actions/ai-actions.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
+import { TelegramBotModule } from './modules/telegram-bot/telegram-bot.module';
+import { PlannerModule } from './modules/planner/planner.module';
+import { ExternalAgentsModule } from './modules/external-agents/external-agents.module';
 
 @Module({
   imports: [
@@ -108,6 +111,9 @@ import { CalendarModule } from './modules/calendar/calendar.module';
     AIModule,
     AIActionsModule,
     CalendarModule,
+    TelegramBotModule,
+    PlannerModule,
+    ExternalAgentsModule,
   ],
   providers: [
     // Apply ThrottlerGuard globally to all routes

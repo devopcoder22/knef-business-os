@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
-import type { AITool } from '@prisma/client';
+import type { AITool, TaskPriority, TaskStatus } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { NotificationsService } from '../communications/notifications.service';
 import { NotificationType } from '@prisma/client';
@@ -36,6 +36,16 @@ export class AIToolExecutorService {
         return this.sendNotification(orgId, parameters);
       case 'get_financial_summary':
         return this.getFinancialSummary(orgId, parameters);
+      case 'get_orders':
+        return this.getOrders(orgId, parameters);
+      case 'get_tasks':
+        return this.getTasks(orgId, parameters);
+      case 'create_task':
+        return this.createTask(orgId, parameters);
+      case 'get_goals':
+        return this.getGoals(orgId, parameters);
+      case 'get_calendar_events':
+        return this.getCalendarEvents(orgId, parameters);
       default:
         throw new BadRequestException(`Unknown tool: ${tool.name}`);
     }
@@ -49,7 +59,6 @@ export class AIToolExecutorService {
 
     if (params.productId && typeof params.productId === 'string') {
       where.productId = params.productId;
-      // Verify product belongs to org
       const product = await this.prisma.product.findFirst({
         where: { id: params.productId, organizationId: orgId },
       });
@@ -57,7 +66,6 @@ export class AIToolExecutorService {
         return { levels: [], message: 'Product not found' };
       }
     } else {
-      // Filter by products in org
       const orgProducts = await this.prisma.product.findMany({
         where: { organizationId: orgId },
         select: { id: true },
@@ -245,5 +253,182 @@ export class AIToolExecutorService {
       expenses: expenses.toFixed(2),
       profit: profit.toFixed(2),
     };
+  }
+
+  private async getOrders(
+    orgId: string,
+    params: Record<string, unknown>,
+  ): Promise<unknown> {
+    const limit = Math.min(Number(params.limit ?? 20), 50);
+    const where: Record<string, unknown> = { organizationId: orgId };
+    if (params.status && typeof params.status === 'string') {
+      where.status = params.status;
+    }
+
+    const orders = await this.prisma.salesOrder.findMany({
+      where,
+      take: limit,
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        reference: true,
+        status: true,
+        totalAmount: true,
+        currency: true,
+        createdAt: true,
+        customer: { select: { id: true, firstName: true, lastName: true } },
+      },
+    });
+
+    return {
+      orders: orders.map((o) => ({
+        ...o,
+        totalAmount: o.totalAmount.toString(),
+      })),
+      count: orders.length,
+    };
+  }
+
+  private async getTasks(
+    orgId: string,
+    params: Record<string, unknown>,
+  ): Promise<unknown> {
+    const limit = Math.min(Number(params.limit ?? 20), 50);
+    const where: Record<string, unknown> = { organizationId: orgId };
+    if (params.status && typeof params.status === 'string') {
+      where.status = params.status as TaskStatus;
+    }
+    if (params.priority && typeof params.priority === 'string') {
+      where.priority = params.priority as TaskPriority;
+    }
+
+    const tasks = await this.prisma.task.findMany({
+      where,
+      take: limit,
+      orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        priority: true,
+        dueDate: true,
+        createdAt: true,
+        assignee: { select: { id: true, firstName: true, lastName: true } },
+      },
+    });
+
+    return { tasks, count: tasks.length };
+  }
+
+  private async createTask(
+    orgId: string,
+    params: Record<string, unknown>,
+  ): Promise<unknown> {
+    const title = params.title as string;
+    if (!title) throw new BadRequestException('title is required');
+
+    // Use the first user in the org as creator for agent-initiated tasks
+    const firstUser = await this.prisma.user.findFirst({
+      where: { organizationId: orgId },
+      select: { id: true },
+    });
+    if (!firstUser) throw new BadRequestException('No users found in organization');
+    const creatorId = firstUser.id;
+
+    const task = await this.prisma.task.create({
+      data: {
+        id: createId(),
+        organizationId: orgId,
+        title,
+        description: params.description as string | undefined,
+        priority: (params.priority as TaskPriority | undefined) ?? 'MEDIUM',
+        dueDate: params.dueDate ? new Date(params.dueDate as string) : undefined,
+        creatorId,
+      },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        priority: true,
+        dueDate: true,
+        createdAt: true,
+      },
+    });
+
+    return { task };
+  }
+
+  private async getGoals(
+    orgId: string,
+    params: Record<string, unknown>,
+  ): Promise<unknown> {
+    const limit = Math.min(Number(params.limit ?? 20), 20);
+    const where: Record<string, unknown> = { organizationId: orgId };
+    if (params.status && typeof params.status === 'string') {
+      where.status = params.status;
+    }
+
+    const goals = await this.prisma.goal.findMany({
+      where,
+      take: limit,
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        progress: true,
+        startDate: true,
+        endDate: true,
+        kpis: {
+          select: { id: true, name: true, target: true, current: true, unit: true },
+        },
+      },
+    });
+
+    return {
+      goals: goals.map((g) => ({
+        ...g,
+        kpis: g.kpis.map((k) => ({
+          ...k,
+          target: k.target.toString(),
+          current: k.current.toString(),
+        })),
+      })),
+      count: goals.length,
+    };
+  }
+
+  private async getCalendarEvents(
+    orgId: string,
+    params: Record<string, unknown>,
+  ): Promise<unknown> {
+    const limit = Math.min(Number(params.limit ?? 20), 50);
+    const startAt = params.startDate ? new Date(params.startDate as string) : new Date();
+    const endAt = params.endDate
+      ? new Date(params.endDate as string)
+      : new Date(startAt.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    const events = await this.prisma.calendarEvent.findMany({
+      where: {
+        organizationId: orgId,
+        startAt: { gte: startAt },
+        endAt: { lte: endAt },
+      },
+      take: limit,
+      orderBy: { startAt: 'asc' },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        location: true,
+        startAt: true,
+        endAt: true,
+        timezone: true,
+        isAllDay: true,
+        status: true,
+      },
+    });
+
+    return { events, count: events.length };
   }
 }

@@ -138,7 +138,7 @@
 | AI/Approvals | Human-in-the-loop approval queue |
 | AI/Agents | Scheduled AI agents (cron-based) |
 | Calendar | Google Calendar + Outlook integration |
-| AI/Planner | Personal planner, daily plan generation |
+| AI/Planner | Business & personal planner — full lifecycle (DRAFT→REVIEW→APPROVED→ACTIVE), AI-generated plans, calendar-aware daily/weekly planning, task materialisation, KPI linking, approval workflow |
 
 ---
 
@@ -159,3 +159,15 @@ These modules have no upstream business dependencies and are used by all other m
 | Webhooks | Triggered by automation engine |
 | Search | Global search index, consumed by web frontend |
 | Documents | PDF generation used by invoices, reports, receipts |
+
+
+---
+
+## V1.1 — External AI Agent Gateway + MCP
+
+| Module | Description |
+|--------|-------------|
+| External Agents | Admin management of external agent identities, scopes, and API keys |
+| Agent Gateway | REST endpoint (`/api/v1/agent/*`) for external AI agents to discover and execute KNEF tools |
+| KNEF Tool Layer | Centralized tool execution service with argument validation, org isolation, response filtering, and idempotency |
+| MCP Server | Separate app (`apps/mcp-server`) — MCP-compatible adapter that connects AI clients to the KNEF Tool Layer |
