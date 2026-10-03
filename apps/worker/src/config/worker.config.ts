@@ -18,6 +18,13 @@ const WorkerConfigSchema = z.object({
   CALENDAR_POLL_INTERVAL_MS: z.coerce.number().default(300_000),
   // Daily backup cron (default: 2am)
   BACKUP_CRON_HOUR: z.coerce.number().default(2),
+  BACKUP_RETENTION_DAYS: z.coerce.number().default(7),
+  // Calendar provider OAuth credentials (optional — calendar sync disabled if absent)
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  MICROSOFT_CLIENT_ID: z.string().optional(),
+  MICROSOFT_CLIENT_SECRET: z.string().optional(),
+  MICROSOFT_TENANT_ID: z.string().default('common'),
 });
 
 export type WorkerConfig = z.infer<typeof WorkerConfigSchema>;

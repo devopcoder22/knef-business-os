@@ -5,6 +5,10 @@ import workerConfig, { validateWorkerConfig } from './config/worker.config';
 // Services
 import { PrismaService } from './services/prisma.service';
 import { EmailSenderService } from './services/email-sender.service';
+import { CalendarSyncService } from './services/calendar-sync.service';
+import { EmbeddingService } from './services/embedding.service';
+import { ReportDataService } from './services/report-data.service';
+import { ReportExportersService } from './services/report-exporters.service';
 
 // Processors
 import { EmailProcessor } from './processors/email.processor';
@@ -34,6 +38,10 @@ import { BackupScheduler } from './schedulers/backup.scheduler';
     // Infrastructure
     PrismaService,
     EmailSenderService,
+    CalendarSyncService,
+    EmbeddingService,
+    ReportDataService,
+    ReportExportersService,
 
     // Processors
     EmailProcessor,

@@ -8,7 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { Worker, Job } from 'bullmq';
 import Redis from 'ioredis';
 import { QUEUES, JOB_TYPES, type SyncCalendarJobData } from '@knef/constants';
-import { PrismaService } from '../services/prisma.service';
+import { CalendarSyncService } from '../services/calendar-sync.service';
 import type { WorkerConfig } from '../config/worker.config';
 
 @Injectable()
@@ -18,7 +18,7 @@ export class CalendarProcessor implements OnModuleInit, OnModuleDestroy {
   private connection!: Redis;
 
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly calendarSync: CalendarSyncService,
     private readonly config: ConfigService<WorkerConfig>,
   ) {}
 
@@ -33,6 +33,9 @@ export class CalendarProcessor implements OnModuleInit, OnModuleDestroy {
       { connection: this.connection, concurrency: 5 },
     );
 
+    this.worker.on('completed', (job) =>
+      this.logger.debug(`Calendar job ${job.id} completed`),
+    );
     this.worker.on('failed', (job, err) =>
       this.logger.warn(`Calendar job ${job?.id} failed: ${err.message}`),
     );
@@ -52,30 +55,15 @@ export class CalendarProcessor implements OnModuleInit, OnModuleDestroy {
   }
 
   private async syncCalendar(data: SyncCalendarJobData): Promise<void> {
+    const start = Date.now();
     this.logger.log(
-      `Syncing calendar integration ${data.connectionId} (provider: ${data.provider}) for user ${data.userId}`,
+      `Syncing calendar integration ${data.connectionId} (${data.provider}, org=${data.organizationId})`,
     );
 
-    const integration = await this.prisma.calendarIntegration.findFirst({
-      where: {
-        id: data.connectionId,
-        userId: data.userId,
-        organizationId: data.organizationId,
-        isActive: true,
-        syncEnabled: true,
-      },
-    });
+    await this.calendarSync.syncIntegration(data.connectionId, data.organizationId);
 
-    if (!integration) {
-      this.logger.warn(`Calendar integration ${data.connectionId} not found or disabled`);
-      return;
-    }
-
-    await this.prisma.calendarIntegration.update({
-      where: { id: data.connectionId },
-      data: { lastSyncAt: new Date() },
-    });
-
-    this.logger.debug(`Calendar sync completed for integration ${data.connectionId}`);
+    this.logger.log(
+      `Calendar sync complete: ${data.connectionId} (${Date.now() - start}ms)`,
+    );
   }
 }
