@@ -3,6 +3,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma, TaskStatus } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import type { CreateTaskDto } from './dto/create-task.dto';
@@ -13,7 +14,10 @@ import type { CreateChecklistDto, UpdateChecklistDto } from './dto/create-checkl
 
 @Injectable()
 export class TasksService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
   async findAll(organizationId: string, query: ListTasksDto) {
     const { page = 1, limit = 50, status, priority, assigneeId, goalId } = query;
@@ -70,7 +74,7 @@ export class TasksService {
   }
 
   async create(organizationId: string, dto: CreateTaskDto, creatorId: string) {
-    return this.prisma.task.create({
+    const task = await this.prisma.task.create({
       data: {
         id: createId(),
         organizationId,
@@ -91,6 +95,18 @@ export class TasksService {
         creator: { select: { id: true, firstName: true, lastName: true } },
       },
     });
+
+    this.eventEmitter.emit('task.created', {
+      organizationId,
+      taskId: task.id,
+      title: task.title,
+      priority: task.priority,
+      assigneeId: task.assigneeId,
+      creatorId,
+      dueDate: task.dueDate?.toISOString() ?? null,
+    });
+
+    return task;
   }
 
   async update(organizationId: string, id: string, dto: UpdateTaskDto) {
@@ -123,10 +139,21 @@ export class TasksService {
   async complete(organizationId: string, id: string) {
     const task = await this.prisma.task.findFirst({ where: { id, organizationId } });
     if (!task) throw new NotFoundException('Task not found');
-    return this.prisma.task.update({
+    const completed = await this.prisma.task.update({
       where: { id },
       data: { status: TaskStatus.DONE, completedAt: new Date() },
     });
+
+    this.eventEmitter.emit('task.completed', {
+      organizationId,
+      taskId: completed.id,
+      title: completed.title,
+      priority: completed.priority,
+      assigneeId: completed.assigneeId,
+      completedAt: completed.completedAt?.toISOString() ?? new Date().toISOString(),
+    });
+
+    return completed;
   }
 
   async addComment(organizationId: string, taskId: string, dto: CreateCommentDto, userId: string) {

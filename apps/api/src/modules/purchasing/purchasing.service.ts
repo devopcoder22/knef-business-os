@@ -5,6 +5,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { POStatus, InvoiceStatus, MovementType, ReturnStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { InventoryService } from '../inventory/inventory.service';
@@ -27,6 +28,7 @@ export class PurchasingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly inventoryService: InventoryService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   // ── Purchase Orders ───────────────────────────────────────────
@@ -149,7 +151,7 @@ export class PurchasingService {
     const discountAmount = new Prisma.Decimal(dto.discountAmount ?? '0');
     const totalAmount = subtotal.add(shippingCost).sub(discountAmount);
 
-    return this.prisma.purchaseOrder.create({
+    const po = await this.prisma.purchaseOrder.create({
       data: {
         id: createId(),
         organizationId,
@@ -174,6 +176,18 @@ export class PurchasingService {
         items: { include: { product: { select: { id: true, name: true, sku: true } } } },
       },
     });
+
+    this.eventEmitter.emit('purchase_order.created', {
+      organizationId,
+      purchaseOrderId: po.id,
+      reference: po.reference,
+      supplierId: po.supplierId,
+      totalAmount: po.totalAmount.toString(),
+      locationId: po.locationId,
+      actorUserId: userId,
+    });
+
+    return po;
   }
 
   async updatePurchaseOrder(
@@ -225,7 +239,7 @@ export class PurchasingService {
       throw new BadRequestException('Only SUBMITTED orders can be approved');
     }
 
-    return this.prisma.purchaseOrder.update({
+    const approved = await this.prisma.purchaseOrder.update({
       where: { id },
       data: {
         status: POStatus.APPROVED,
@@ -233,6 +247,18 @@ export class PurchasingService {
         approvedAt: new Date(),
       },
     });
+
+    this.eventEmitter.emit('purchase_order.approved', {
+      organizationId,
+      purchaseOrderId: approved.id,
+      reference: approved.reference,
+      supplierId: approved.supplierId,
+      totalAmount: approved.totalAmount.toString(),
+      locationId: approved.locationId,
+      actorUserId: userId,
+    });
+
+    return approved;
   }
 
   async cancelPurchaseOrder(

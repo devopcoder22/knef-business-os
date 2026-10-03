@@ -6,6 +6,7 @@ export const QUEUES = {
   DOCUMENTS: 'documents',
   BACKUP: 'backup',
   CALENDAR: 'calendar',
+  AUTOMATION: 'automation',
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -26,6 +27,8 @@ export const JOB_TYPES = {
   RUN_BACKUP: 'run-backup',
   // calendar queue
   SYNC_CALENDAR: 'sync-calendar',
+  // automation queue
+  AUTOMATION_EXECUTE: 'automation-execute',
 } as const;
 
 // ── Job payload types ─────────────────────────────────────────────────────────
@@ -92,4 +95,19 @@ export interface SyncCalendarJobData {
   organizationId: string;
   userId: string;
   provider: string;
+}
+
+export interface AutomationExecuteJobData {
+  executionId: string;
+  ruleId: string;
+  organizationId: string;
+  eventId: string;
+  eventType: string;
+  locationId: string | null;
+  actionType: string;
+  actionIndex: number;
+  actionParams: Record<string, unknown>;
+  eventData: Record<string, unknown>;
+  automationDepth: number;
+  causationId: string | null;
 }

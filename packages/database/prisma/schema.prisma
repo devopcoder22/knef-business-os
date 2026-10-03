@@ -2382,22 +2382,58 @@ model WebhookDelivery {
 }
 
 model AutomationRule {
-  id             String   @id @default(cuid())
-  organizationId String
-  name           String
-  description    String?
-  trigger        String
-  conditions     Json     @default("[]")
-  actions        Json     @default("[]")
-  isActive       Boolean  @default(true)
+  id              String   @id @default(cuid())
+  organizationId  String
+  locationId      String?
+  name            String
+  description     String?
+  trigger         String
+  conditions      Json     @default("[]")
+  actions         Json     @default("[]")
+  isActive        Boolean  @default(true)
   lastTriggeredAt DateTime?
-  triggerCount   Int      @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  triggerCount    Int      @default(0)
+  createdBy       String?
+  updatedBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  executions AutomationExecution[]
 
   @@unique([organizationId, name])
   @@index([organizationId])
   @@index([trigger])
+  @@index([locationId])
+}
+
+model AutomationExecution {
+  id              String    @id @default(cuid())
+  organizationId  String
+  ruleId          String
+  eventId         String
+  eventType       String
+  locationId      String?
+  status          String    @default("PENDING")
+  actionType      String
+  actionIndex     Int       @default(0)
+  causationId     String?
+  automationDepth Int       @default(0)
+  startedAt       DateTime  @default(now())
+  completedAt     DateTime?
+  attempt         Int       @default(0)
+  failureCategory String?
+  errorMessage    String?
+  resultMetadata  Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  rule AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@unique([ruleId, eventId, actionIndex])
+  @@index([organizationId])
+  @@index([ruleId])
+  @@index([eventId])
+  @@index([status])
 }
 
 model CalendarIntegration {

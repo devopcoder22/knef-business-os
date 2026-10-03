@@ -18,6 +18,7 @@ import { ReportsProcessor } from './processors/reports.processor';
 import { DocumentsProcessor } from './processors/documents.processor';
 import { BackupProcessor } from './processors/backup.processor';
 import { CalendarProcessor } from './processors/calendar.processor';
+import { AutomationProcessor } from './processors/automation.processor';
 
 // Schedulers
 import { CampaignScheduler } from './schedulers/campaign.scheduler';
@@ -51,6 +52,7 @@ import { BackupScheduler } from './schedulers/backup.scheduler';
     DocumentsProcessor,
     BackupProcessor,
     CalendarProcessor,
+    AutomationProcessor,
 
     // Schedulers
     CampaignScheduler,

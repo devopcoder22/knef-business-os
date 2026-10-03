@@ -113,7 +113,7 @@
 | Communications | Unified communication center, templates |
 | Notifications | In-app notification system |
 | Webhooks | Outbound webhook delivery |
-| Automation | Event-driven rule engine |
+| Automation | Event-driven rule engine — trigger registry, condition evaluator, action dispatcher, execution history, loop prevention, idempotency (V1.1 complete) |
 
 ---
 

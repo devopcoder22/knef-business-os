@@ -4,6 +4,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../common/services/prisma.service';
 import type { CreateCustomerDto } from './dto/create-customer.dto';
 import type { UpdateCustomerDto } from './dto/update-customer.dto';
@@ -11,7 +12,10 @@ import type { ListCustomersDto } from './dto/list-customers.dto';
 
 @Injectable()
 export class CustomersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
   async findAll(organizationId: string, query: ListCustomersDto) {
     const { page = 1, limit = 20, search, isActive } = query;
@@ -100,6 +104,16 @@ export class CustomersService {
     });
 
     await this.updateSearchVector(customer.id);
+
+    this.eventEmitter.emit('customer.created', {
+      organizationId,
+      customerId: customer.id,
+      firstName: customer.firstName,
+      lastName: customer.lastName,
+      email: customer.email,
+      phone: customer.phone,
+    });
+
     return customer;
   }
 

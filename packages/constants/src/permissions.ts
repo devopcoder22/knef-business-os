@@ -162,6 +162,15 @@ export const PERMISSIONS = {
     MANAGE: 'external_agents.manage',
     DELETE: 'external_agents.delete',
   },
+  AUTOMATION: {
+    VIEW: 'automation.view',
+    CREATE: 'automation.create',
+    EDIT: 'automation.edit',
+    DELETE: 'automation.delete',
+    ACTIVATE: 'automation.activate',
+    EXECUTE: 'automation.execute',
+    HISTORY_VIEW: 'automation.history.view',
+  },
   ADMIN: {
     MANAGE_USERS: 'admin.manage_users',
     MANAGE_ROLES: 'admin.manage_roles',

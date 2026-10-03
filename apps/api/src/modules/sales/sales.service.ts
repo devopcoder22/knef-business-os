@@ -5,6 +5,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { OrderStatus, InvoiceStatus, PaymentStatus, MovementType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { InventoryService } from '../inventory/inventory.service';
@@ -26,6 +27,7 @@ export class SalesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly inventoryService: InventoryService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   // ── Sales Orders ──────────────────────────────────────────────
@@ -157,7 +159,7 @@ export class SalesService {
 
     const totalAmount = subtotal.sub(discountTotal).add(taxTotal);
 
-    return this.prisma.salesOrder.create({
+    const order = await this.prisma.salesOrder.create({
       data: {
         id: createId(),
         organizationId,
@@ -186,6 +188,19 @@ export class SalesService {
         },
       },
     });
+
+    this.eventEmitter.emit('order.created', {
+      organizationId,
+      orderId: order.id,
+      reference: order.reference,
+      customerId: order.customerId,
+      totalAmount: order.totalAmount.toString(),
+      locationId: order.locationId,
+      channel: order.channel,
+      actorUserId: userId,
+    });
+
+    return order;
   }
 
   async confirmSalesOrder(organizationId: string, id: string) {
@@ -254,7 +269,19 @@ export class SalesService {
       });
     }
 
-    return this.findSalesOrder(organizationId, id);
+    const completed = await this.findSalesOrder(organizationId, id);
+
+    this.eventEmitter.emit('order.completed', {
+      organizationId,
+      orderId: completed.id,
+      reference: completed.reference,
+      customerId: completed.customerId,
+      totalAmount: completed.totalAmount.toString(),
+      locationId: completed.locationId,
+      actorUserId: userId,
+    });
+
+    return completed;
   }
 
   async cancelSalesOrder(
@@ -273,7 +300,7 @@ export class SalesService {
       throw new BadRequestException('Order cannot be cancelled in its current state');
     }
 
-    return this.prisma.salesOrder.update({
+    const cancelled = await this.prisma.salesOrder.update({
       where: { id },
       data: {
         status: OrderStatus.CANCELLED,
@@ -281,6 +308,18 @@ export class SalesService {
         cancelReason: reason,
       },
     });
+
+    this.eventEmitter.emit('order.cancelled', {
+      organizationId,
+      orderId: cancelled.id,
+      reference: cancelled.reference,
+      customerId: cancelled.customerId,
+      totalAmount: cancelled.totalAmount.toString(),
+      locationId: cancelled.locationId,
+      reason: reason ?? null,
+    });
+
+    return cancelled;
   }
 
   async refundSalesOrder(
@@ -457,7 +496,7 @@ export class SalesService {
 
     const totalAmount = subtotal.sub(discountAmount).add(taxAmount);
 
-    return this.prisma.invoice.create({
+    const invoice = await this.prisma.invoice.create({
       data: {
         id: createId(),
         organizationId,
@@ -479,6 +518,17 @@ export class SalesService {
         customer: true,
       },
     });
+
+    this.eventEmitter.emit('invoice.created', {
+      organizationId,
+      invoiceId: invoice.id,
+      reference: invoice.reference,
+      customerId: invoice.customerId,
+      totalAmount: invoice.totalAmount.toString(),
+      dueDate: invoice.dueDate?.toISOString() ?? null,
+    });
+
+    return invoice;
   }
 
   async recordPayment(
@@ -542,6 +592,27 @@ export class SalesService {
       }
     });
 
-    return this.findInvoice(organizationId, invoiceId);
+    const updatedInvoice = await this.findInvoice(organizationId, invoiceId);
+
+    this.eventEmitter.emit('payment.received', {
+      organizationId,
+      invoiceId,
+      orderId: invoice.orderId,
+      amount: dto.amount,
+      method: dto.method,
+      customerId: invoice.customerId,
+    });
+
+    if (newStatus === InvoiceStatus.PAID) {
+      this.eventEmitter.emit('invoice.paid', {
+        organizationId,
+        invoiceId,
+        reference: updatedInvoice.reference,
+        customerId: invoice.customerId,
+        totalAmount: invoice.totalAmount.toString(),
+      });
+    }
+
+    return updatedInvoice;
   }
 }

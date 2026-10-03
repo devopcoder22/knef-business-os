@@ -46,6 +46,7 @@ import { TelegramBotModule } from './modules/telegram-bot/telegram-bot.module';
 import { PlannerModule } from './modules/planner/planner.module';
 import { ExternalAgentsModule } from './modules/external-agents/external-agents.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { AutomationModule } from './modules/automation/automation.module';
 
 @Module({
   imports: [
@@ -116,6 +117,7 @@ import { AdminModule } from './modules/admin/admin.module';
     PlannerModule,
     ExternalAgentsModule,
     AdminModule,
+    AutomationModule,
   ],
   providers: [
     // Apply ThrottlerGuard globally to all routes
