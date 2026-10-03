@@ -38,6 +38,14 @@ import {
   Server,
   BookOpen,
   Calendar,
+  Map,
+  Shield,
+  Building2,
+  MapPin,
+  Flag,
+  KeyRound,
+  ShieldAlert,
+  Activity,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -128,6 +136,16 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Tasks', href: '/tasks', icon: CheckSquare, permission: PERMISSIONS.TASKS.VIEW },
   { label: 'Goals', href: '/goals', icon: Target, permission: PERMISSIONS.GOALS.VIEW },
   {
+    label: 'Planner',
+    href: '/planner',
+    icon: Map,
+    permission: PERMISSIONS.PLANNER.VIEW,
+    children: [
+      { label: 'My Day', href: '/planner', icon: Calendar, permission: PERMISSIONS.PLANNER.VIEW },
+      { label: 'Plans', href: '/planner/plans', icon: ClipboardList, permission: PERMISSIONS.PLANNER.VIEW },
+    ],
+  },
+  {
     label: 'Calendar',
     href: '/calendar',
     icon: Calendar,
@@ -195,7 +213,26 @@ const NAV_ITEMS: NavItem[] = [
 
 const BOTTOM_ITEMS: NavItem[] = [
   { label: 'Settings', href: '/settings', icon: Settings, permission: PERMISSIONS.SETTINGS.VIEW },
-  { label: 'Admin', href: '/admin', icon: ShieldCheck, adminOnly: true },
+  {
+    label: 'Admin',
+    href: '/admin',
+    icon: ShieldCheck,
+    adminOnly: true,
+    children: [
+      { label: 'Overview', href: '/admin', icon: LayoutDashboard, adminOnly: true },
+      { label: 'Users', href: '/admin/users', icon: Users, adminOnly: true },
+      { label: 'Roles', href: '/admin/roles', icon: Shield, adminOnly: true },
+      { label: 'Departments', href: '/admin/departments', icon: Building2, adminOnly: true },
+      { label: 'Locations', href: '/admin/locations', icon: MapPin, adminOnly: true },
+      { label: 'Feature Flags', href: '/admin/feature-flags', icon: Flag, adminOnly: true },
+      { label: 'External Agents', href: '/admin/agents', icon: Webhook, adminOnly: true },
+      { label: 'API Keys', href: '/admin/api-keys', icon: KeyRound, adminOnly: true },
+      { label: 'Approvals', href: '/admin/approvals', icon: CheckSquare, adminOnly: true },
+      { label: 'Audit Logs', href: '/admin/audit', icon: FileText, adminOnly: true },
+      { label: 'Security', href: '/admin/security', icon: ShieldAlert, adminOnly: true },
+      { label: 'System Health', href: '/admin/health', icon: Activity, adminOnly: true },
+    ],
+  },
 ];
 
 interface SidebarProps {
@@ -298,6 +335,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     if (href === '/purchasing') return pathname === '/purchasing';
     if (href === '/ecommerce') return pathname === '/ecommerce';
     if (href === '/ai') return pathname === '/ai';
+    if (href === '/admin') return pathname === '/admin';
     return pathname === href || pathname.startsWith(`${href}/`);
   };
 
@@ -351,22 +389,14 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
       {/* Bottom items */}
       <div className="border-t border-slate-700 py-3 px-2 space-y-0.5">
-        {BOTTOM_ITEMS.filter(canSee).map((item) => (
-          <Link
+        {BOTTOM_ITEMS.map((item) => (
+          <NavItemComponent
             key={item.href}
-            href={item.href}
-            className={cn(
-              'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-              isActive(item.href)
-                ? 'bg-blue-600 text-white'
-                : 'text-slate-300 hover:bg-slate-800 hover:text-white',
-              collapsed && 'justify-center px-2',
-            )}
-            title={collapsed ? item.label : undefined}
-          >
-            <item.icon size={18} className="flex-shrink-0" />
-            {!collapsed && <span>{item.label}</span>}
-          </Link>
+            item={item}
+            collapsed={collapsed}
+            isActive={isActive}
+            canSee={canSee}
+          />
         ))}
 
         {/* User info + logout */}

@@ -35,13 +35,27 @@ export class InventoryService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  async getLevels(organizationId: string, filters: InventoryLevelFilters) {
+  async getLevels(
+    organizationId: string,
+    filters: InventoryLevelFilters,
+    locationIds: string[] | null = null,
+  ) {
     const { locationId, productId, variantId, lowStockOnly } = filters;
 
     const where: Record<string, unknown> = {
       product: { organizationId },
     };
-    if (locationId) where['locationId'] = locationId;
+    if (locationId) {
+      // Validate caller-supplied locationId against user's authorized locations
+      if (locationIds !== null && !locationIds.includes(locationId)) {
+        return []; // return empty rather than throwing (consistent with filter behavior)
+      }
+      where['locationId'] = locationId;
+    } else if (locationIds !== null) {
+      // No specific location requested: restrict to user's authorized locations
+      where['locationId'] = { in: locationIds };
+    }
+    // If locationIds is null and no locationId filter: org-wide access, no restriction
     if (productId) where['productId'] = productId;
     if (variantId !== undefined) where['variantId'] = variantId ?? null;
 
@@ -181,11 +195,19 @@ export class InventoryService {
     organizationId: string,
     productId: string,
     filters: { locationId?: string; from?: string; to?: string; type?: MovementType },
+    locationIds: string[] | null = null,
   ) {
     const { locationId, from, to, type } = filters;
 
     const where: Record<string, unknown> = { organizationId, productId };
-    if (locationId) where['locationId'] = locationId;
+    if (locationId) {
+      if (locationIds !== null && !locationIds.includes(locationId)) {
+        return [];
+      }
+      where['locationId'] = locationId;
+    } else if (locationIds !== null) {
+      where['locationId'] = { in: locationIds };
+    }
     if (type) where['type'] = type;
     if (from || to) {
       where['createdAt'] = {
@@ -201,11 +223,22 @@ export class InventoryService {
     });
   }
 
-  async getValuation(organizationId: string, locationId?: string) {
+  async getValuation(
+    organizationId: string,
+    locationId?: string,
+    locationIds: string[] | null = null,
+  ) {
     const where: Record<string, unknown> = {
       product: { organizationId },
     };
-    if (locationId) where['locationId'] = locationId;
+    if (locationId) {
+      if (locationIds !== null && !locationIds.includes(locationId)) {
+        return { totalCostValue: 0, totalRetailValue: 0, items: [] };
+      }
+      where['locationId'] = locationId;
+    } else if (locationIds !== null) {
+      where['locationId'] = { in: locationIds };
+    }
 
     const levels = await this.prisma.inventoryLevel.findMany({
       where,
@@ -296,7 +329,11 @@ export class InventoryService {
     };
   }
 
-  async getDashboardSummary(organizationId: string, locationId?: string) {
+  async getDashboardSummary(
+    organizationId: string,
+    locationId?: string,
+    locationIds: string[] | null = null,
+  ) {
     const productWhere: Record<string, unknown> = {
       organizationId,
       trackInventory: true,
@@ -305,7 +342,27 @@ export class InventoryService {
     const levelWhere: Record<string, unknown> = {
       product: { organizationId },
     };
-    if (locationId) levelWhere['locationId'] = locationId;
+
+    // Resolve effective locationId filter, respecting scope
+    let effectiveLocationIdFilter: Record<string, unknown> | undefined;
+    if (locationId) {
+      if (locationIds !== null && !locationIds.includes(locationId)) {
+        // Requested location is outside user's authorized scope — return empty summary
+        return {
+          totalProducts: 0,
+          totalSKUs: 0,
+          lowStockCount: 0,
+          outOfStockCount: 0,
+          totalInventoryValue: 0,
+          recentMovements: [],
+        };
+      }
+      levelWhere['locationId'] = locationId;
+      effectiveLocationIdFilter = { locationId };
+    } else if (locationIds !== null) {
+      levelWhere['locationId'] = { in: locationIds };
+      effectiveLocationIdFilter = { locationId: { in: locationIds } };
+    }
 
     const [totalProducts, levels, recentMovements] = await Promise.all([
       this.prisma.product.count({ where: productWhere }),
@@ -318,7 +375,7 @@ export class InventoryService {
       this.prisma.inventoryMovement.findMany({
         where: {
           organizationId,
-          ...(locationId ? { locationId } : {}),
+          ...(effectiveLocationIdFilter ?? {}),
         },
         orderBy: { createdAt: 'desc' },
         take: 10,

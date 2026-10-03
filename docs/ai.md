@@ -354,3 +354,67 @@ When an approver approves a pending action, `AIApprovalsService.approve()` re-ve
    - `entityId`: the tool name
    - `metadata`: `{ toolName, reason, resolvedPermissions }`
 3. No business service code is reached — the denial is guaranteed before any database reads or writes
+
+---
+
+## 8. AI Planner
+
+### Architecture
+
+The AI Planner sits as an orchestration layer above Tasks, Goals, and Calendar. It does not duplicate any storage — all data lives in existing tables.
+
+```
+PersonalPlannerService     ← daily/weekly AI plans, planner chat
+PlanGeneratorService       ← AI JSON plan generation → Steps + PlanTaskLinks (proposed)
+PlanExecutorService        ← Proposed tasks → TasksService.create() → real tasks
+PlanProgressService        ← Task counts → progressPercent + deadlineStatus
+PlannerService             ← CRUD + lifecycle state machine + audit
+```
+
+### Plan Lifecycle
+
+```
+DRAFT → REVIEW → APPROVED → ACTIVE → PAUSED → ACTIVE
+                                    ↓
+                               COMPLETED | CANCELLED
+```
+
+`generate()` transitions DRAFT → REVIEW. `approve()` transitions REVIEW/DRAFT → APPROVED. `execute()` transitions APPROVED → ACTIVE.
+
+### Calendar-Aware Planning
+
+Daily and weekly planning is **calendar-aware**. When the requesting user has the `calendar.view` permission:
+
+1. `PersonalPlannerService` calls `CalendarEventsService.getCachedEvents(organizationId, userId, { timeMin, timeMax })` to retrieve cached calendar events
+2. The events are formatted into an AI context section that includes:
+   - Event title, start–end time in WAT (Africa/Lagos)
+   - Timezone from the event record
+   - Location where present
+   - **FREE BLOCKS**: calculated gaps between events (>30 min) so the AI can schedule focus work
+   - **MEETING LOAD**: total hours in meetings
+   - **CONFLICT**: flagged when meeting load > 4h and tasks are due that day
+3. For weekly planning, events are grouped per day (Mon–Sun) with per-day summaries
+4. If no calendar integration is connected, a graceful "no cached events" message is shown rather than fabricating data
+
+**Security:** Only title, time, timezone, and location are passed to the AI provider. Attendee lists, private descriptions, and organiser details are not included. All event fetches enforce `organizationId` + `userId` isolation at the `CalendarEventsService` layer. Calendar data is never accessible to other users or other organisations.
+
+### Permission Gates
+
+| Operation | Required permission |
+|-----------|---------------------|
+| View/read plans | `planner.view` |
+| Create DRAFT plan | `planner.create` |
+| Approve / reject / pause / resume / delete | `planner.manage` |
+| Generate AI plan content | `planner.business` |
+| Execute (creates tasks) | `tasks.create` |
+| Calendar context in daily/weekly plan | `calendar.view` |
+| Goal context in plan generation | `goals.view` |
+| Task context in plan generation | `tasks.view` |
+
+### Bulk Safeguard
+
+Plans with >20 proposed tasks in a single execution call throw `BadRequestException`. The user must provide specific `stepIds` to execute in batches. This prevents accidentally creating hundreds of tasks from a single AI-generated plan.
+
+### Duplicate Execution Prevention
+
+Before executing, `PlanExecutorService` counts `PlanTaskLink` records with `isProposed: false`. If any exist and no `stepIds` filter is provided, execution is rejected with an error explaining the plan has already been executed.

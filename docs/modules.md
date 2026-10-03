@@ -171,3 +171,12 @@ These modules have no upstream business dependencies and are used by all other m
 | Agent Gateway | REST endpoint (`/api/v1/agent/*`) for external AI agents to discover and execute KNEF tools |
 | KNEF Tool Layer | Centralized tool execution service with argument validation, org isolation, response filtering, and idempotency |
 | MCP Server | Separate app (`apps/mcp-server`) — MCP-compatible adapter that connects AI clients to the KNEF Tool Layer |
+
+---
+
+## V1.1 — Main Admin Control Center
+
+| Module | Description |
+|--------|-------------|
+| Admin (backend) | `GET /admin/overview` stats, `GET /admin/security-events`, `GET /admin/api-keys`, `DELETE /admin/api-keys/:id` |
+| Admin UI | `/admin` layout with 14-page sub-nav: Overview, Users, Roles, Departments, Locations, Feature Flags, External Agents, API Keys, Approvals, Audit Logs, Security, System Health, Integrations, AI Config |

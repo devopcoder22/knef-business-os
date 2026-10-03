@@ -35,21 +35,21 @@ export class SalesOrdersController {
   @Permissions(PERMISSIONS.SALES.VIEW)
   @ApiOperation({ summary: 'List sales orders' })
   findAll(@CurrentUser() user: AuthUser, @Query() query: ListSalesOrdersDto) {
-    return this.salesService.listSalesOrders(user.organizationId, query);
+    return this.salesService.listSalesOrders(user.organizationId, query, user.locationIds);
   }
 
   @Get(':id')
   @Permissions(PERMISSIONS.SALES.VIEW)
   @ApiOperation({ summary: 'Get sales order detail' })
   findOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.salesService.findSalesOrder(user.organizationId, id);
+    return this.salesService.findSalesOrder(user.organizationId, id, user.locationIds);
   }
 
   @Post()
   @Permissions(PERMISSIONS.SALES.CREATE)
   @ApiOperation({ summary: 'Create sales order (DRAFT)' })
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateSalesOrderDto) {
-    return this.salesService.createSalesOrder(user.organizationId, dto, user.id);
+    return this.salesService.createSalesOrder(user.organizationId, dto, user.id, user.locationIds);
   }
 
   @Post(':id/confirm')

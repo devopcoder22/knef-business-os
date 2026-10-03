@@ -35,21 +35,21 @@ export class PurchaseOrdersController {
   @Permissions(PERMISSIONS.PURCHASING.VIEW)
   @ApiOperation({ summary: 'List purchase orders' })
   findAll(@CurrentUser() user: AuthUser, @Query() query: ListPurchaseOrdersDto) {
-    return this.purchasingService.listPurchaseOrders(user.organizationId, query);
+    return this.purchasingService.listPurchaseOrders(user.organizationId, query, user.locationIds);
   }
 
   @Get(':id')
   @Permissions(PERMISSIONS.PURCHASING.VIEW)
   @ApiOperation({ summary: 'Get purchase order detail' })
   findOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.purchasingService.findPurchaseOrder(user.organizationId, id);
+    return this.purchasingService.findPurchaseOrder(user.organizationId, id, user.locationIds);
   }
 
   @Post()
   @Permissions(PERMISSIONS.PURCHASING.CREATE)
   @ApiOperation({ summary: 'Create purchase order (DRAFT)' })
   create(@CurrentUser() user: AuthUser, @Body() dto: CreatePurchaseOrderDto) {
-    return this.purchasingService.createPurchaseOrder(user.organizationId, dto, user.id);
+    return this.purchasingService.createPurchaseOrder(user.organizationId, dto, user.id, user.locationIds);
   }
 
   @Patch(':id')
@@ -120,6 +120,7 @@ export class GoodsReceiptsController {
       user.organizationId,
       parseInt(page ?? '1'),
       parseInt(limit ?? '20'),
+      user.locationIds,
     );
   }
 
@@ -127,7 +128,7 @@ export class GoodsReceiptsController {
   @Permissions(PERMISSIONS.PURCHASING.VIEW)
   @ApiOperation({ summary: 'Get goods receipt detail' })
   findOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.purchasingService.findGoodsReceipt(user.organizationId, id);
+    return this.purchasingService.findGoodsReceipt(user.organizationId, id, user.locationIds);
   }
 
   @Post()

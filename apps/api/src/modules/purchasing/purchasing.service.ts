@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
 import { POStatus, InvoiceStatus, MovementType, ReturnStatus, Prisma } from '@prisma/client';
@@ -30,11 +31,14 @@ export class PurchasingService {
 
   // ── Purchase Orders ───────────────────────────────────────────
 
-  async listPurchaseOrders(organizationId: string, query: ListPurchaseOrdersDto) {
+  async listPurchaseOrders(organizationId: string, query: ListPurchaseOrdersDto, locationIds: string[] | null = null) {
     const { page = 1, limit = 20, status, supplierId, search } = query;
     const skip = (page - 1) * limit;
 
     const where: Record<string, unknown> = { organizationId };
+    if (locationIds !== null) {
+      where['locationId'] = { in: locationIds };
+    }
     if (status) where['status'] = status;
     if (supplierId) where['supplierId'] = supplierId;
     if (search) {
@@ -73,7 +77,7 @@ export class PurchasingService {
     };
   }
 
-  async findPurchaseOrder(organizationId: string, id: string) {
+  async findPurchaseOrder(organizationId: string, id: string, locationIds: string[] | null = null) {
     const order = await this.prisma.purchaseOrder.findFirst({
       where: { id, organizationId },
       include: {
@@ -92,6 +96,9 @@ export class PurchasingService {
       },
     });
     if (!order) throw new NotFoundException('Purchase order not found');
+    if (locationIds !== null && !locationIds.includes(order.locationId)) {
+      throw new NotFoundException('Purchase order not found');
+    }
     return order;
   }
 
@@ -99,9 +106,15 @@ export class PurchasingService {
     organizationId: string,
     dto: CreatePurchaseOrderDto,
     userId: string,
+    locationIds: string[] | null = null,
   ) {
     if (!dto.items || dto.items.length === 0) {
       throw new BadRequestException('Purchase order must have at least one item');
+    }
+    if (locationIds !== null && dto.locationId) {
+      if (!locationIds.includes(dto.locationId)) {
+        throw new ForbiddenException('Not authorized to create purchase orders for this location');
+      }
     }
 
     const reference = generateReference('PO');
@@ -264,9 +277,12 @@ export class PurchasingService {
 
   // ── Goods Receipts ────────────────────────────────────────────
 
-  async listGoodsReceipts(organizationId: string, page = 1, limit = 20) {
+  async listGoodsReceipts(organizationId: string, page = 1, limit = 20, locationIds: string[] | null = null) {
     const skip = (page - 1) * limit;
-    const where = { organizationId };
+    const where: Record<string, unknown> = { organizationId };
+    if (locationIds !== null) {
+      where['purchaseOrder'] = { locationId: { in: locationIds } };
+    }
 
     const [receipts, total] = await Promise.all([
       this.prisma.goodsReceipt.findMany({
@@ -294,7 +310,7 @@ export class PurchasingService {
     };
   }
 
-  async findGoodsReceipt(organizationId: string, id: string) {
+  async findGoodsReceipt(organizationId: string, id: string, locationIds: string[] | null = null) {
     const receipt = await this.prisma.goodsReceipt.findFirst({
       where: { id, organizationId },
       include: {
@@ -308,6 +324,12 @@ export class PurchasingService {
       },
     });
     if (!receipt) throw new NotFoundException('Goods receipt not found');
+    if (receipt && locationIds !== null) {
+      const po = await this.prisma.purchaseOrder.findUnique({ where: { id: receipt.purchaseOrderId }, select: { locationId: true } });
+      if (po && !locationIds.includes(po.locationId)) {
+        throw new NotFoundException('Goods receipt not found');
+      }
+    }
     return receipt;
   }
 

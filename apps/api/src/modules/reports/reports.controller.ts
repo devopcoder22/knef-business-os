@@ -206,7 +206,7 @@ export class SalesReportsController {
   @Permissions(PERMISSIONS.REPORTS.VIEW)
   @ApiOperation({ summary: 'Sales summary report' })
   getSummary(@CurrentUser() user: AuthUser, @Query() q: SalesSummaryQueryDto) {
-    return this.reportsService.getSalesSummary(user.organizationId, q);
+    return this.reportsService.getSalesSummary(user.organizationId, q, user.locationIds);
   }
 
   @Get('products')
@@ -217,7 +217,7 @@ export class SalesReportsController {
       ...q,
       page: q.page ?? 1,
       limit: q.limit ?? 50,
-    });
+    }, user.locationIds);
   }
 
   @Get('customers')
@@ -235,7 +235,7 @@ export class SalesReportsController {
   @Permissions(PERMISSIONS.REPORTS.VIEW)
   @ApiOperation({ summary: 'Daily sales report' })
   getDaily(@CurrentUser() user: AuthUser, @Query() q: SalesDailyQueryDto) {
-    return this.reportsService.getSalesDaily(user.organizationId, q);
+    return this.reportsService.getSalesDaily(user.organizationId, q, user.locationIds);
   }
 
   @Get('export')
@@ -273,7 +273,7 @@ export class InventoryReportsController {
   @Permissions(PERMISSIONS.REPORTS.VIEW)
   @ApiOperation({ summary: 'Inventory valuation report' })
   getValuation(@CurrentUser() user: AuthUser, @Query() q: InventoryValuationQueryDto) {
-    return this.reportsService.getInventoryValuation(user.organizationId, q);
+    return this.reportsService.getInventoryValuation(user.organizationId, q, user.locationIds);
   }
 
   @Get('movement')
@@ -284,21 +284,21 @@ export class InventoryReportsController {
       ...q,
       page: q.page ?? 1,
       limit: q.limit ?? 50,
-    });
+    }, user.locationIds);
   }
 
   @Get('low-stock')
   @Permissions(PERMISSIONS.REPORTS.VIEW)
   @ApiOperation({ summary: 'Low stock alerts report' })
   getLowStock(@CurrentUser() user: AuthUser, @Query() q: InventoryLowStockQueryDto) {
-    return this.reportsService.getInventoryLowStock(user.organizationId, q);
+    return this.reportsService.getInventoryLowStock(user.organizationId, q, user.locationIds);
   }
 
   @Get('turnover')
   @Permissions(PERMISSIONS.REPORTS.VIEW)
   @ApiOperation({ summary: 'Inventory turnover report' })
   getTurnover(@CurrentUser() user: AuthUser, @Query() q: InventoryTurnoverQueryDto) {
-    return this.reportsService.getInventoryTurnover(user.organizationId, q);
+    return this.reportsService.getInventoryTurnover(user.organizationId, q, user.locationIds);
   }
 
   @Get('export')
@@ -312,6 +312,7 @@ export class InventoryReportsController {
     const data = await this.reportsService.getInventoryExportData(
       user.organizationId,
       q.type,
+      user.locationIds,
     );
     if (q.format === 'csv') {
       sendCsv(res, `inventory-${q.type}-export.csv`, data);
@@ -335,7 +336,7 @@ export class PurchaseReportsController {
   @Permissions(PERMISSIONS.REPORTS.VIEW)
   @ApiOperation({ summary: 'Purchasing summary report' })
   getSummary(@CurrentUser() user: AuthUser, @Query() q: PurchasingSummaryQueryDto) {
-    return this.reportsService.getPurchasingSummary(user.organizationId, q);
+    return this.reportsService.getPurchasingSummary(user.organizationId, q, user.locationIds);
   }
 
   @Get('suppliers')

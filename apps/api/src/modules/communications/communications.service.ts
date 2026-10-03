@@ -12,8 +12,10 @@ import { EmailService } from './email.service';
 import { AuditService } from '../audit/audit.service';
 import { EmailSubscriptionService } from './email-subscription.service';
 import { EmailComplianceService } from './email-compliance.service';
+import { QueueService } from '../../common/services/queue.service';
 import { encrypt } from '@knef/utils';
 import { ConfigService } from '@nestjs/config';
+import { QUEUES, JOB_TYPES, type CampaignEmailJobData } from '@knef/constants';
 import type { AppConfig } from '../../config/app.config';
 import type {
   CreateEmailProviderDto,
@@ -37,6 +39,7 @@ export class CommunicationsService {
     private readonly audit: AuditService,
     private readonly subscriptionService: EmailSubscriptionService,
     private readonly complianceService: EmailComplianceService,
+    private readonly queue: QueueService,
     private readonly config: ConfigService<AppConfig>,
   ) {}
 
@@ -606,16 +609,11 @@ export class CommunicationsService {
       }
     }
 
-    await this.prisma.emailCampaign.update({
-      where: { id },
-      data: { status: CampaignStatus.SENDING },
-    });
-
     const allRecipients = await this.prisma.emailCampaignRecipient.findMany({
       where: { campaignId: id, status: 'PENDING' },
     });
 
-    // Filter suppressed at send time (not only at creation time)
+    // Filter suppressed at send time
     let eligibleRecipients = allRecipients;
     let suppressedCount = 0;
     if (isMarketing) {
@@ -628,7 +626,6 @@ export class CommunicationsService {
       eligibleRecipients = allRecipients.filter((r) => eligibleSet.has(r.email));
       suppressedCount = filterResult.suppressed.length;
 
-      // Mark suppressed recipients
       const suppressedIds = allRecipients
         .filter((r) => !eligibleSet.has(r.email))
         .map((r) => r.id);
@@ -640,62 +637,61 @@ export class CommunicationsService {
       }
     }
 
-    let sentCount = 0;
+    // Build per-recipient email jobs
+    const fromAddress = campaign.fromEmail
+      ? campaign.fromName
+        ? `${campaign.fromName} <${campaign.fromEmail}>`
+        : campaign.fromEmail
+      : undefined;
 
-    for (const recipient of eligibleRecipients) {
+    const jobs: CampaignEmailJobData[] = eligibleRecipients.map((recipient) => {
       const unsubUrl = this.subscriptionService.generateUnsubscribeToken(
         recipient.email, organizationId, campaign.subscriptionList ?? 'GENERAL_MARKETING',
       );
-      const htmlWithUnsubscribe = (campaign.htmlContent ?? `<p>${campaign.subject}</p>`)
+      const html = (campaign.htmlContent ?? `<p>${campaign.subject}</p>`)
         .replace('{{unsubscribe_url}}', `/unsubscribe/${unsubUrl}`)
         .replace('{{preview_text}}', campaign.previewText ?? '');
-
-      const result = await this.emailService.sendEmail({
-        providerId: campaign.providerId ?? undefined,
+      return {
+        campaignId: id,
+        recipientId: recipient.id,
         organizationId,
         to: recipient.email,
         subject: campaign.subject,
-        html: htmlWithUnsubscribe,
+        html,
         text: campaign.textContent ?? campaign.subject,
-        from: campaign.fromEmail
-          ? campaign.fromName
-            ? `${campaign.fromName} <${campaign.fromEmail}>`
-            : campaign.fromEmail
-          : undefined,
-      });
+        from: fromAddress,
+        providerId: campaign.providerId ?? undefined,
+      };
+    });
 
-      await this.prisma.emailCampaignRecipient.update({
-        where: { id: recipient.id },
-        data: {
-          status: result.success ? 'SENT' : 'FAILED',
-          sentAt: result.success ? new Date() : null,
-          failedAt: result.success ? null : new Date(),
-          errorMessage: result.success ? null : (result.error ?? null),
-          providerMessageId: result.messageId ?? null,
-        },
-      });
-
-      if (result.success) sentCount++;
-    }
-
-    const finalCampaign = await this.prisma.emailCampaign.update({
+    // Mark campaign SENDING and record expected counts before enqueuing
+    const updatedCampaign = await this.prisma.emailCampaign.update({
       where: { id },
       data: {
-        status: CampaignStatus.SENT,
-        sentAt: new Date(),
-        sentCount,
+        status: CampaignStatus.SENDING,
         eligibleCount: eligibleRecipients.length,
         suppressedCount,
       },
     });
 
+    // Enqueue all recipient jobs atomically
+    await this.queue.enqueueBulk(
+      QUEUES.EMAIL,
+      JOB_TYPES.SEND_CAMPAIGN_EMAIL,
+      jobs,
+    );
+
     await this.audit.log({
       organizationId, userId, action: 'CAMPAIGN_SENT',
       entity: 'EmailCampaign', entityId: id,
-      metadata: { sentCount, suppressedCount, totalRecipients: allRecipients.length },
+      metadata: {
+        queued: eligibleRecipients.length,
+        suppressedCount,
+        totalRecipients: allRecipients.length,
+      },
     }).catch(() => {});
 
-    return finalCampaign;
+    return updatedCampaign;
   }
 
   async deleteCampaign(organizationId: string, id: string) {

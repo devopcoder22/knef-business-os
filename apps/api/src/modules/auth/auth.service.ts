@@ -369,8 +369,14 @@ export class AuthService {
       },
     });
 
-    // TODO-PHASE1: Send email with reset link
-    this.logger.log(`Password reset token generated for ${email} (not sent — SMTP not configured in Phase 0)`);
+    this.eventEmitter.emit(EVENTS.USER.PASSWORD_RESET_REQUESTED, {
+      userId: user.id,
+      organizationId: user.organizationId,
+      email: user.email,
+      firstName: user.firstName ?? null,
+      token, // plaintext — used by listener to construct the reset URL
+      expires,
+    });
   }
 
   // ─── Reset password ──────────────────────────────────────────────────────────

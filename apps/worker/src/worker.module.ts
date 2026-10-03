@@ -1,0 +1,54 @@
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import workerConfig, { validateWorkerConfig } from './config/worker.config';
+
+// Services
+import { PrismaService } from './services/prisma.service';
+import { EmailSenderService } from './services/email-sender.service';
+
+// Processors
+import { EmailProcessor } from './processors/email.processor';
+import { NotificationsProcessor } from './processors/notifications.processor';
+import { AIAgentProcessor } from './processors/ai-agent.processor';
+import { ReportsProcessor } from './processors/reports.processor';
+import { DocumentsProcessor } from './processors/documents.processor';
+import { BackupProcessor } from './processors/backup.processor';
+import { CalendarProcessor } from './processors/calendar.processor';
+
+// Schedulers
+import { CampaignScheduler } from './schedulers/campaign.scheduler';
+import { AIAgentScheduler } from './schedulers/ai-agent.scheduler';
+import { CalendarSyncScheduler } from './schedulers/calendar-sync.scheduler';
+import { BackupScheduler } from './schedulers/backup.scheduler';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      load: [workerConfig],
+      validate: (config) => validateWorkerConfig(config),
+      cache: true,
+    }),
+  ],
+  providers: [
+    // Infrastructure
+    PrismaService,
+    EmailSenderService,
+
+    // Processors
+    EmailProcessor,
+    NotificationsProcessor,
+    AIAgentProcessor,
+    ReportsProcessor,
+    DocumentsProcessor,
+    BackupProcessor,
+    CalendarProcessor,
+
+    // Schedulers
+    CampaignScheduler,
+    AIAgentScheduler,
+    CalendarSyncScheduler,
+    BackupScheduler,
+  ],
+})
+export class WorkerModule {}

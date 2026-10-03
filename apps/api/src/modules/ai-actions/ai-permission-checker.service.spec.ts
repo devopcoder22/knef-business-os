@@ -3,6 +3,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { AIPermissionCheckerService } from './ai-permission-checker.service';
 import { PermissionsService } from '../permissions/permissions.service';
 import { AuditService } from '../audit/audit.service';
+import { LocationScopeService } from '../../common/services/location-scope.service';
 
 describe('AIPermissionCheckerService', () => {
   let service: AIPermissionCheckerService;
@@ -23,6 +24,12 @@ describe('AIPermissionCheckerService', () => {
           provide: AuditService,
           useValue: {
             log: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: LocationScopeService,
+          useValue: {
+            getUserLocationIds: jest.fn().mockResolvedValue(null),
           },
         },
       ],

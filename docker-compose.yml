@@ -65,6 +65,7 @@ services:
     restart: unless-stopped
     volumes:
       - uploads:/app/uploads
+      - backups:/app/backups
 
   mcp-server:
     build:

@@ -32,21 +32,21 @@ export class StockTransfersController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
-    return this.stockTransfersService.findAll(user.organizationId, { page, limit });
+    return this.stockTransfersService.findAll(user.organizationId, { page, limit }, user.locationIds);
   }
 
   @Get(':id')
   @Permissions(PERMISSIONS.INVENTORY.VIEW)
   @ApiOperation({ summary: 'Get stock transfer by ID' })
   findOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.stockTransfersService.findOne(user.organizationId, id);
+    return this.stockTransfersService.findOne(user.organizationId, id, user.locationIds);
   }
 
   @Post()
   @Permissions(PERMISSIONS.INVENTORY.TRANSFER)
   @ApiOperation({ summary: 'Create a new stock transfer' })
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateStockTransferDto) {
-    return this.stockTransfersService.create(user.organizationId, dto, user.id);
+    return this.stockTransfersService.create(user.organizationId, dto, user.id, user.locationIds);
   }
 
   @Post(':id/items')
@@ -57,7 +57,7 @@ export class StockTransfersController {
     @Param('id') id: string,
     @Body() items: StockTransferItemDto[],
   ) {
-    return this.stockTransfersService.addItems(user.organizationId, id, items);
+    return this.stockTransfersService.addItems(user.organizationId, id, items, user.locationIds);
   }
 
   @Patch(':id/submit')
@@ -65,7 +65,7 @@ export class StockTransfersController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Submit a draft transfer for approval' })
   submit(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.stockTransfersService.submit(user.organizationId, id, user.id);
+    return this.stockTransfersService.submit(user.organizationId, id, user.id, user.locationIds);
   }
 
   @Patch(':id/approve')
@@ -73,7 +73,7 @@ export class StockTransfersController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Approve a pending transfer (moves to IN_TRANSIT)' })
   approve(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.stockTransfersService.approve(user.organizationId, id, user.id);
+    return this.stockTransfersService.approve(user.organizationId, id, user.id, user.locationIds);
   }
 
   @Patch(':id/receive')
@@ -90,6 +90,7 @@ export class StockTransfersController {
       id,
       dto.items,
       user.id,
+      user.locationIds,
     );
   }
 
@@ -98,6 +99,6 @@ export class StockTransfersController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Cancel a transfer' })
   cancel(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.stockTransfersService.cancel(user.organizationId, id, user.id);
+    return this.stockTransfersService.cancel(user.organizationId, id, user.id, user.locationIds);
   }
 }

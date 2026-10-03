@@ -9,7 +9,7 @@ export interface CommandResult {
 export class TelegramCommandService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async handleSales(organizationId: string): Promise<CommandResult> {
+  async handleSales(organizationId: string, locationIds?: string[] | null): Promise<CommandResult> {
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const weekStart = new Date(now);
@@ -17,11 +17,19 @@ export class TelegramCommandService {
 
     const [todayOrders, weekOrders] = await Promise.all([
       this.prisma.salesOrder.findMany({
-        where: { organizationId, createdAt: { gte: todayStart } },
+        where: {
+          organizationId,
+          createdAt: { gte: todayStart },
+          ...(locationIds != null ? { locationId: { in: locationIds } } : {}),
+        },
         select: { totalAmount: true, status: true },
       }),
       this.prisma.salesOrder.findMany({
-        where: { organizationId, createdAt: { gte: weekStart } },
+        where: {
+          organizationId,
+          createdAt: { gte: weekStart },
+          ...(locationIds != null ? { locationId: { in: locationIds } } : {}),
+        },
         select: { totalAmount: true, status: true },
       }),
     ]);
@@ -45,7 +53,7 @@ export class TelegramCommandService {
     };
   }
 
-  async handleInventory(organizationId: string): Promise<CommandResult> {
+  async handleInventory(organizationId: string, locationIds?: string[] | null): Promise<CommandResult> {
     const products = await this.prisma.product.findMany({
       where: {
         organizationId,
@@ -57,7 +65,10 @@ export class TelegramCommandService {
         name: true,
         sku: true,
         lowStockAlert: true,
-        inventoryLevels: { select: { quantity: true } },
+        inventoryLevels: {
+          where: locationIds != null ? { locationId: { in: locationIds } } : undefined,
+          select: { quantity: true },
+        },
       },
     });
 
@@ -191,10 +202,10 @@ export class TelegramCommandService {
     return { text: `🎯 <b>Goals Progress</b>\n\n${lines}` };
   }
 
-  async handleDaily(organizationId: string, userId: string): Promise<CommandResult> {
+  async handleDaily(organizationId: string, userId: string, locationIds?: string[] | null): Promise<CommandResult> {
     const [sales, inventory, profit, tasks, orders] = await Promise.all([
-      this.handleSales(organizationId),
-      this.handleInventory(organizationId),
+      this.handleSales(organizationId, locationIds),
+      this.handleInventory(organizationId, locationIds),
       this.handleProfit(organizationId),
       this.handleTasks(organizationId, userId),
       this.handleOrders(organizationId),

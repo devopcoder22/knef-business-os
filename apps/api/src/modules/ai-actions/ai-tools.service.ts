@@ -109,7 +109,7 @@ export class AIToolsService {
     });
 
     try {
-      const result = await this.executor.execute(tool, parameters, orgId);
+      const result = await this.executor.execute(tool, parameters, orgId, context.locationIds ?? null);
       const updated = await this.prisma.aIAction.update({
         where: { id: action.id },
         data: {

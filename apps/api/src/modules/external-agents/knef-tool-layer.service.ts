@@ -31,6 +31,8 @@ export interface ToolExecutionRequest {
   requestId?: string;
   /** Client idempotency key for write operations */
   idempotencyKey?: string;
+  /** Authorized location IDs for the caller. null = org-wide access. */
+  locationIds?: string[] | null;
 }
 
 export interface ToolExecutionResult {
@@ -109,6 +111,11 @@ export class KnefToolLayerService {
     // 4. Enforce organization isolation — strip any caller-supplied org override
     const safeParameters = this.enforceOrgIsolation(req.parameters, req.organizationId);
 
+    // 4b. Enforce location isolation for location-scoped callers
+    // External agents always get org-wide access (null); user-sourced calls carry locationIds.
+    const locationIds = req.externalAgent ? null : (req.locationIds ?? null);
+    const locationSafeParameters = this.enforceLocationIsolation(safeParameters, locationIds, requestId);
+
     // 5. Check idempotency for write tools
     if (req.idempotencyKey && this.isWriteTool(definition)) {
       const duplicate = await this.checkIdempotency(req, requestId);
@@ -125,8 +132,9 @@ export class KnefToolLayerService {
         organizationId: req.organizationId,
         userId: callerUserId,
         toolName: req.toolName,
-        parameters: safeParameters,
+        parameters: locationSafeParameters,
         agentId,
+        locationIds,
       });
     } catch (err) {
       this.logger.error(`Policy evaluation failed for tool=${req.toolName}`, err);
@@ -312,6 +320,33 @@ export class KnefToolLayerService {
     // Do not allow caller to override these — they are always derived from the authenticated context
     delete safe['organizationId'];
     return safe;
+  }
+
+  /**
+   * Validates that any caller-supplied locationId is within the caller's authorized set.
+   * For org-wide callers (locationIds === null) no restriction is applied.
+   */
+  private enforceLocationIsolation(
+    parameters: Record<string, unknown>,
+    locationIds: string[] | null,
+    requestId: string,
+  ): Record<string, unknown> {
+    if (locationIds === null) return parameters; // org-wide, no restriction
+
+    const result = { ...parameters };
+
+    // Validate any caller-supplied locationId
+    if (result['locationId'] && typeof result['locationId'] === 'string') {
+      if (!locationIds.includes(result['locationId'])) {
+        throw new ForbiddenException({
+          code: 'LOCATION_NOT_AUTHORIZED',
+          message: 'Not authorized for this location',
+          requestId,
+        });
+      }
+    }
+
+    return result;
   }
 
   private isWriteTool(def: ToolPermissionDefinition): boolean {

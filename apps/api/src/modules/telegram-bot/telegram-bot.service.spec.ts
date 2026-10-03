@@ -359,6 +359,8 @@ describe('TelegramAssistantService', () => {
     plan: { findMany: jest.fn(async () => []) },
   };
 
+  const mockLocationScope = { getUserLocationIds: jest.fn(async () => null) };
+
   function makeSvc(effective: string[], commandOverrides?: Partial<ReturnType<typeof makeCommandService>>) {
     const perms = makePermissions(effective);
     const commands = { ...makeCommandService(), ...commandOverrides };
@@ -366,7 +368,7 @@ describe('TelegramAssistantService', () => {
       complete: jest.fn(async () => ({ content: 'AI response' })),
     };
     return {
-      svc: new TelegramAssistantService(aiCompletion as never, perms as never, commands as never, mockPrisma as never),
+      svc: new TelegramAssistantService(aiCompletion as never, perms as never, mockLocationScope as never, commands as never, mockPrisma as never),
       perms,
       commands,
       aiCompletion,
@@ -386,7 +388,7 @@ describe('TelegramAssistantService', () => {
     const perms = makePermissions(['sales.view']);
     const commands = makeCommandService();
     const aiCompletion = { complete: jest.fn().mockRejectedValue(new Error('provider unavailable')) };
-    const svc = new TelegramAssistantService(aiCompletion as never, perms as never, commands as never, mockPrisma as never);
+    const svc = new TelegramAssistantService(aiCompletion as never, perms as never, mockLocationScope as never, commands as never, mockPrisma as never);
     const reply = await svc.handleNaturalLanguage('org1', 'user1', 'hello?');
     expect(reply).toContain('error');
   });
@@ -423,12 +425,14 @@ describe('TelegramAssistantService — permission-gated context loading', () => 
     plan: { findMany: jest.fn(async () => []) },
   };
 
+  const mockLocationScope2 = { getUserLocationIds: jest.fn(async () => null) };
+
   function makeSvc(effective: string[]) {
     const perms = makePermissions(effective);
     const commands = makeCommandService();
     const ai = makeAi();
     return {
-      svc: new TelegramAssistantService(ai as never, perms as never, commands as never, mockPrisma2 as never),
+      svc: new TelegramAssistantService(ai as never, perms as never, mockLocationScope2 as never, commands as never, mockPrisma2 as never),
       perms,
       commands,
       ai,
@@ -576,6 +580,8 @@ describe('TelegramBotController — command permission gating', () => {
       getResolvedPermissions: jest.fn(async () => ({ data: { effective: effectivePerms } })),
     };
 
+    const locationScope = { getUserLocationIds: jest.fn(async () => null) };
+
     const controller = new TelegramBotController(
       prisma as never,
       config as never,
@@ -584,6 +590,7 @@ describe('TelegramBotController — command permission gating', () => {
       commandService as never,
       assistantService as never,
       permissionsService as never,
+      locationScope as never,
     );
 
     async function send(text: string) {

@@ -8,6 +8,7 @@ import { NotificationsService } from './notifications.service';
 import { TelegramService } from './telegram.service';
 import { WebhooksService } from './webhooks.service';
 import { AuditModule } from '../audit/audit.module';
+import { TelegramBotModule } from '../telegram-bot/telegram-bot.module';
 import {
   EmailProvidersController,
   TemplatesController,
@@ -21,7 +22,7 @@ import {
 } from './communications.controller';
 
 @Module({
-  imports: [AuditModule],
+  imports: [AuditModule, TelegramBotModule],
   providers: [
     CommunicationsService,
     EmailService,

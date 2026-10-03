@@ -20,6 +20,7 @@ import { AIToolsService } from './ai-tools.service';
 import { AIApprovalsService } from './ai-approvals.service';
 import { AIScheduledAgentsService } from './ai-scheduled-agents.service';
 import { AIPermissionCheckerService } from './ai-permission-checker.service';
+import { AIExecutionPolicyService } from './ai-execution-policy.service';
 
 import {
   CreateAIToolDto,
@@ -32,6 +33,9 @@ import {
   CreateScheduledAgentDto,
   UpdateScheduledAgentDto,
   ToggleAgentDto,
+  CreateAutonomyPolicyDto,
+  UpdateAutonomyPolicyDto,
+  EvaluatePolicyDto,
 } from './dto/ai-actions.dto';
 
 // ── AI Tools Controller ──────────────────────────────────────────
@@ -214,5 +218,72 @@ export class AIScheduledAgentsController {
   @ApiOperation({ summary: 'Run agent now' })
   runAgentNow(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.agentsService.runAgentNow(user.organizationId, id, user.id);
+  }
+}
+
+// ── AI Autonomy Policies Controller ─────────────────────────────
+
+@ApiTags('ai-autonomy')
+@ApiBearerAuth('JWT')
+@Controller('ai/autonomy')
+export class AIAutonomyController {
+  constructor(private readonly policyService: AIExecutionPolicyService) {}
+
+  @Get('policies')
+  @Permissions(PERMISSIONS.AI.AUTONOMY)
+  @ApiOperation({ summary: 'List autonomy policies for this org' })
+  listPolicies(@CurrentUser() user: AuthUser) {
+    return this.policyService.listPolicies(user.organizationId);
+  }
+
+  @Post('policies')
+  @Permissions(PERMISSIONS.AI.AUTONOMY)
+  @ApiOperation({ summary: 'Create or update an autonomy policy' })
+  upsertPolicy(@CurrentUser() user: AuthUser, @Body() dto: CreateAutonomyPolicyDto) {
+    return this.policyService.upsertPolicy(user.organizationId, dto, user.id);
+  }
+
+  @Patch('policies/:id')
+  @Permissions(PERMISSIONS.AI.AUTONOMY)
+  @ApiOperation({ summary: 'Update an autonomy policy' })
+  updatePolicy(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateAutonomyPolicyDto,
+  ) {
+    return this.policyService.updatePolicy(user.organizationId, id, dto, user.id);
+  }
+
+  @Delete('policies/:id')
+  @Permissions(PERMISSIONS.AI.AUTONOMY)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Delete an autonomy policy' })
+  deletePolicy(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.policyService.deletePolicy(user.organizationId, id);
+  }
+
+  @Get('policies/effective')
+  @Permissions(PERMISSIONS.AI.AUTONOMY)
+  @ApiOperation({ summary: 'Get effective policy for a scope' })
+  getEffective(
+    @CurrentUser() user: AuthUser,
+    @Query('scope') scope: string,
+    @Query('scopeId') scopeId?: string,
+  ) {
+    return this.policyService.getEffectivePolicy(user.organizationId, scope, scopeId);
+  }
+
+  @Post('evaluate')
+  @Permissions(PERMISSIONS.AI.TOOLS)
+  @ApiOperation({ summary: 'Evaluate policy for a tool call (dry run or real)' })
+  evaluate(@CurrentUser() user: AuthUser, @Body() dto: EvaluatePolicyDto) {
+    return this.policyService.evaluate({
+      organizationId: user.organizationId,
+      userId: user.id,
+      toolName: dto.toolName,
+      parameters: dto.parameters,
+      agentId: dto.agentId,
+      locationIds: user.locationIds,
+    });
   }
 }

@@ -20,6 +20,7 @@ import { TelegramService } from './telegram.service';
 import { WebhooksService } from './webhooks.service';
 import { EmailSubscriptionService } from './email-subscription.service';
 import { ProviderWebhooksService } from './provider-webhooks.service';
+import { TelegramLinkingService } from '../telegram-bot/telegram-linking.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { Public } from '../../common/decorators/public.decorator';
@@ -41,6 +42,7 @@ import {
   UpdatePreferencesDto,
   UpsertTelegramConfigDto,
   UpdateTelegramSettingsDto,
+  UpdateUserTelegramPrefsDto,
   CreateWebhookEndpointDto,
   UpdateWebhookEndpointDto,
   ListNotificationsDto,
@@ -470,6 +472,7 @@ export class TelegramController {
   constructor(
     private readonly commsService: CommunicationsService,
     private readonly telegramService: TelegramService,
+    private readonly linkingService: TelegramLinkingService,
   ) {}
 
   @Get('config')
@@ -503,6 +506,44 @@ export class TelegramController {
       '<b>KNEF Business OS</b> — Test message. Telegram is configured correctly!',
     );
     return { success, message: success ? 'Test message sent' : 'Failed to send test message' };
+  }
+
+  @Post('generate-link-code')
+  @Permissions(PERMISSIONS.COMMUNICATIONS.TELEGRAM)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Generate a 6-digit code to link a Telegram account' })
+  async generateLinkCode(@CurrentUser() user: AuthUser) {
+    const code = await this.linkingService.generateLinkCode(user.id, user.organizationId);
+    return { code, expiresInSeconds: 600 };
+  }
+
+  @Get('linked-users')
+  @Permissions(PERMISSIONS.COMMUNICATIONS.TELEGRAM)
+  @ApiOperation({ summary: 'List linked Telegram users' })
+  async listLinkedUsers(@CurrentUser() user: AuthUser) {
+    return this.linkingService.getLinkedUsers(user.organizationId);
+  }
+
+  @Delete('linked-users/:userId')
+  @Permissions(PERMISSIONS.COMMUNICATIONS.TELEGRAM)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Unlink a user\'s Telegram account' })
+  async unlinkUser(@CurrentUser() user: AuthUser, @Param('userId') userId: string) {
+    await this.linkingService.unlinkAccount(user.organizationId, userId);
+    return { success: true };
+  }
+
+  @Patch('linked-users/:userId/preferences')
+  @Permissions(PERMISSIONS.COMMUNICATIONS.TELEGRAM)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Update per-user Telegram notification preferences' })
+  async updateUserPrefs(
+    @CurrentUser() user: AuthUser,
+    @Param('userId') userId: string,
+    @Body() dto: UpdateUserTelegramPrefsDto,
+  ) {
+    await this.linkingService.updateUserPreferences(user.organizationId, userId, dto);
+    return { success: true };
   }
 }
 

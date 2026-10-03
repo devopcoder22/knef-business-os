@@ -31,21 +31,21 @@ export class StockAdjustmentsController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
-    return this.stockAdjustmentsService.findAll(user.organizationId, { page, limit });
+    return this.stockAdjustmentsService.findAll(user.organizationId, { page, limit }, user.locationIds);
   }
 
   @Get(':id')
   @Permissions(PERMISSIONS.INVENTORY.VIEW)
   @ApiOperation({ summary: 'Get a stock adjustment by ID' })
   findOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.stockAdjustmentsService.findOne(user.organizationId, id);
+    return this.stockAdjustmentsService.findOne(user.organizationId, id, user.locationIds);
   }
 
   @Post()
   @Permissions(PERMISSIONS.INVENTORY.ADJUST)
   @ApiOperation({ summary: 'Create a stock adjustment (PENDING state)' })
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateStockAdjustmentDto) {
-    return this.stockAdjustmentsService.create(user.organizationId, dto, user.id);
+    return this.stockAdjustmentsService.create(user.organizationId, dto, user.id, user.locationIds);
   }
 
   @Patch(':id/approve')
@@ -53,7 +53,7 @@ export class StockAdjustmentsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Approve a stock adjustment (applies movements)' })
   approve(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.stockAdjustmentsService.approve(user.organizationId, id, user.id);
+    return this.stockAdjustmentsService.approve(user.organizationId, id, user.id, user.locationIds);
   }
 
   @Patch(':id/reject')
@@ -70,6 +70,7 @@ export class StockAdjustmentsController {
       id,
       user.id,
       body.reason,
+      user.locationIds,
     );
   }
 }

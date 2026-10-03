@@ -7,6 +7,7 @@ import {
 import { createId } from '@paralleldrive/cuid2';
 import { PrismaService } from '../../common/services/prisma.service';
 import { RedisService } from '../../common/services/redis.service';
+import { AuditService } from '../audit/audit.service';
 import type { CreateRoleDto } from './dto/create-role.dto';
 import type { UpdateRoleDto } from './dto/update-role.dto';
 
@@ -15,6 +16,7 @@ export class RolesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly auditService: AuditService,
   ) {}
 
   async findAll(organizationId: string) {
@@ -45,8 +47,8 @@ export class RolesService {
     });
     if (existing) throw new ConflictException(`Role '${dto.name}' already exists`);
 
-    return this.prisma.$transaction(async (tx) => {
-      const role = await tx.role.create({
+    const role = await this.prisma.$transaction(async (tx) => {
+      const newRole = await tx.role.create({
         data: {
           id: createId(),
           organizationId,
@@ -60,19 +62,29 @@ export class RolesService {
         await tx.rolePermission.createMany({
           data: dto.permissions.map((p) => ({
             id: createId(),
-            roleId: role.id,
+            roleId: newRole.id,
             permission: p,
           })),
           skipDuplicates: true,
         });
       }
 
-      return role;
+      return newRole;
     });
+
+    await this.auditService.log({
+      organizationId,
+      action: 'ROLE_CREATED',
+      entity: 'Role',
+      entityId: role.id,
+      newValues: { name: role.name, description: role.description, permissions: dto.permissions ?? [] },
+    });
+
+    return role;
   }
 
   async update(organizationId: string, id: string, dto: UpdateRoleDto) {
-    const role = await this.findOne(organizationId, id);
+    const oldRole = await this.findOne(organizationId, id);
 
     await this.prisma.$transaction(async (tx) => {
       if (dto.description !== undefined) {
@@ -104,6 +116,15 @@ export class RolesService {
       }
     });
 
+    await this.auditService.log({
+      organizationId,
+      action: 'ROLE_UPDATED',
+      entity: 'Role',
+      entityId: id,
+      oldValues: { description: oldRole.description, permissions: oldRole.permissions.map((p) => p.permission) },
+      newValues: { description: dto.description, permissions: dto.permissions },
+    });
+
     return this.findOne(organizationId, id);
   }
 
@@ -116,6 +137,15 @@ export class RolesService {
     });
 
     await this.invalidateRoleUsersCache(id);
+
+    await this.auditService.log({
+      organizationId,
+      action: 'ROLE_PERMISSIONS_ADDED',
+      entity: 'Role',
+      entityId: id,
+      newValues: { permissions },
+    });
+
     return this.findOne(organizationId, id);
   }
 
@@ -127,6 +157,15 @@ export class RolesService {
     });
 
     await this.invalidateRoleUsersCache(id);
+
+    await this.auditService.log({
+      organizationId,
+      action: 'ROLE_PERMISSIONS_REMOVED',
+      entity: 'Role',
+      entityId: id,
+      oldValues: { permissions },
+    });
+
     return this.findOne(organizationId, id);
   }
 
@@ -138,8 +177,8 @@ export class RolesService {
     });
     if (existing) throw new ConflictException(`Role '${newName}' already exists`);
 
-    return this.prisma.$transaction(async (tx) => {
-      const newRole = await tx.role.create({
+    const newRole = await this.prisma.$transaction(async (tx) => {
+      const createdRole = await tx.role.create({
         data: {
           id: createId(),
           organizationId,
@@ -152,13 +191,23 @@ export class RolesService {
       const perms = source.permissions.map((p) => p.permission);
       if (perms.length > 0) {
         await tx.rolePermission.createMany({
-          data: perms.map((p) => ({ id: createId(), roleId: newRole.id, permission: p })),
+          data: perms.map((p) => ({ id: createId(), roleId: createdRole.id, permission: p })),
           skipDuplicates: true,
         });
       }
 
-      return newRole;
+      return createdRole;
     });
+
+    await this.auditService.log({
+      organizationId,
+      action: 'ROLE_CLONED',
+      entity: 'Role',
+      entityId: newRole.id,
+      newValues: { name: newRole.name, clonedFrom: sourceId },
+    });
+
+    return newRole;
   }
 
   async remove(organizationId: string, id: string) {
@@ -176,7 +225,54 @@ export class RolesService {
     }
 
     await this.prisma.role.delete({ where: { id } });
+
+    await this.auditService.log({
+      organizationId,
+      action: 'ROLE_DELETED',
+      entity: 'Role',
+      entityId: id,
+      oldValues: { name: role.name },
+    });
+
     return { message: 'Role deleted successfully' };
+  }
+
+  async deactivate(organizationId: string, id: string, actorId: string) {
+    const role = await this.findOne(organizationId, id);
+    if (role.isSystem) throw new ForbiddenException('System roles cannot be deactivated');
+
+    await this.prisma.role.update({ where: { id }, data: { isActive: false } });
+    await this.invalidateRoleUsersCache(id);
+
+    await this.auditService.log({
+      organizationId,
+      userId: actorId,
+      action: 'ROLE_DEACTIVATED',
+      entity: 'Role',
+      entityId: id,
+      oldValues: { isActive: true },
+      newValues: { isActive: false },
+    });
+
+    return { message: 'Role deactivated' };
+  }
+
+  async activate(organizationId: string, id: string, actorId: string) {
+    await this.findOne(organizationId, id);
+    await this.prisma.role.update({ where: { id }, data: { isActive: true } });
+    await this.invalidateRoleUsersCache(id);
+
+    await this.auditService.log({
+      organizationId,
+      userId: actorId,
+      action: 'ROLE_ACTIVATED',
+      entity: 'Role',
+      entityId: id,
+      oldValues: { isActive: false },
+      newValues: { isActive: true },
+    });
+
+    return { message: 'Role activated' };
   }
 
   private async invalidateRoleUsersCache(roleId: string): Promise<void> {

@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
 import type { AITool, TaskPriority, TaskStatus } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
@@ -22,22 +22,23 @@ export class AIToolExecutorService {
     tool: AITool,
     parameters: Record<string, unknown>,
     orgId: string,
+    locationIds?: string[] | null,
   ): Promise<unknown> {
     switch (tool.name) {
       case 'get_inventory_levels':
-        return this.getInventoryLevels(orgId, parameters);
+        return this.getInventoryLevels(orgId, parameters, locationIds ?? null);
       case 'get_sales_summary':
-        return this.getSalesSummary(orgId, parameters);
+        return this.getSalesSummary(orgId, parameters, locationIds ?? null);
       case 'get_low_stock_products':
-        return this.getLowStockProducts(orgId);
+        return this.getLowStockProducts(orgId, locationIds ?? null);
       case 'create_purchase_order':
-        return this.createPurchaseOrder(orgId, parameters);
+        return this.createPurchaseOrder(orgId, parameters, locationIds ?? null);
+      case 'get_orders':
+        return this.getOrders(orgId, parameters, locationIds ?? null);
       case 'send_notification':
         return this.sendNotification(orgId, parameters);
       case 'get_financial_summary':
         return this.getFinancialSummary(orgId, parameters);
-      case 'get_orders':
-        return this.getOrders(orgId, parameters);
       case 'get_tasks':
         return this.getTasks(orgId, parameters);
       case 'create_task':
@@ -54,6 +55,7 @@ export class AIToolExecutorService {
   private async getInventoryLevels(
     orgId: string,
     params: Record<string, unknown>,
+    locationIds: string[] | null,
   ): Promise<unknown> {
     const where: Record<string, unknown> = {};
 
@@ -74,7 +76,14 @@ export class AIToolExecutorService {
     }
 
     if (params.locationId && typeof params.locationId === 'string') {
+      // Validate against user's authorized locations
+      if (locationIds !== null && !locationIds.includes(params.locationId)) {
+        return { levels: [], message: 'Not authorized for this location' };
+      }
       where.locationId = params.locationId;
+    } else if (locationIds !== null) {
+      // No specific location requested: scope to authorized locations
+      where.locationId = { in: locationIds };
     }
 
     const levels = await this.prisma.inventoryLevel.findMany({
@@ -91,6 +100,7 @@ export class AIToolExecutorService {
   private async getSalesSummary(
     orgId: string,
     params: Record<string, unknown>,
+    locationIds: string[] | null,
   ): Promise<{ totalRevenue: string; totalOrders: number }> {
     const startDate = params.startDate ? new Date(params.startDate as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const endDate = params.endDate ? new Date(params.endDate as string) : new Date();
@@ -100,6 +110,7 @@ export class AIToolExecutorService {
         organizationId: orgId,
         status: 'COMPLETED',
         createdAt: { gte: startDate, lte: endDate },
+        ...(locationIds !== null ? { locationId: { in: locationIds } } : {}),
       },
       select: { totalAmount: true },
     });
@@ -112,7 +123,7 @@ export class AIToolExecutorService {
     };
   }
 
-  private async getLowStockProducts(orgId: string): Promise<unknown> {
+  private async getLowStockProducts(orgId: string, locationIds: string[] | null): Promise<unknown> {
     const products = await this.prisma.product.findMany({
       where: { organizationId: orgId, trackInventory: true },
       select: {
@@ -121,6 +132,7 @@ export class AIToolExecutorService {
         sku: true,
         lowStockAlert: true,
         inventoryLevels: {
+          where: locationIds !== null ? { locationId: { in: locationIds } } : undefined,
           select: { quantity: true, location: { select: { name: true } } },
         },
       },
@@ -147,6 +159,7 @@ export class AIToolExecutorService {
   private async createPurchaseOrder(
     orgId: string,
     params: Record<string, unknown>,
+    locationIds: string[] | null,
   ): Promise<unknown> {
     const supplierId = params.supplierId as string;
     const locationId = params.locationId as string;
@@ -154,6 +167,10 @@ export class AIToolExecutorService {
 
     if (!supplierId || !locationId) {
       throw new BadRequestException('supplierId and locationId are required');
+    }
+
+    if (locationIds !== null && locationId && !locationIds.includes(locationId)) {
+      throw new ForbiddenException('Not authorized to create purchase orders for this location');
     }
 
     const reference = `PO-AI-${Date.now()}`;
@@ -258,11 +275,15 @@ export class AIToolExecutorService {
   private async getOrders(
     orgId: string,
     params: Record<string, unknown>,
+    locationIds: string[] | null,
   ): Promise<unknown> {
     const limit = Math.min(Number(params.limit ?? 20), 50);
     const where: Record<string, unknown> = { organizationId: orgId };
     if (params.status && typeof params.status === 'string') {
       where.status = params.status;
+    }
+    if (locationIds !== null) {
+      where.locationId = { in: locationIds };
     }
 
     const orders = await this.prisma.salesOrder.findMany({

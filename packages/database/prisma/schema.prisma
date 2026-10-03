@@ -127,6 +127,7 @@ model User {
   employee           Employee?
   posSessions        POSSession[]
   salesOrders        SalesOrder[]
+  userFeatureFlags   UserFeatureFlag[]
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -154,6 +155,7 @@ model Role {
   name           String
   description    String?
   isSystem       Boolean  @default(false)
+  isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -2304,6 +2306,21 @@ model FeatureFlag {
 
   @@unique([organizationId, key])
   @@index([organizationId])
+}
+
+model UserFeatureFlag {
+  id         String   @id @default(cuid())
+  userId     String
+  featureKey String
+  state      String   @default("INHERIT")
+  updatedBy  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, featureKey])
+  @@index([userId])
 }
 
 model SystemSetting {

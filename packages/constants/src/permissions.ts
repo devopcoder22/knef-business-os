@@ -169,6 +169,8 @@ export const PERMISSIONS = {
     VIEW_AUDIT: 'admin.view_audit',
     MANAGE_LOCATIONS: 'admin.manage_locations',
     MANAGE_DEPARTMENTS: 'admin.manage_departments',
+    MANAGE_API_KEYS: 'admin.manage_api_keys',
+    VIEW_SECURITY: 'admin.view_security',
   },
 } as const;
 

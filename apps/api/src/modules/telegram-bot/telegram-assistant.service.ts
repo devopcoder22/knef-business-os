@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AICompletionService } from '../ai/ai-completion.service';
 import { PermissionsService } from '../permissions/permissions.service';
+import { LocationScopeService } from '../../common/services/location-scope.service';
 import { PrismaService } from '../../common/services/prisma.service';
 import { TelegramCommandService } from './telegram-command.service';
 import { PERMISSIONS } from '@knef/constants';
@@ -31,6 +32,7 @@ export class TelegramAssistantService {
   constructor(
     private readonly aiCompletion: AICompletionService,
     private readonly permissionsService: PermissionsService,
+    private readonly locationScope: LocationScopeService,
     private readonly commands: TelegramCommandService,
     private readonly prisma: PrismaService,
   ) {}
@@ -41,9 +43,12 @@ export class TelegramAssistantService {
     message: string,
   ): Promise<string> {
     try {
-      // Step 1: resolve effective permissions for this specific user.
+      // Step 1: resolve effective permissions and location scope for this specific user.
       // This is the ONLY authorization gate — no data is fetched before this.
-      const permResult = await this.permissionsService.getResolvedPermissions(organizationId, userId);
+      const [permResult, locationIds] = await Promise.all([
+        this.permissionsService.getResolvedPermissions(organizationId, userId),
+        this.locationScope.getUserLocationIds(userId),
+      ]);
       const effective = new Set<string>(permResult.data.effective);
 
       // Step 2: fetch only the data categories the user is authorized to see.
@@ -54,7 +59,7 @@ export class TelegramAssistantService {
 
       if (effective.has(PERMISSIONS.SALES.VIEW) || effective.has(PERMISSIONS.REPORTS.VIEW)) {
         fetches.push(
-          this.commands.handleSales(organizationId).then((r) => ({
+          this.commands.handleSales(organizationId, locationIds).then((r) => ({
             label: 'SALES DATA',
             text: r.text,
           })),
@@ -63,7 +68,7 @@ export class TelegramAssistantService {
 
       if (effective.has(PERMISSIONS.INVENTORY.VIEW)) {
         fetches.push(
-          this.commands.handleInventory(organizationId).then((r) => ({
+          this.commands.handleInventory(organizationId, locationIds).then((r) => ({
             label: 'INVENTORY DATA',
             text: r.text,
           })),

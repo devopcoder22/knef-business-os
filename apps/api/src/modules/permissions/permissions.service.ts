@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
 import { PrismaService } from '../../common/services/prisma.service';
 import { RedisService } from '../../common/services/redis.service';
+import { AuditService } from '../audit/audit.service';
 import { ALL_PERMISSIONS, PERMISSIONS } from '@knef/constants';
 
 interface SetOverrideDto {
@@ -15,6 +16,7 @@ export class PermissionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly auditService: AuditService,
   ) {}
 
   getRegistry() {
@@ -102,6 +104,10 @@ export class PermissionsService {
     });
     if (!user) throw new NotFoundException('User not found');
 
+    const existing = await this.prisma.userPermissionOverride.findUnique({
+      where: { userId_permission: { userId: targetUserId, permission: dto.permission } },
+    });
+
     await this.prisma.userPermissionOverride.upsert({
       where: {
         userId_permission: {
@@ -127,6 +133,16 @@ export class PermissionsService {
     // Invalidate cache
     await this.redis.del(`perms:${targetUserId}`);
 
+    await this.auditService.log({
+      organizationId,
+      userId: grantedBy,
+      action: 'PERMISSION_OVERRIDE_SET',
+      entity: 'UserPermissionOverride',
+      entityId: targetUserId,
+      oldValues: existing ? { granted: existing.granted } : undefined,
+      newValues: { permission: dto.permission, granted: dto.granted, reason: dto.reason },
+    });
+
     return { data: { message: 'Permission override set successfully' } };
   }
 
@@ -140,11 +156,26 @@ export class PermissionsService {
     });
     if (!user) throw new NotFoundException('User not found');
 
+    const existing = await this.prisma.userPermissionOverride.findUnique({
+      where: { userId_permission: { userId: targetUserId, permission } },
+    });
+
     await this.prisma.userPermissionOverride.deleteMany({
       where: { userId: targetUserId, permission },
     });
 
     await this.redis.del(`perms:${targetUserId}`);
+
+    if (existing) {
+      await this.auditService.log({
+        organizationId,
+        action: 'PERMISSION_OVERRIDE_REMOVED',
+        entity: 'UserPermissionOverride',
+        entityId: targetUserId,
+        oldValues: { permission, granted: existing.granted },
+      });
+    }
+
     return { data: { message: 'Permission override removed' } };
   }
 }

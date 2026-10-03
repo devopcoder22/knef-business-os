@@ -8,6 +8,7 @@ import * as bcrypt from 'bcrypt';
 import { createId } from '@paralleldrive/cuid2';
 import { PrismaService } from '../../common/services/prisma.service';
 import { RedisService } from '../../common/services/redis.service';
+import { AuditService } from '../audit/audit.service';
 import type { AuthUser } from '@knef/types';
 import type { InviteUserDto } from './dto/invite-user.dto';
 import type { UpdateProfileDto } from './dto/update-profile.dto';
@@ -20,6 +21,7 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly auditService: AuditService,
   ) {}
 
   async findAll(organizationId: string, dto: ListUsersDto) {
@@ -164,6 +166,15 @@ export class UsersService {
       return newUser;
     });
 
+    await this.auditService.log({
+      organizationId,
+      userId: invitedBy.id,
+      action: 'USER_INVITED',
+      entity: 'User',
+      entityId: user.id,
+      newValues: { email: dto.email, roleIds: dto.roleIds },
+    });
+
     // TODO-PHASE1: Send invitation email with temp password
     return { ...user, tempPassword, passwordHash: undefined };
   }
@@ -211,6 +222,16 @@ export class UsersService {
       await this.redis.del(`perms:${userId}`);
     }
 
+    await this.auditService.log({
+      organizationId,
+      userId: requestingUser.id,
+      action: isActive ? 'USER_ACTIVATED' : 'USER_DEACTIVATED',
+      entity: 'User',
+      entityId: userId,
+      oldValues: { isActive: !isActive },
+      newValues: { isActive },
+    });
+
     return updated;
   }
 
@@ -245,6 +266,15 @@ export class UsersService {
     });
 
     await this.redis.del(`perms:${userId}`);
+
+    await this.auditService.log({
+      organizationId,
+      action: 'USER_ROLE_ASSIGNED',
+      entity: 'UserRole',
+      entityId: userId,
+      newValues: { userId, roleId, locationId },
+    });
+
     return { message: 'Role assigned successfully' };
   }
 
@@ -260,6 +290,15 @@ export class UsersService {
 
     await this.prisma.userRole.delete({ where: { id: userRoleId } });
     await this.redis.del(`perms:${userId}`);
+
+    await this.auditService.log({
+      organizationId,
+      action: 'USER_ROLE_REMOVED',
+      entity: 'UserRole',
+      entityId: userRole.userId,
+      oldValues: { roleId: userRole.roleId, locationId: userRole.locationId },
+    });
+
     return { message: 'Role removed successfully' };
   }
 }

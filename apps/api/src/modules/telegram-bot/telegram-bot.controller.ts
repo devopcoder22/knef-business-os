@@ -11,6 +11,7 @@ import {
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { Public } from '../../common/decorators/public.decorator';
 import { PrismaService } from '../../common/services/prisma.service';
+import { LocationScopeService } from '../../common/services/location-scope.service';
 import { PermissionsService } from '../permissions/permissions.service';
 import { TelegramBotService } from './telegram-bot.service';
 import { TelegramLinkingService } from './telegram-linking.service';
@@ -56,6 +57,7 @@ export class TelegramBotController {
     private readonly commandService: TelegramCommandService,
     private readonly assistantService: TelegramAssistantService,
     private readonly permissionsService: PermissionsService,
+    private readonly locationScope: LocationScopeService,
   ) {}
 
   @Public()
@@ -131,12 +133,17 @@ export class TelegramBotController {
 
     const userId = (linkedUser as { userId: string }).userId;
 
-    // Resolve effective permissions once — all subsequent command gates use this set.
+    // Resolve effective permissions and location scope once — all subsequent command gates use this.
     // This mirrors the permission check in TelegramAssistantService and the AI tool registry.
     let effective: Set<string>;
+    let locationIds: string[] | null;
     try {
-      const permResult = await this.permissionsService.getResolvedPermissions(orgId, userId);
+      const [permResult, resolvedLocationIds] = await Promise.all([
+        this.permissionsService.getResolvedPermissions(orgId, userId),
+        this.locationScope.getUserLocationIds(userId),
+      ]);
       effective = new Set<string>(permResult.data.effective);
+      locationIds = resolvedLocationIds;
     } catch {
       this.logger.error(`Failed to resolve permissions for userId=${userId} orgId=${orgId}`);
       await this.botService.sendMessage(botToken, chatId, '⚠️ Unable to verify your permissions. Please try again.');
@@ -163,7 +170,7 @@ export class TelegramBotController {
         await this.botService.sendMessage(botToken, chatId, DENIED_MSG);
         return;
       }
-      const result = await this.commandService.handleSales(orgId);
+      const result = await this.commandService.handleSales(orgId, locationIds);
       await this.botService.sendMessage(botToken, chatId, result.text);
       return;
     }
@@ -173,7 +180,7 @@ export class TelegramBotController {
         await this.botService.sendMessage(botToken, chatId, DENIED_MSG);
         return;
       }
-      const result = await this.commandService.handleInventory(orgId);
+      const result = await this.commandService.handleInventory(orgId, locationIds);
       await this.botService.sendMessage(botToken, chatId, result.text);
       return;
     }
@@ -220,7 +227,7 @@ export class TelegramBotController {
 
     if (text === '/daily') {
       await this.botService.sendMessage(botToken, chatId, '⏳ Generating your daily digest...');
-      const reply = await this.buildPermissionAwareDigest(orgId, userId, can);
+      const reply = await this.buildPermissionAwareDigest(orgId, userId, can, locationIds);
       await this.botService.sendMessage(botToken, chatId, reply);
       return;
     }
@@ -239,10 +246,11 @@ export class TelegramBotController {
     orgId: string,
     userId: string,
     can: Record<string, boolean>,
+    locationIds: string[] | null,
   ): Promise<string> {
     const fetches: Array<Promise<{ text: string } | null>> = [
-      can.sales ? this.commandService.handleSales(orgId) : Promise.resolve(null),
-      can.inventory ? this.commandService.handleInventory(orgId) : Promise.resolve(null),
+      can.sales ? this.commandService.handleSales(orgId, locationIds) : Promise.resolve(null),
+      can.inventory ? this.commandService.handleInventory(orgId, locationIds) : Promise.resolve(null),
       can.finance ? this.commandService.handleProfit(orgId) : Promise.resolve(null),
       can.tasks ? this.commandService.handleTasks(orgId, userId) : Promise.resolve(null),
       can.orders ? this.commandService.handleOrders(orgId) : Promise.resolve(null),

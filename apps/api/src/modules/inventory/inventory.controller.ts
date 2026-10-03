@@ -30,11 +30,11 @@ export class InventoryController {
     @Query('productId') productId?: string,
     @Query('lowStockOnly') lowStockOnly?: string,
   ) {
-    return this.inventoryService.getLevels(user.organizationId, {
-      locationId,
-      productId,
-      lowStockOnly: lowStockOnly === 'true',
-    });
+    return this.inventoryService.getLevels(
+      user.organizationId,
+      { locationId, productId, lowStockOnly: lowStockOnly === 'true' },
+      user.locationIds,
+    );
   }
 
   @Get('summary')
@@ -44,7 +44,7 @@ export class InventoryController {
     @CurrentUser() user: AuthUser,
     @Query('locationId') locationId?: string,
   ) {
-    return this.inventoryService.getDashboardSummary(user.organizationId, locationId);
+    return this.inventoryService.getDashboardSummary(user.organizationId, locationId, user.locationIds);
   }
 
   @Get('valuation')
@@ -54,7 +54,7 @@ export class InventoryController {
     @CurrentUser() user: AuthUser,
     @Query('locationId') locationId?: string,
   ) {
-    return this.inventoryService.getValuation(user.organizationId, locationId);
+    return this.inventoryService.getValuation(user.organizationId, locationId, user.locationIds);
   }
 
   @Get('low-stock')
@@ -64,10 +64,11 @@ export class InventoryController {
     @CurrentUser() user: AuthUser,
     @Query('locationId') locationId?: string,
   ) {
-    return this.inventoryService.getLevels(user.organizationId, {
-      locationId,
-      lowStockOnly: true,
-    });
+    return this.inventoryService.getLevels(
+      user.organizationId,
+      { locationId, lowStockOnly: true },
+      user.locationIds,
+    );
   }
 
   @Get(':productId/movements')
@@ -81,12 +82,12 @@ export class InventoryController {
     @Query('to') to?: string,
     @Query('type') type?: MovementType,
   ) {
-    return this.inventoryService.getMovements(user.organizationId, productId, {
-      locationId,
-      from,
-      to,
-      type,
-    });
+    return this.inventoryService.getMovements(
+      user.organizationId,
+      productId,
+      { locationId, from, to, type },
+      user.locationIds,
+    );
   }
 
   @Post('opening-stock')

@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
 import { AdjustmentStatus, MovementType } from '@prisma/client';
@@ -18,13 +19,22 @@ export class StockAdjustmentsService {
     private readonly auditService: AuditService,
   ) {}
 
-  async findAll(organizationId: string, query: { page?: number; limit?: number }) {
+  async findAll(
+    organizationId: string,
+    query: { page?: number; limit?: number },
+    locationIds: string[] | null = null,
+  ) {
     const { page = 1, limit = 20 } = query;
     const skip = (page - 1) * limit;
 
+    const where: Record<string, unknown> = { organizationId };
+    if (locationIds !== null) {
+      where['locationId'] = { in: locationIds };
+    }
+
     const [adjustments, total] = await Promise.all([
       this.prisma.stockAdjustment.findMany({
-        where: { organizationId },
+        where,
         skip,
         take: limit,
         include: {
@@ -32,7 +42,7 @@ export class StockAdjustmentsService {
         },
         orderBy: { createdAt: 'desc' },
       }),
-      this.prisma.stockAdjustment.count({ where: { organizationId } }),
+      this.prisma.stockAdjustment.count({ where }),
     ]);
 
     return {
@@ -41,7 +51,7 @@ export class StockAdjustmentsService {
     };
   }
 
-  async findOne(organizationId: string, id: string) {
+  async findOne(organizationId: string, id: string, locationIds: string[] | null = null) {
     const adjustment = await this.prisma.stockAdjustment.findFirst({
       where: { id, organizationId },
       include: {
@@ -53,6 +63,10 @@ export class StockAdjustmentsService {
       },
     });
     if (!adjustment) throw new NotFoundException('Stock adjustment not found');
+    // IDOR: user must be authorized for the adjustment's location
+    if (locationIds !== null && !locationIds.includes(adjustment.locationId)) {
+      throw new NotFoundException('Stock adjustment not found');
+    }
     return adjustment;
   }
 
@@ -60,7 +74,13 @@ export class StockAdjustmentsService {
     organizationId: string,
     dto: CreateStockAdjustmentDto,
     userId: string,
+    locationIds: string[] | null = null,
   ) {
+    // Location gate: user must be authorized for the target location
+    if (locationIds !== null && !locationIds.includes(dto.locationId)) {
+      throw new ForbiddenException('Not authorized for this location');
+    }
+
     const location = await this.prisma.location.findFirst({
       where: { id: dto.locationId, organizationId },
     });
@@ -110,12 +130,15 @@ export class StockAdjustmentsService {
     return this.findOne(organizationId, adjustment.id);
   }
 
-  async approve(organizationId: string, id: string, userId: string) {
+  async approve(organizationId: string, id: string, userId: string, locationIds: string[] | null = null) {
     const adjustment = await this.prisma.stockAdjustment.findFirst({
       where: { id, organizationId },
       include: { items: true },
     });
     if (!adjustment) throw new NotFoundException('Stock adjustment not found');
+    if (locationIds !== null && !locationIds.includes(adjustment.locationId)) {
+      throw new ForbiddenException('Not authorized for this location');
+    }
     if (adjustment.status !== AdjustmentStatus.PENDING) {
       throw new BadRequestException('Only PENDING adjustments can be approved');
     }
@@ -165,11 +188,15 @@ export class StockAdjustmentsService {
     id: string,
     userId: string,
     reason?: string,
+    locationIds: string[] | null = null,
   ) {
     const adjustment = await this.prisma.stockAdjustment.findFirst({
       where: { id, organizationId },
     });
     if (!adjustment) throw new NotFoundException('Stock adjustment not found');
+    if (locationIds !== null && !locationIds.includes(adjustment.locationId)) {
+      throw new ForbiddenException('Not authorized for this location');
+    }
     if (adjustment.status !== AdjustmentStatus.PENDING) {
       throw new BadRequestException('Only PENDING adjustments can be rejected');
     }

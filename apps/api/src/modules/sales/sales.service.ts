@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
 import { OrderStatus, InvoiceStatus, PaymentStatus, MovementType, Prisma } from '@prisma/client';
@@ -29,11 +30,14 @@ export class SalesService {
 
   // ── Sales Orders ──────────────────────────────────────────────
 
-  async listSalesOrders(organizationId: string, query: ListSalesOrdersDto) {
+  async listSalesOrders(organizationId: string, query: ListSalesOrdersDto, locationIds: string[] | null = null) {
     const { page = 1, limit = 20, status, customerId, search } = query;
     const skip = (page - 1) * limit;
 
     const where: Record<string, unknown> = { organizationId };
+    if (locationIds !== null) {
+      where['locationId'] = { in: locationIds };
+    }
     if (status) where['status'] = status;
     if (customerId) where['customerId'] = customerId;
     if (search) {
@@ -77,7 +81,7 @@ export class SalesService {
     };
   }
 
-  async findSalesOrder(organizationId: string, id: string) {
+  async findSalesOrder(organizationId: string, id: string, locationIds: string[] | null = null) {
     const order = await this.prisma.salesOrder.findFirst({
       where: { id, organizationId },
       include: {
@@ -94,6 +98,9 @@ export class SalesService {
       },
     });
     if (!order) throw new NotFoundException('Sales order not found');
+    if (order && locationIds !== null && !locationIds.includes(order.locationId)) {
+      throw new NotFoundException('Sales order not found');
+    }
     return order;
   }
 
@@ -101,9 +108,15 @@ export class SalesService {
     organizationId: string,
     dto: CreateSalesOrderDto,
     userId: string,
+    locationIds: string[] | null = null,
   ) {
     if (!dto.items || dto.items.length === 0) {
       throw new BadRequestException('Sales order must have at least one item');
+    }
+    if (locationIds !== null && dto.locationId) {
+      if (!locationIds.includes(dto.locationId)) {
+        throw new ForbiddenException('Not authorized to create orders for this location');
+      }
     }
 
     const reference = generateReference('SO');

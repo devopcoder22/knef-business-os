@@ -48,6 +48,8 @@ export interface EvaluatePolicyParams {
   toolName: string;
   parameters: Record<string, unknown>;
   agentId?: string;
+  /** Authorized location IDs for the caller. null = org-wide access. */
+  locationIds?: string[] | null;
 }
 
 const POLICY_MATRIX: Record<ToolRiskLevel, Record<AutonomyLevel, PolicyOutcome>> = {
@@ -199,7 +201,7 @@ export class AIExecutionPolicyService {
   // ── Policy Evaluation ────────────────────────────────────────────
 
   async evaluate(params: EvaluatePolicyParams): Promise<PolicyDecision> {
-    const { organizationId, userId, toolName, parameters, agentId } = params;
+    const { organizationId, userId, toolName, parameters, agentId, locationIds } = params;
 
     const definition = getToolPermissionDefinition(toolName);
     if (!definition) {
@@ -262,7 +264,7 @@ export class AIExecutionPolicyService {
         return this.queueForApproval(organizationId, userId, toolName, parameters, level, riskLevel);
 
       case 'EXECUTED':
-        return this.executeNow(organizationId, userId, toolName, parameters, level, riskLevel);
+        return this.executeNow(organizationId, userId, toolName, parameters, level, riskLevel, locationIds ?? null);
 
       case 'BLOCKED':
         await this.audit(organizationId, userId, 'AI_POLICY_BLOCKED', toolName, { level, riskLevel });
@@ -428,6 +430,7 @@ export class AIExecutionPolicyService {
     parameters: Record<string, unknown>,
     level: AutonomyLevel,
     riskLevel: ToolRiskLevel,
+    locationIds: string[] | null = null,
   ): Promise<PolicyDecision> {
     const tool = await this.prisma.aITool.findFirst({
       where: { organizationId: orgId, name: toolName, isActive: true },
@@ -450,7 +453,7 @@ export class AIExecutionPolicyService {
     try {
       let result: unknown = null;
       if (tool) {
-        result = await this.executor.execute(tool, parameters, orgId);
+        result = await this.executor.execute(tool, parameters, orgId, locationIds);
       }
       await this.prisma.aIAction.update({
         where: { id: action.id },

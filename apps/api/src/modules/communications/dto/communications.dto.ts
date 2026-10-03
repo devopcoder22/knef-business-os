@@ -350,6 +350,32 @@ export class UpdateTelegramSettingsDto {
   notifyFinance?: boolean;
 }
 
+export class UpdateUserTelegramPrefsDto {
+  @IsOptional()
+  @IsBoolean()
+  notifyOrders?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  notifyInventory?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  notifyFinance?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  notifyTasks?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  notifyLowStock?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  notifyTargets?: boolean;
+}
+
 // ── Webhook DTOs ─────────────────────────────────────────────────
 
 export class CreateWebhookEndpointDto {

@@ -1,6 +1,7 @@
 import { Injectable, ForbiddenException, Logger } from '@nestjs/common';
 import { PermissionsService } from '../permissions/permissions.service';
 import { AuditService } from '../audit/audit.service';
+import { LocationScopeService } from '../../common/services/location-scope.service';
 import { getToolPermissionDefinition } from './ai-tool-permission.registry';
 
 export interface AIExecutionContext {
@@ -8,6 +9,8 @@ export interface AIExecutionContext {
   organizationId: string;
   /** Resolved effective permissions for this user (from PermissionsService) */
   resolvedPermissions: string[];
+  /** Authorized location IDs. null = org-wide access. */
+  locationIds?: string[] | null;
 }
 
 @Injectable()
@@ -17,6 +20,7 @@ export class AIPermissionCheckerService {
   constructor(
     private readonly permissionsService: PermissionsService,
     private readonly auditService: AuditService,
+    private readonly locationScope: LocationScopeService,
   ) {}
 
   /**
@@ -24,9 +28,12 @@ export class AIPermissionCheckerService {
    * Call this once per AI request, then pass the context to checkToolPermission().
    */
   async resolveExecutionContext(userId: string, organizationId: string): Promise<AIExecutionContext> {
-    const result = await this.permissionsService.getResolvedPermissions(organizationId, userId);
-    const resolvedPermissions = result.data.effective;
-    return { userId, organizationId, resolvedPermissions };
+    const [permResult, locationIds] = await Promise.all([
+      this.permissionsService.getResolvedPermissions(organizationId, userId),
+      this.locationScope.getUserLocationIds(userId),
+    ]);
+    const resolvedPermissions = permResult.data.effective;
+    return { userId, organizationId, resolvedPermissions, locationIds };
   }
 
   /**

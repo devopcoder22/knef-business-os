@@ -8,6 +8,7 @@ import { EmailComplianceService } from './email-compliance.service';
 import { EmailService } from './email.service';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../../common/services/prisma.service';
+import { QueueService } from '../../common/services/queue.service';
 import { CampaignStatus } from '@prisma/client';
 
 // ── Minimal mocks ────────────────────────────────────────────────
@@ -220,9 +221,12 @@ describe('CommunicationsService', () => {
     }),
   });
 
+  let mockQueue: { enqueueBulk: jest.Mock };
+
   beforeEach(async () => {
     prisma = makePrisma();
     emailService = mockEmailService();
+    mockQueue = { enqueueBulk: jest.fn(async () => undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -232,6 +236,7 @@ describe('CommunicationsService', () => {
         { provide: EmailService, useValue: emailService },
         { provide: AuditService, useValue: mockAudit() },
         { provide: EmailComplianceService, useValue: makeCompliance() },
+        { provide: QueueService, useValue: mockQueue },
         { provide: ConfigService, useValue: mockConfig() },
       ],
     }).compile();
@@ -258,16 +263,22 @@ describe('CommunicationsService', () => {
     });
 
     prisma.emailCampaignRecipient.updateMany.mockResolvedValue({});
-    prisma.emailCampaignRecipient.update.mockResolvedValue({});
-    prisma.emailCampaign.update.mockResolvedValue({ ...campaign, status: CampaignStatus.SENT, sentCount: 1 });
 
     await service.sendCampaign('org-1', 'camp-1', 'user-1');
 
-    // Only 1 email sent (ok@example.com), suppressed one skipped
-    expect(emailService.sendEmail).toHaveBeenCalledTimes(1);
-    expect(emailService.sendEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ to: 'ok@example.com' }),
+    // Campaign is now async: email sending is enqueued, not called directly
+    expect(emailService.sendEmail).not.toHaveBeenCalled();
+    // Only 1 eligible recipient job enqueued (ok@example.com)
+    expect(mockQueue.enqueueBulk).toHaveBeenCalledWith(
+      'email',
+      'send-campaign-email',
+      expect.arrayContaining([
+        expect.objectContaining({ to: 'ok@example.com' }),
+      ]),
     );
+    const jobs = mockQueue.enqueueBulk.mock.calls[0][2] as Array<{ to: string }>;
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].to).toBe('ok@example.com');
   });
 
   // 12. Campaign requires appropriate approval
@@ -312,15 +323,21 @@ describe('CommunicationsService', () => {
     prisma.emailCampaignRecipient.findMany.mockResolvedValueOnce([
       { id: 'r1', email: 'unsubscribed@example.com', status: 'PENDING' },
     ]);
-    prisma.emailCampaignRecipient.update.mockResolvedValue({});
-    prisma.emailCampaign.update.mockResolvedValue({ ...campaign, status: 'SENT', sentCount: 1 });
 
     const filterSpy = jest.spyOn(subService, 'filterEligibleRecipients');
     await service.sendCampaign('org-1', 'camp-1', 'user-1');
 
     // For transactional, suppression filter is NOT called
     expect(filterSpy).not.toHaveBeenCalled();
-    expect(emailService.sendEmail).toHaveBeenCalledTimes(1);
+    // Job is enqueued (not sent inline) — 1 recipient
+    expect(mockQueue.enqueueBulk).toHaveBeenCalledWith(
+      'email',
+      'send-campaign-email',
+      expect.arrayContaining([
+        expect.objectContaining({ to: 'unsubscribed@example.com' }),
+      ]),
+    );
+    expect(emailService.sendEmail).not.toHaveBeenCalled();
   });
 
   // 16. Provider delivery events update normalized delivery status (via ProviderWebhooksService)
@@ -337,6 +354,7 @@ describe('CommunicationsService', () => {
         { provide: EmailService, useValue: emailService },
         { provide: AuditService, useValue: audit },
         { provide: EmailComplianceService, useValue: makeCompliance() },
+        { provide: QueueService, useValue: { enqueueBulk: jest.fn(async () => undefined) } },
         { provide: ConfigService, useValue: mockConfig() },
       ],
     }).compile();
@@ -363,6 +381,7 @@ describe('CommunicationsService', () => {
         { provide: EmailService, useValue: emailService },
         { provide: AuditService, useValue: mockAudit() },
         { provide: EmailComplianceService, useValue: makeCompliance(false) },
+        { provide: QueueService, useValue: { enqueueBulk: jest.fn(async () => undefined) } },
         { provide: ConfigService, useValue: mockConfig() },
       ],
     }).compile();
