@@ -198,6 +198,53 @@ export class AIExecutionPolicyService {
     return this.policyTable.delete({ where: { id } });
   }
 
+  // ── Post-Approval Policy Check ───────────────────────────────────
+  //
+  // Used by AIApprovalsService at execution time to ensure a human approval granted
+  // under old policy cannot bypass a tighter policy that now explicitly BLOCKs the action.
+  // Returns { blocked: false } if the current policy still permits execution after human
+  // approval; returns { blocked: true, reason } if the action must not proceed.
+  //
+  // Intentionally does NOT create AIAction/AIApproval records and does NOT call the
+  // executor — it is a read-only gate check only.
+  async evaluatePostApproval(params: {
+    organizationId: string;
+    userId: string | null;
+    toolName: string;
+    parameters: Record<string, unknown>;
+    agentId?: string | null;
+  }): Promise<{ blocked: boolean; reason?: string }> {
+    const { organizationId, userId, toolName, parameters, agentId } = params;
+
+    const definition = getToolPermissionDefinition(toolName);
+    if (!definition) {
+      return { blocked: true, reason: `Tool "${toolName}" is no longer registered in the permission registry.` };
+    }
+
+    const effectiveUserId = userId ?? '';
+    const effectiveAgentId = agentId ?? undefined;
+
+    const policy = await this.resolvePolicy(organizationId, effectiveUserId, effectiveAgentId);
+    const scopeLimits = policy ? (policy.scopeLimits as ScopeLimits) : {};
+
+    const scopeBlock = this.checkScopeLimits(toolName, parameters, scopeLimits);
+    if (scopeBlock) {
+      return { blocked: true, reason: `Scope limit exceeded: ${scopeBlock}` };
+    }
+
+    const level = (policy?.level as AutonomyLevel | undefined) ?? 'APPROVAL_REQUIRED';
+    const outcome = POLICY_MATRIX[definition.riskLevel][level];
+
+    if (outcome === 'BLOCKED') {
+      return {
+        blocked: true,
+        reason: `Tool "${toolName}" (risk: ${definition.riskLevel}) is now blocked at autonomy level ${level}.`,
+      };
+    }
+
+    return { blocked: false };
+  }
+
   // ── Policy Evaluation ────────────────────────────────────────────
 
   async evaluate(params: EvaluatePolicyParams): Promise<PolicyDecision> {

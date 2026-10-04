@@ -59,7 +59,7 @@ export class PlanExecutorService {
       throw new BadRequestException('You do not have permission to create tasks');
     }
 
-    // Prevent duplicate execution
+    // Fast-fail for sequential full-plan duplicate (per-link atomics handle concurrency)
     const alreadyExecuted = await this.prisma.planTaskLink.count({
       where: { planId, isProposed: false },
     });
@@ -82,8 +82,18 @@ export class PlanExecutorService {
       );
     }
 
-    // Execute within a try-per-task (not one big transaction — task creation has side effects)
     for (const link of links) {
+      // Atomic claim: only one concurrent caller can flip isProposed true → false.
+      // Any caller that gets count=0 knows another request already owns this link.
+      const claimed = await this.prisma.planTaskLink.updateMany({
+        where: { id: link.id, isProposed: true },
+        data: { isProposed: false },
+      });
+      if (claimed.count === 0) {
+        // Link already claimed by a concurrent execution — skip without error
+        continue;
+      }
+
       const data = link.proposedData as ProposedTaskData | null;
       if (!data) continue;
 
@@ -102,10 +112,10 @@ export class PlanExecutorService {
           executorId,
         );
 
-        // Mark the link as no longer proposed, attach real taskId
+        // Attach the real taskId now that creation succeeded
         await this.prisma.planTaskLink.update({
           where: { id: link.id },
-          data: { isProposed: false, taskId: task.id },
+          data: { taskId: task.id },
         });
 
         result.tasksCreated++;
@@ -119,6 +129,15 @@ export class PlanExecutorService {
           metadata: { planId, title: data.title },
         });
       } catch (err: unknown) {
+        // Task creation failed — roll back the atomic claim so this link
+        // remains eligible for a safe retry (isProposed: true, taskId: null).
+        await this.prisma.planTaskLink.update({
+          where: { id: link.id },
+          data: { isProposed: true },
+        }).catch((rollbackErr: unknown) => {
+          this.logger.error(`Failed to roll back link ${link.id} after task creation error`, rollbackErr);
+        });
+
         const msg = err instanceof Error ? err.message : 'Task creation failed';
         result.errors.push(`${data.title}: ${msg}`);
         result.tasksFailed++;
@@ -147,9 +166,9 @@ export class PlanExecutorService {
       }
     }
 
-    // Mark plan ACTIVE
-    await this.prisma.plan.update({
-      where: { id: planId },
+    // Conditional update: only transition APPROVED → ACTIVE (idempotent for concurrent callers)
+    await this.prisma.plan.updateMany({
+      where: { id: planId, status: 'APPROVED' },
       data: { status: 'ACTIVE' },
     });
 

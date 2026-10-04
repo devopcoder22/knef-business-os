@@ -6,12 +6,18 @@
  *   2. Passes the requestor's current location scope to the executor (location gate preserved).
  *   3. Blocks execution if the requestor's permission has been revoked since request creation.
  *   4. Org isolation — approval lookup is always scoped to the caller's org.
+ *   5. Duplicate approval execution is prevented (sequential and concurrent).
+ *   6. Terminal action states are respected (COMPLETED/FAILED/REJECTED).
+ *   7. Re-evaluates current autonomy policy at execution time (tightened policy blocks stale approvals).
  *
  * Architecture chain:
- *   approve() → resolveExecutionContext(requestor) → checkToolPermission → executor.execute(locationIds)
+ *   approve() → evaluatePostApproval (policy recheck)
+ *             → resolveExecutionContext(requestor) → checkToolPermission
+ *             → atomic claim (updateMany PENDING/APPROVED → EXECUTING)
+ *             → executor.execute(locationIds)
  */
 
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException, ConflictException } from '@nestjs/common';
 import { AIApprovalsService } from './ai-approvals.service';
 
 // ── Mock factories ────────────────────────────────────────────────────────────
@@ -37,9 +43,11 @@ function makeAction(overrides: Record<string, unknown> = {}) {
     id: 'action-1',
     organizationId: 'org-1',
     userId: 'user-1',
+    externalAgentId: null,
     action: 'get_inventory_levels',
     parameters: { locationId: 'loc-L1' },
     status: 'PENDING',
+    result: null,
     tool: { id: 'tool-1', name: 'get_inventory_levels', isActive: true, category: 'inventory' },
     ...overrides,
   };
@@ -56,6 +64,7 @@ function makePrisma(approval = makeApproval(), action = makeAction()) {
     aIAction: {
       findFirst: jest.fn(async () => action),
       update: jest.fn(async () => action),
+      updateMany: jest.fn(async () => ({ count: 1 })), // default: atomic claim succeeds
       findMany: jest.fn(async () => []),
       count: jest.fn(async () => 0),
     },
@@ -80,15 +89,26 @@ function makeExecutor() {
   };
 }
 
+function makePolicyService(blocked = false, reason?: string) {
+  return {
+    evaluatePostApproval: jest.fn(async () => ({
+      blocked,
+      reason: blocked ? (reason ?? 'Policy blocked') : undefined,
+    })),
+  };
+}
+
 function makeService(
   prisma = makePrisma(),
   executor = makeExecutor(),
   checker = makePermissionChecker(),
+  policy = makePolicyService(),
 ) {
   return new AIApprovalsService(
     prisma as never,
     executor as never,
     checker as never,
+    policy as never,
   );
 }
 
@@ -259,5 +279,179 @@ describe('AIApprovalsService.approve — executor receives correct orgId', () =>
       unknown, unknown, string
     ];
     expect(orgId).toBe('org-correct');
+  });
+});
+
+// ── Test 6: Duplicate approval prevention ────────────────────────────────────
+
+describe('AIApprovalsService.approve — duplicate execution prevention', () => {
+  it('T13: sequential duplicate — second approve() returns result without calling executor again', async () => {
+    const executor = makeExecutor();
+    const prisma = makePrisma();
+    const service = makeService(prisma, executor);
+
+    // First call succeeds normally
+    await service.approve('org-1', 'approval-1', 'approver-1');
+
+    // Second call: action is now COMPLETED
+    const completedAction = makeAction({ status: 'COMPLETED', result: { levels: [] } });
+    (prisma.aIAction.findFirst as jest.Mock).mockResolvedValueOnce(completedAction);
+
+    const secondResult = await service.approve('org-1', 'approval-1', 'approver-1');
+
+    expect(executor.execute).toHaveBeenCalledTimes(1);
+    expect(secondResult).toMatchObject({ status: 'COMPLETED' });
+  });
+
+  it('T14: concurrent duplicate — atomic claim ensures only one caller executes', async () => {
+    const executor = makeExecutor();
+    const prisma = makePrisma();
+    const service = makeService(prisma, executor);
+
+    // First updateMany call wins (count=1), all subsequent callers lose (count=0)
+    let claimAttempts = 0;
+    (prisma.aIAction.updateMany as jest.Mock).mockImplementation(async () => {
+      claimAttempts++;
+      return { count: claimAttempts === 1 ? 1 : 0 };
+    });
+
+    // 3rd+ findFirst call (re-read after losing claim) returns COMPLETED
+    let findCalls = 0;
+    (prisma.aIAction.findFirst as jest.Mock).mockImplementation(async () => {
+      findCalls++;
+      return findCalls > 2
+        ? makeAction({ status: 'COMPLETED', result: { data: 'done' } })
+        : makeAction();
+    });
+
+    const [resultA, resultB] = await Promise.all([
+      service.approve('org-1', 'approval-1', 'approver-A'),
+      service.approve('org-1', 'approval-1', 'approver-B'),
+    ]);
+
+    expect(executor.execute).toHaveBeenCalledTimes(1);
+    expect(resultA).toMatchObject({ status: 'COMPLETED' });
+    expect(resultB).toMatchObject({ status: 'COMPLETED' });
+  });
+
+  it('T15: already COMPLETED action — approve() returns result without executing', async () => {
+    const completedAction = makeAction({ status: 'COMPLETED', result: { levels: [1, 2] } });
+    const prisma = makePrisma(makeApproval(), completedAction);
+    const executor = makeExecutor();
+    const service = makeService(prisma, executor);
+
+    const result = await service.approve('org-1', 'approval-1', 'approver-1');
+
+    expect(executor.execute).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ status: 'COMPLETED' });
+  });
+
+  it('T16: FAILED action — approve() throws ConflictException without executing', async () => {
+    const failedAction = makeAction({ status: 'FAILED' });
+    const prisma = makePrisma(makeApproval(), failedAction);
+    const executor = makeExecutor();
+    const service = makeService(prisma, executor);
+
+    await expect(service.approve('org-1', 'approval-1', 'approver-1')).rejects.toThrow(
+      ConflictException,
+    );
+    expect(executor.execute).not.toHaveBeenCalled();
+  });
+
+  it('T17: REJECTED approval — approve() throws ConflictException without executing', async () => {
+    const rejectedApproval = makeApproval({ decision: 'REJECTED' });
+    const prisma = makePrisma(rejectedApproval);
+    const executor = makeExecutor();
+    const service = makeService(prisma, executor);
+
+    await expect(service.approve('org-1', 'approval-1', 'approver-1')).rejects.toThrow(
+      ConflictException,
+    );
+    expect(executor.execute).not.toHaveBeenCalled();
+  });
+});
+
+// ── Test 7: Current autonomy policy recheck ───────────────────────────────────
+
+describe('AIApprovalsService.approve — current autonomy policy recheck', () => {
+  it('T18: policy tightened to BLOCKED after approval was granted — tool NOT executed', async () => {
+    const policy = makePolicyService(true, 'Tool is now blocked at CRITICAL risk level');
+    const executor = makeExecutor();
+    const service = makeService(makePrisma(), executor, makePermissionChecker(), policy);
+
+    await expect(service.approve('org-1', 'approval-1', 'approver-1')).rejects.toThrow(
+      ForbiddenException,
+    );
+    expect(executor.execute).not.toHaveBeenCalled();
+  });
+
+  it('T19: tool removed from allowedTools (scope violation) — tool NOT executed', async () => {
+    const policy = makePolicyService(true, 'Tool "get_inventory_levels" is not in the allowed tools list');
+    const executor = makeExecutor();
+    const service = makeService(makePrisma(), executor, makePermissionChecker(), policy);
+
+    await expect(service.approve('org-1', 'approval-1', 'approver-1')).rejects.toThrow(
+      ForbiddenException,
+    );
+    expect(executor.execute).not.toHaveBeenCalled();
+  });
+
+  it('T20: policy still permits (QUEUED_FOR_APPROVAL outcome) — approved tool executes once, no new approval created', async () => {
+    const policy = makePolicyService(false);
+    const executor = makeExecutor();
+    const prisma = makePrisma();
+    const service = makeService(prisma, executor, makePermissionChecker(), policy);
+
+    const result = await service.approve('org-1', 'approval-1', 'approver-1');
+
+    expect(executor.execute).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ status: 'COMPLETED' });
+    // No new approval record created (only the existing aIApproval.update was called)
+    expect(prisma.aIApproval.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('T21: evaluatePostApproval called with action userId, toolName, parameters, and orgId', async () => {
+    const policy = makePolicyService(false);
+    const action = makeAction({ userId: 'req-user', action: 'get_sales_summary', parameters: { period: 'monthly' } });
+    const prisma = makePrisma(makeApproval(), action);
+    const service = makeService(prisma, makeExecutor(), makePermissionChecker(), policy);
+
+    await service.approve('org-1', 'approval-1', 'approver-1');
+
+    expect(policy.evaluatePostApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'org-1',
+        userId: 'req-user',
+        toolName: 'get_sales_summary',
+        parameters: { period: 'monthly' },
+      }),
+    );
+  });
+
+  it('T22: agent-originated action (no userId) — evaluatePostApproval still called with userId=null', async () => {
+    const policy = makePolicyService(false);
+    const action = makeAction({ userId: null, externalAgentId: 'agent-ext-1' });
+    const prisma = makePrisma(makeApproval(), action);
+    const service = makeService(prisma, makeExecutor(), makePermissionChecker(), policy);
+
+    await service.approve('org-1', 'approval-1', 'approver-1');
+
+    expect(policy.evaluatePostApproval).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: null, agentId: 'agent-ext-1' }),
+    );
+  });
+
+  it('T23: locationIds=[] (deny-all) is passed to executor — never collapsed to null', async () => {
+    const checker = makePermissionChecker([]);
+    const executor = makeExecutor();
+    const service = makeService(makePrisma(), executor, checker);
+
+    await service.approve('org-1', 'approval-1', 'approver-1');
+
+    const [, , , locationIds] = (executor.execute as jest.Mock).mock.calls[0] as [
+      unknown, unknown, unknown, string[] | null
+    ];
+    expect(locationIds).toEqual([]);
+    expect(locationIds).not.toBeNull();
   });
 });
