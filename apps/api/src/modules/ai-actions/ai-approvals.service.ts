@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { AIToolExecutorService } from './ai-tool-executor.service';
-import { AIPermissionCheckerService } from './ai-permission-checker.service';
+import { AIPermissionCheckerService, type AIExecutionContext } from './ai-permission-checker.service';
 import type { ListApprovalsDto } from './dto/ai-actions.dto';
 
 @Injectable()
@@ -60,10 +60,11 @@ export class AIApprovalsService {
     });
     if (!action || !action.tool) return { status: 'APPROVED' };
 
-    // Re-verify the original requestor still holds the required permission
-    // before executing — prevents privilege escalation via approval flow.
+    // Re-verify the original requestor still holds the required permission AND
+    // location scope before executing — prevents privilege escalation via approval flow.
+    let requestorContext: AIExecutionContext | undefined;
     if (action.userId) {
-      const requestorContext = await this.permissionChecker.resolveExecutionContext(action.userId, orgId);
+      requestorContext = await this.permissionChecker.resolveExecutionContext(action.userId, orgId);
       await this.permissionChecker.checkToolPermission(requestorContext, action.tool.name);
     }
 
@@ -77,6 +78,7 @@ export class AIApprovalsService {
         action.tool,
         action.parameters as Record<string, unknown>,
         orgId,
+        requestorContext?.locationIds ?? null,
       );
       await this.prisma.aIAction.update({
         where: { id: action.id },
