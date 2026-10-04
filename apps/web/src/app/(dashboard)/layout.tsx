@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Search, Menu } from 'lucide-react';
 import { Sidebar } from '@/components/layout/sidebar';
 import { NotificationBell } from '@/components/notifications/notification-bell';
+import { GlobalSearch } from '@/components/search/GlobalSearch';
 import { useAuthStore } from '@/stores/auth.store';
 
 export default function DashboardLayout({
@@ -16,12 +17,25 @@ export default function DashboardLayout({
   const { isAuthenticated, user } = useAuthStore();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated) {
       router.replace('/login');
     }
   }, [isAuthenticated, router]);
+
+  // Global ⌘K / Ctrl+K opens the search palette
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearchOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   if (!isAuthenticated || !user) {
     return (
@@ -69,19 +83,20 @@ export default function DashboardLayout({
             <Menu size={20} />
           </button>
 
-          {/* Search */}
+          {/* Search trigger */}
           <div className="flex-1 max-w-lg">
-            <div className="relative">
-              <Search
-                size={16}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-              />
-              <input
-                type="search"
-                placeholder="Search products, customers, orders..."
-                className="w-full pl-9 pr-4 py-2 text-sm bg-gray-100 rounded-lg border-0 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-colors"
-              />
-            </div>
+            <button
+              type="button"
+              onClick={() => setSearchOpen(true)}
+              className="group flex w-full items-center gap-2 rounded-lg border-0 bg-gray-100 px-3 py-2 text-left text-sm text-gray-500 transition-colors hover:bg-gray-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              aria-label="Open global search"
+            >
+              <Search size={16} className="text-gray-400" />
+              <span className="flex-1 truncate">Search products, customers, orders…</span>
+              <kbd className="hidden rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[11px] font-medium text-gray-500 group-hover:border-gray-300 sm:inline-block">
+                ⌘K
+              </kbd>
+            </button>
           </div>
 
           <div className="flex items-center gap-2 ml-auto">
@@ -112,6 +127,9 @@ export default function DashboardLayout({
           <div className="p-6">{children}</div>
         </main>
       </div>
+
+      {/* Global search palette (⌘K) */}
+      <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
     </div>
   );
 }
