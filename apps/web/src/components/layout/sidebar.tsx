@@ -46,6 +46,7 @@ import {
   KeyRound,
   ShieldAlert,
   Activity,
+  BrainCircuit,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -154,6 +155,12 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'My Calendar', href: '/calendar', icon: Calendar, permission: PERMISSIONS.CALENDAR.VIEW },
       { label: 'Settings', href: '/calendar/settings', icon: Settings, permission: PERMISSIONS.CALENDAR.MANAGE_CONNECTIONS },
     ],
+  },
+  {
+    label: 'Intelligence',
+    href: '/business-intelligence',
+    icon: BrainCircuit,
+    permission: PERMISSIONS.REPORTS.VIEW,
   },
   {
     label: 'Reports',
