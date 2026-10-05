@@ -61,4 +61,9 @@ export class CreateTaskDto {
   @IsOptional()
   @IsString()
   goalId?: string;
+
+  @ApiPropertyOptional({ description: 'Customer this task is linked to (for CRM follow-ups)' })
+  @IsOptional()
+  @IsString()
+  customerId?: string;
 }

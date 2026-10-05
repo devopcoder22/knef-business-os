@@ -38,4 +38,9 @@ export class ListTasksDto {
   @IsOptional()
   @IsString()
   goalId?: string;
+
+  @ApiPropertyOptional({ description: 'Filter tasks linked to a specific customer' })
+  @IsOptional()
+  @IsString()
+  customerId?: string;
 }

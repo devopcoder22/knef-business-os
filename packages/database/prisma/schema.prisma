@@ -903,10 +903,14 @@ model Customer {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  salesOrders   SalesOrder[]
-  invoices      Invoice[]
-  payments      Payment[]
-  segments      CustomerSegmentMember[]
+  salesOrders     SalesOrder[]
+  invoices        Invoice[]
+  payments        Payment[]
+  receipts        Receipt[]
+  segments        CustomerSegmentMember[]
+  customerNotes   CustomerNote[]
+  tagAssignments  CustomerTagAssignment[]
+  tasks           Task[]
 
   @@unique([organizationId, code])
   @@unique([organizationId, phone])
@@ -914,6 +918,47 @@ model Customer {
   @@index([phone])
   @@index([email])
   @@index([searchVector], type: Gin, map: "customer_search_gin_idx")
+}
+
+model CustomerNote {
+  id             String   @id @default(cuid())
+  organizationId String
+  customerId     String
+  content        String
+  createdBy      String
+  createdAt      DateTime @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([customerId])
+}
+
+model CustomerTag {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  color          String   @default("#6B7280")
+  createdAt      DateTime @default(now())
+
+  assignments CustomerTagAssignment[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+model CustomerTagAssignment {
+  id         String   @id @default(cuid())
+  tagId      String
+  customerId String
+  assignedAt DateTime @default(now())
+
+  tag      CustomerTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  customer Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([tagId, customerId])
+  @@index([tagId])
+  @@index([customerId])
 }
 
 model CustomerSegment {
@@ -1091,10 +1136,12 @@ model Receipt {
   notes          String?
   issuedAt       DateTime @default(now())
 
-  invoice Invoice? @relation(fields: [invoiceId], references: [id])
+  invoice  Invoice?  @relation(fields: [invoiceId], references: [id])
+  customer Customer? @relation(fields: [customerId], references: [id])
 
   @@unique([organizationId, reference])
   @@index([organizationId])
+  @@index([customerId])
 }
 
 model Payment {
@@ -1456,6 +1503,7 @@ model Task {
   tags           String[]     @default([])
   parentId       String?
   goalId         String?
+  customerId     String?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
@@ -1463,6 +1511,7 @@ model Task {
   creator     User           @relation("TaskCreator", fields: [creatorId], references: [id])
   goal        Goal?          @relation(fields: [goalId], references: [id])
   parent      Task?          @relation("SubTasks", fields: [parentId], references: [id])
+  customer    Customer?      @relation(fields: [customerId], references: [id])
   subtasks    Task[]         @relation("SubTasks")
   comments    TaskComment[]
   checklists  TaskChecklist[]
@@ -1472,6 +1521,7 @@ model Task {
   @@index([assigneeId])
   @@index([status])
   @@index([goalId])
+  @@index([customerId])
 }
 
 enum TaskStatus {

@@ -49,6 +49,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { AutomationModule } from './modules/automation/automation.module';
 import { BusinessIntelligenceModule } from './modules/business-intelligence/business-intelligence.module';
 import { BusinessRulesModule } from './modules/business-rules/business-rules.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -122,6 +123,7 @@ import { BusinessRulesModule } from './modules/business-rules/business-rules.mod
     AutomationModule,
     BusinessIntelligenceModule,
     BusinessRulesModule,
+    DashboardModule,
   ],
   providers: [
     // Apply ThrottlerGuard globally to all routes
