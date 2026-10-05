@@ -162,7 +162,7 @@ export class ExpensesController {
     @Param('id') id: string,
     @Body() dto: RejectExpenseDto,
   ) {
-    return this.financeService.rejectExpense(user.organizationId, id, dto);
+    return this.financeService.rejectExpense(user.organizationId, id, dto, user.id);
   }
 
   @Post(':id/mark-paid')

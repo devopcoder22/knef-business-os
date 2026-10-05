@@ -8,8 +8,11 @@ import {
   FinancialPeriodsController,
   FinanceDashboardController,
 } from './finance.controller';
+import { BusinessRulesModule } from '../business-rules/business-rules.module';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
+  imports: [BusinessRulesModule, AuditModule],
   providers: [FinanceService],
   controllers: [
     BankAccountsController,

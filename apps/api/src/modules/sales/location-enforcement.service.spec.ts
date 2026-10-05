@@ -62,12 +62,28 @@ function makeInventoryService() {
   return { recordMovement: jest.fn() };
 }
 
+function makeBusinessRuleService() {
+  return {
+    checkDiscount: jest.fn(async () => ({ allowed: true, approvalRequired: false, ruleId: 'rules.sales.max_discount_percent', reason: 'ok', threshold: 20, observedValue: 0 })),
+    checkMargin: jest.fn(async () => ({ allowed: true, approvalRequired: false, ruleId: 'rules.sales.min_margin_percent', reason: 'ok', threshold: 10, observedValue: 100 })),
+    checkPurchaseAmount: jest.fn(async () => ({ allowed: true, approvalRequired: false, ruleId: 'rules.purchasing.approval_threshold_ngn', reason: 'ok', threshold: 500000, observedValue: 0 })),
+    checkExpenseAmount: jest.fn(async () => ({ allowed: true, approvalRequired: false, ruleId: 'rules.expense.approval_threshold_ngn', reason: 'ok', threshold: 100000, observedValue: 0 })),
+    checkRefundAmount: jest.fn(async () => ({ allowed: true, approvalRequired: false, ruleId: 'rules.sales.refund_approval_threshold_ngn', reason: 'ok', threshold: 50000, observedValue: 0 })),
+    getAllThresholds: jest.fn(async () => ({})),
+    getRuleThreshold: jest.fn(async () => 0),
+  };
+}
+
+function makeAuditService() {
+  return { log: jest.fn(async () => undefined) };
+}
+
 // ── 1. SalesService — list filters ───────────────────────────────────────────
 
 describe('SalesService — location enforcement', () => {
   it('1: L1-scoped user list passes { in: [L1] } to WHERE', async () => {
     const prisma = makePrisma();
-    const svc = new SalesService(prisma as never, makeInventoryService() as never, makeEventEmitter() as never);
+    const svc = new SalesService(prisma as never, makeInventoryService() as never, makeEventEmitter() as never, makeBusinessRuleService() as never, makeAuditService() as never);
 
     await svc.listSalesOrders('org1', {}, ['loc-L1']);
 
@@ -77,7 +93,7 @@ describe('SalesService — location enforcement', () => {
 
   it('2: org-wide user list has no locationId filter in WHERE', async () => {
     const prisma = makePrisma();
-    const svc = new SalesService(prisma as never, makeInventoryService() as never, makeEventEmitter() as never);
+    const svc = new SalesService(prisma as never, makeInventoryService() as never, makeEventEmitter() as never, makeBusinessRuleService() as never, makeAuditService() as never);
 
     await svc.listSalesOrders('org1', {}, null);
 
@@ -87,7 +103,7 @@ describe('SalesService — location enforcement', () => {
 
   it('3: L1+L2 user list passes { in: [L1, L2] }', async () => {
     const prisma = makePrisma();
-    const svc = new SalesService(prisma as never, makeInventoryService() as never, makeEventEmitter() as never);
+    const svc = new SalesService(prisma as never, makeInventoryService() as never, makeEventEmitter() as never, makeBusinessRuleService() as never, makeAuditService() as never);
 
     await svc.listSalesOrders('org1', {}, ['loc-L1', 'loc-L2']);
 
@@ -103,7 +119,7 @@ describe('SalesService — location enforcement', () => {
         count: jest.fn(async () => 0),
       },
     });
-    const svc = new SalesService(prisma as never, makeInventoryService() as never, makeEventEmitter() as never);
+    const svc = new SalesService(prisma as never, makeInventoryService() as never, makeEventEmitter() as never, makeBusinessRuleService() as never, makeAuditService() as never);
 
     await expect(svc.findSalesOrder('org1', 'order-1', ['loc-L1'])).rejects.toThrow(NotFoundException);
   });
@@ -124,7 +140,7 @@ describe('SalesService — location enforcement', () => {
         count: jest.fn(async () => 0),
       },
     });
-    const svc = new SalesService(prisma as never, makeInventoryService() as never, makeEventEmitter() as never);
+    const svc = new SalesService(prisma as never, makeInventoryService() as never, makeEventEmitter() as never, makeBusinessRuleService() as never, makeAuditService() as never);
 
     const result = await svc.findSalesOrder('org1', 'order-1', null);
     expect(result.id).toBe('order-1');
@@ -141,7 +157,7 @@ describe('SalesService — location enforcement', () => {
       customer: { findFirst: jest.fn(async () => null) },
       product: { findFirst: jest.fn(async () => null) },
     });
-    const svc = new SalesService(prisma as never, makeInventoryService() as never, makeEventEmitter() as never);
+    const svc = new SalesService(prisma as never, makeInventoryService() as never, makeEventEmitter() as never, makeBusinessRuleService() as never, makeAuditService() as never);
 
     await expect(
       svc.createSalesOrder(
@@ -178,7 +194,7 @@ describe('SalesService — location enforcement', () => {
       },
     });
     const inventorySvc = { recordMovement: jest.fn() };
-    const svc = new SalesService(prisma as never, inventorySvc as never, makeEventEmitter() as never);
+    const svc = new SalesService(prisma as never, inventorySvc as never, makeEventEmitter() as never, makeBusinessRuleService() as never, makeAuditService() as never);
 
     // Auth gate should not throw for org-wide user (null locationIds)
     // Even if downstream logic throws for unrelated reasons (no mock for create),
@@ -203,7 +219,7 @@ describe('SalesService — location enforcement', () => {
 describe('PurchasingService — location enforcement', () => {
   it('8: L1 user PO list passes { in: [L1] } to WHERE', async () => {
     const prisma = makePrisma();
-    const svc = new PurchasingService(prisma as never, makeInventoryService() as never, makeEventEmitter() as never);
+    const svc = new PurchasingService(prisma as never, makeInventoryService() as never, makeEventEmitter() as never, makeBusinessRuleService() as never, makeAuditService() as never);
 
     await svc.listPurchaseOrders('org1', {}, ['loc-L1']);
 
@@ -213,7 +229,7 @@ describe('PurchasingService — location enforcement', () => {
 
   it('9: org-wide user PO list has no locationId filter', async () => {
     const prisma = makePrisma();
-    const svc = new PurchasingService(prisma as never, makeInventoryService() as never, makeEventEmitter() as never);
+    const svc = new PurchasingService(prisma as never, makeInventoryService() as never, makeEventEmitter() as never, makeBusinessRuleService() as never, makeAuditService() as never);
 
     await svc.listPurchaseOrders('org1', {}, null);
 
@@ -236,14 +252,14 @@ describe('PurchasingService — location enforcement', () => {
         count: jest.fn(async () => 0),
       },
     });
-    const svc = new PurchasingService(prisma as never, makeInventoryService() as never, makeEventEmitter() as never);
+    const svc = new PurchasingService(prisma as never, makeInventoryService() as never, makeEventEmitter() as never, makeBusinessRuleService() as never, makeAuditService() as never);
 
     await expect(svc.findPurchaseOrder('org1', 'po-1', ['loc-L1'])).rejects.toThrow(NotFoundException);
   });
 
   it('11 (create): L1 user creating PO for L2 → ForbiddenException', async () => {
     const prisma = makePrisma();
-    const svc = new PurchasingService(prisma as never, makeInventoryService() as never, makeEventEmitter() as never);
+    const svc = new PurchasingService(prisma as never, makeInventoryService() as never, makeEventEmitter() as never, makeBusinessRuleService() as never, makeAuditService() as never);
 
     await expect(
       svc.createPurchaseOrder(
@@ -409,7 +425,7 @@ describe('LocationScopeService — authorization logic', () => {
 describe('Cross-organization isolation', () => {
   it('31: list query always includes organizationId in WHERE', async () => {
     const prisma = makePrisma();
-    const svc = new SalesService(prisma as never, makeInventoryService() as never, makeEventEmitter() as never);
+    const svc = new SalesService(prisma as never, makeInventoryService() as never, makeEventEmitter() as never, makeBusinessRuleService() as never, makeAuditService() as never);
 
     await svc.listSalesOrders('org-correct', {}, null);
 
@@ -419,7 +435,7 @@ describe('Cross-organization isolation', () => {
 
   it('32: findOne always scopes to organizationId in WHERE', async () => {
     const prisma = makePrisma();
-    const svc = new SalesService(prisma as never, makeInventoryService() as never, makeEventEmitter() as never);
+    const svc = new SalesService(prisma as never, makeInventoryService() as never, makeEventEmitter() as never, makeBusinessRuleService() as never, makeAuditService() as never);
 
     // Returns null = not found (organizationId mismatch handled by Prisma)
     await expect(svc.findSalesOrder('org-correct', 'order-1', null)).rejects.toThrow(NotFoundException);
@@ -430,7 +446,7 @@ describe('Cross-organization isolation', () => {
 
   it('33: purchasing list always includes organizationId', async () => {
     const prisma = makePrisma();
-    const svc = new PurchasingService(prisma as never, makeInventoryService() as never, makeEventEmitter() as never);
+    const svc = new PurchasingService(prisma as never, makeInventoryService() as never, makeEventEmitter() as never, makeBusinessRuleService() as never, makeAuditService() as never);
 
     await svc.listPurchaseOrders('org-correct', {}, null);
 

@@ -9,6 +9,8 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { OrderStatus, InvoiceStatus, PaymentStatus, MovementType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { InventoryService } from '../inventory/inventory.service';
+import { BusinessRuleService } from '../business-rules/business-rules.service';
+import { AuditService } from '../audit/audit.service';
 import type { CreateSalesOrderDto } from './dto/create-sales-order.dto';
 import type { ListSalesOrdersDto } from './dto/list-sales-orders.dto';
 import type { CreateInvoiceDto } from './dto/create-invoice.dto';
@@ -28,6 +30,8 @@ export class SalesService {
     private readonly prisma: PrismaService,
     private readonly inventoryService: InventoryService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly businessRuleService: BusinessRuleService,
+    private readonly auditService: AuditService,
   ) {}
 
   // ── Sales Orders ──────────────────────────────────────────────
@@ -159,6 +163,47 @@ export class SalesService {
 
     const totalAmount = subtotal.sub(discountTotal).add(taxTotal);
 
+    // ── Business rule enforcement BEFORE committing to DB ──────────
+    const ruleChecks: Record<string, unknown> = {};
+    const subtotalNum = Number(subtotal);
+
+    if (subtotalNum > 0) {
+      const discountPct = (Number(discountTotal) / subtotalNum) * 100;
+      const discountCheck = await this.businessRuleService.checkDiscount(organizationId, discountPct);
+      ruleChecks.discount = discountCheck;
+
+      // Hard block if discount exceeds threshold (V1.1: no separate approval workflow)
+      if (discountCheck.approvalRequired) {
+        throw new BadRequestException(discountCheck.reason);
+      }
+
+      // Margin check — require ALL items to have costPrice if ANY do (prevent partial bypass)
+      const hasAnyCosts = dto.items.some((i) => i.costPrice !== undefined && i.costPrice !== null);
+      const hasAllCosts = dto.items.every((i) => i.costPrice !== undefined && i.costPrice !== null);
+
+      if (hasAnyCosts && !hasAllCosts) {
+        throw new BadRequestException(
+          'All items must include costPrice when any item provides one',
+        );
+      }
+
+      if (hasAllCosts) {
+        const costTotal = dto.items.reduce(
+          (sum, item) => sum + Number(item.costPrice) * item.quantity,
+          0,
+        );
+        const marginPct = ((subtotalNum - costTotal) / subtotalNum) * 100;
+        const marginCheck = await this.businessRuleService.checkMargin(organizationId, marginPct);
+        ruleChecks.margin = marginCheck;
+
+        // Margin hard block
+        if (!marginCheck.allowed) {
+          throw new BadRequestException(marginCheck.reason);
+        }
+      }
+    }
+    // ───────────────────────────────────────────────────────────────
+
     const order = await this.prisma.salesOrder.create({
       data: {
         id: createId(),
@@ -200,7 +245,7 @@ export class SalesService {
       actorUserId: userId,
     });
 
-    return order;
+    return { ...order, ruleChecks };
   }
 
   async confirmSalesOrder(organizationId: string, id: string) {
@@ -366,6 +411,12 @@ export class SalesService {
     const refundAmount = dto.refundAmount ?? order.totalAmount.toString();
     const isFullRefund = !dto.items || dto.items.length === 0;
 
+    // Evaluate refund rule (audit and flag — refund still proceeds)
+    const refundRuleCheck = await this.businessRuleService.checkRefundAmount(
+      organizationId,
+      Number(refundAmount),
+    );
+
     // Create reversal payment
     const refundReference = generateReference('RFD');
     await this.prisma.payment.create({
@@ -383,12 +434,28 @@ export class SalesService {
       },
     });
 
-    return this.prisma.salesOrder.update({
+    const updated = await this.prisma.salesOrder.update({
       where: { id },
       data: {
         status: isFullRefund ? OrderStatus.REFUNDED : OrderStatus.PARTIAL_REFUND,
       },
     });
+
+    void this.auditService.log({
+      organizationId,
+      userId,
+      action: 'SALES_ORDER_REFUNDED',
+      entity: 'SalesOrder',
+      entityId: id,
+      newValues: {
+        refundAmount,
+        reason: dto.reason,
+        isFullRefund,
+        ruleCheck: refundRuleCheck,
+      },
+    });
+
+    return { ...updated, ruleCheck: refundRuleCheck };
   }
 
   // ── Invoices ──────────────────────────────────────────────────

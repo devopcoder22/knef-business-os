@@ -9,6 +9,8 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { POStatus, InvoiceStatus, MovementType, ReturnStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { InventoryService } from '../inventory/inventory.service';
+import { BusinessRuleService } from '../business-rules/business-rules.service';
+import { AuditService } from '../audit/audit.service';
 import type { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import type { ListPurchaseOrdersDto } from './dto/list-purchase-orders.dto';
 import type { CreateGoodsReceiptDto } from './dto/create-goods-receipt.dto';
@@ -29,6 +31,8 @@ export class PurchasingService {
     private readonly prisma: PrismaService,
     private readonly inventoryService: InventoryService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly businessRuleService: BusinessRuleService,
+    private readonly auditService: AuditService,
   ) {}
 
   // ── Purchase Orders ───────────────────────────────────────────
@@ -224,28 +228,98 @@ export class PurchasingService {
       throw new BadRequestException('Only DRAFT orders can be submitted');
     }
 
-    return this.prisma.purchaseOrder.update({
+    const submitted = await this.prisma.purchaseOrder.update({
       where: { id },
       data: { status: POStatus.SUBMITTED },
     });
+
+    const ruleCheck = await this.businessRuleService.checkPurchaseAmount(
+      organizationId,
+      Number(order.totalAmount),
+    );
+
+    return { ...submitted, ruleCheck };
   }
 
-  async approvePurchaseOrder(organizationId: string, id: string, userId: string) {
+  async approvePurchaseOrder(
+    organizationId: string,
+    id: string,
+    userId: string,
+    approverLocationIds: string[] | null = null,
+  ) {
     const order = await this.prisma.purchaseOrder.findFirst({
       where: { id, organizationId },
     });
     if (!order) throw new NotFoundException('Purchase order not found');
+
+    // Idempotency: if already approved return existing state
+    if (order.status === POStatus.APPROVED) {
+      const ruleCheck = await this.businessRuleService.checkPurchaseAmount(
+        organizationId,
+        Number(order.totalAmount),
+      );
+      return { ...order, ruleCheck, idempotent: true };
+    }
+
     if (order.status !== POStatus.SUBMITTED) {
       throw new BadRequestException('Only SUBMITTED orders can be approved');
     }
 
-    const approved = await this.prisma.purchaseOrder.update({
-      where: { id },
+    // Self-approval prevention
+    if (order.createdBy && userId === order.createdBy) {
+      throw new ForbiddenException('Cannot approve your own purchase order');
+    }
+
+    // Approver location scope check
+    if (approverLocationIds !== null && !approverLocationIds.includes(order.locationId)) {
+      throw new ForbiddenException('Not authorized to approve purchase orders for this location');
+    }
+
+    // Requester authority recheck — submitter must still be active in org
+    if (order.createdBy) {
+      const requester = await this.prisma.user.findFirst({
+        where: { id: order.createdBy, organizationId, isActive: true },
+        select: { id: true },
+      });
+      if (!requester) {
+        throw new ForbiddenException('Requester is no longer active in this organization');
+      }
+    }
+
+    // Re-evaluate rule at approval time (threshold may have changed since submission)
+    const ruleCheck = await this.businessRuleService.checkPurchaseAmount(
+      organizationId,
+      Number(order.totalAmount),
+    );
+
+    // Atomic state transition — prevent concurrent double-approval
+    const result = await this.prisma.purchaseOrder.updateMany({
+      where: { id, organizationId, status: POStatus.SUBMITTED },
       data: {
         status: POStatus.APPROVED,
         approvedBy: userId,
         approvedAt: new Date(),
       },
+    });
+
+    if (result.count === 0) {
+      const current = await this.prisma.purchaseOrder.findFirst({ where: { id, organizationId } });
+      if (current?.status === POStatus.APPROVED) {
+        return { ...current, ruleCheck, idempotent: true };
+      }
+      throw new BadRequestException('Purchase order is no longer in SUBMITTED state');
+    }
+
+    const approved = await this.findPurchaseOrder(organizationId, id);
+
+    void this.auditService.log({
+      organizationId,
+      userId,
+      action: 'PURCHASE_ORDER_APPROVED',
+      entity: 'PurchaseOrder',
+      entityId: id,
+      oldValues: { status: 'SUBMITTED' },
+      newValues: { status: 'APPROVED', approvedBy: userId },
     });
 
     this.eventEmitter.emit('purchase_order.approved', {
@@ -258,13 +332,14 @@ export class PurchasingService {
       actorUserId: userId,
     });
 
-    return approved;
+    return { ...approved, ruleCheck };
   }
 
   async cancelPurchaseOrder(
     organizationId: string,
     id: string,
     reason?: string,
+    userId?: string,
   ) {
     const order = await this.prisma.purchaseOrder.findFirst({
       where: { id, organizationId },
@@ -278,7 +353,7 @@ export class PurchasingService {
       throw new BadRequestException('Order cannot be cancelled in its current state');
     }
 
-    return this.prisma.purchaseOrder.update({
+    const cancelled = await this.prisma.purchaseOrder.update({
       where: { id },
       data: {
         status: POStatus.CANCELLED,
@@ -286,6 +361,18 @@ export class PurchasingService {
         cancelReason: reason,
       },
     });
+
+    void this.auditService.log({
+      organizationId,
+      userId,
+      action: 'PURCHASE_ORDER_CANCELLED',
+      entity: 'PurchaseOrder',
+      entityId: id,
+      oldValues: { status: order.status },
+      newValues: { status: 'CANCELLED', cancelReason: reason },
+    });
+
+    return cancelled;
   }
 
   async deletePurchaseOrder(organizationId: string, id: string) {

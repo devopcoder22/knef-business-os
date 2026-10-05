@@ -124,6 +124,14 @@ const FEATURE_FLAGS = [
   { key: 'FEATURE_ECOMMERCE_API', name: 'E-commerce API', description: 'Expose public API for storefront integration' },
 ];
 
+const BUSINESS_RULE_SETTINGS = [
+  { key: 'rules.sales.max_discount_percent', value: '20', type: 'number', group: 'rules', label: 'Max Discount Percentage', description: 'Maximum discount % allowed on a sales order without manager approval', isPublic: false },
+  { key: 'rules.sales.min_margin_percent', value: '10', type: 'number', group: 'rules', label: 'Minimum Margin Percentage', description: 'Minimum gross margin % required on a sales order', isPublic: false },
+  { key: 'rules.sales.refund_approval_threshold_ngn', value: '50000', type: 'number', group: 'rules', label: 'Refund Approval Threshold (NGN)', description: 'Refunds above this amount require explicit approval', isPublic: false },
+  { key: 'rules.purchasing.approval_threshold_ngn', value: '500000', type: 'number', group: 'rules', label: 'PO Approval Threshold (NGN)', description: 'Purchase orders above this amount are flagged for elevated review', isPublic: false },
+  { key: 'rules.expense.approval_threshold_ngn', value: '100000', type: 'number', group: 'rules', label: 'Expense Approval Threshold (NGN)', description: 'Expenses above this amount require explicit approval', isPublic: false },
+];
+
 const DEFAULT_SETTINGS = [
   { key: 'company_name', value: 'KNEF Gadgets', type: 'string', group: 'general', label: 'Company Name', isPublic: true },
   { key: 'company_email', value: '', type: 'string', group: 'general', label: 'Company Email', isPublic: true },
@@ -300,6 +308,36 @@ async function seed(): Promise<void> {
     });
   }
   console.log('✅ System settings created\n');
+
+  // ── 5b. Business rule settings ─────────────────────────────────────────────
+  for (const setting of BUSINESS_RULE_SETTINGS) {
+    await prisma.systemSetting.upsert({
+      where: {
+        organizationId_key: {
+          organizationId: org.id,
+          key: setting.key,
+        },
+      },
+      create: {
+        id: createId(),
+        organizationId: org.id,
+        key: setting.key,
+        value: setting.value,
+        type: setting.type,
+        group: setting.group,
+        label: setting.label,
+        description: setting.description,
+        isPublic: false,
+      },
+      update: {
+        label: setting.label,
+        description: setting.description,
+        type: setting.type,
+        group: setting.group,
+      },
+    });
+  }
+  console.log('✅ Business rule settings created\n');
 
   // ── 6. Create default VAT tax rate ──────────────────────────────────────────
   await prisma.taxRate.upsert({

@@ -1,8 +1,9 @@
-import { Injectable, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
 import type { AITool, TaskPriority, TaskStatus } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { NotificationsService } from '../communications/notifications.service';
+import { PurchasingService } from '../purchasing/purchasing.service';
 import { NotificationType } from '@prisma/client';
 
 interface PurchaseOrderItem {
@@ -16,6 +17,7 @@ export class AIToolExecutorService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
+    private readonly purchasingService: PurchasingService,
   ) {}
 
   async execute(
@@ -23,6 +25,7 @@ export class AIToolExecutorService {
     parameters: Record<string, unknown>,
     orgId: string,
     locationIds?: string[] | null,
+    actorUserId?: string,
   ): Promise<unknown> {
     switch (tool.name) {
       case 'get_inventory_levels':
@@ -32,7 +35,7 @@ export class AIToolExecutorService {
       case 'get_low_stock_products':
         return this.getLowStockProducts(orgId, locationIds ?? null);
       case 'create_purchase_order':
-        return this.createPurchaseOrder(orgId, parameters, locationIds ?? null);
+        return this.createPurchaseOrder(orgId, parameters, locationIds ?? null, actorUserId);
       case 'get_orders':
         return this.getOrders(orgId, parameters, locationIds ?? null);
       case 'send_notification':
@@ -160,6 +163,7 @@ export class AIToolExecutorService {
     orgId: string,
     params: Record<string, unknown>,
     locationIds: string[] | null,
+    actorUserId?: string,
   ): Promise<unknown> {
     const supplierId = params.supplierId as string;
     const locationId = params.locationId as string;
@@ -169,47 +173,21 @@ export class AIToolExecutorService {
       throw new BadRequestException('supplierId and locationId are required');
     }
 
-    if (locationIds !== null && locationId && !locationIds.includes(locationId)) {
-      throw new ForbiddenException('Not authorized to create purchase orders for this location');
-    }
+    // Route through PurchasingService so business rules and events are applied
+    const dto = {
+      supplierId,
+      locationId,
+      items: rawItems.map((item) => ({
+        productId: item.productId,
+        quantity: item.quantity,
+        unitCost: String(item.unitCost),
+      })),
+    };
 
-    const reference = `PO-AI-${Date.now()}`;
-    const items = rawItems.map((item) => ({
-      id: createId(),
-      productId: item.productId,
-      quantity: item.quantity,
-      receivedQty: 0,
-      unitCost: item.unitCost,
-      taxRate: 0,
-      discountRate: 0,
-      totalCost: item.quantity * item.unitCost,
-    }));
+    const userId = actorUserId ?? 'ai-agent';
+    const po = await this.purchasingService.createPurchaseOrder(orgId, dto as never, userId, locationIds);
 
-    const subtotal = items.reduce((s, i) => s + i.totalCost, 0);
-
-    const po = await this.prisma.purchaseOrder.create({
-      data: {
-        id: createId(),
-        organizationId: orgId,
-        reference,
-        supplierId,
-        locationId,
-        status: 'DRAFT',
-        currency: 'NGN',
-        subtotal,
-        taxAmount: 0,
-        shippingCost: 0,
-        discountAmount: 0,
-        totalAmount: subtotal,
-        paidAmount: 0,
-        items: {
-          create: items,
-        },
-      },
-      select: { id: true, reference: true, status: true, totalAmount: true },
-    });
-
-    return { purchaseOrder: { ...po, totalAmount: po.totalAmount.toString() } };
+    return { purchaseOrder: { id: po.id, reference: po.reference, status: po.status, totalAmount: po.totalAmount.toString() } };
   }
 
   private async sendNotification(

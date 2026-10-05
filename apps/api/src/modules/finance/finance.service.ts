@@ -3,10 +3,13 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
 import { Prisma, TransactionType, ExpenseStatus, PeriodStatus } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
+import { BusinessRuleService } from '../business-rules/business-rules.service';
+import { AuditService } from '../audit/audit.service';
 import type { CreateBankAccountDto } from './dto/create-bank-account.dto';
 import type { UpdateBankAccountDto } from './dto/update-bank-account.dto';
 import type { RecordTransactionDto } from './dto/record-transaction.dto';
@@ -31,7 +34,11 @@ function generateReference(prefix: string): string {
 
 @Injectable()
 export class FinanceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly businessRuleService: BusinessRuleService,
+    private readonly auditService: AuditService,
+  ) {}
 
   // ── Bank Accounts ─────────────────────────────────────────────
 
@@ -266,7 +273,7 @@ export class FinanceService {
   async createExpense(organizationId: string, dto: CreateExpenseDto, userId: string) {
     const reference = generateReference('EXP');
 
-    return this.prisma.expense.create({
+    const expense = await this.prisma.expense.create({
       data: {
         id: createId(),
         organizationId,
@@ -285,6 +292,13 @@ export class FinanceService {
       },
       include: { category: { select: { id: true, name: true } } },
     });
+
+    const ruleCheck = await this.businessRuleService.checkExpenseAmount(
+      organizationId,
+      Number(dto.amount),
+    );
+
+    return { ...expense, ruleCheck };
   }
 
   async updateExpense(organizationId: string, id: string, dto: UpdateExpenseDto) {
@@ -314,34 +328,101 @@ export class FinanceService {
   async approveExpense(organizationId: string, id: string, userId: string) {
     const expense = await this.prisma.expense.findFirst({ where: { id, organizationId } });
     if (!expense) throw new NotFoundException('Expense not found');
+
+    // Idempotency: if already approved return existing state
+    if (expense.status === ExpenseStatus.APPROVED) {
+      const ruleCheck = await this.businessRuleService.checkExpenseAmount(
+        organizationId,
+        Number(expense.amount),
+      );
+      return { ...expense, ruleCheck, idempotent: true };
+    }
+
     if (expense.status !== ExpenseStatus.PENDING) {
       throw new BadRequestException('Only PENDING expenses can be approved');
     }
 
-    return this.prisma.expense.update({
-      where: { id },
+    // Self-approval prevention
+    if (expense.submittedBy && userId === expense.submittedBy) {
+      throw new ForbiddenException('Cannot approve your own expense');
+    }
+
+    // Requester authority recheck — submitter must still be active in org
+    if (expense.submittedBy) {
+      const requester = await this.prisma.user.findFirst({
+        where: { id: expense.submittedBy, organizationId, isActive: true },
+        select: { id: true },
+      });
+      if (!requester) {
+        throw new ForbiddenException('Expense submitter is no longer active in this organization');
+      }
+    }
+
+    // Re-evaluate rule at approval time (threshold may have changed since submission)
+    const ruleCheck = await this.businessRuleService.checkExpenseAmount(
+      organizationId,
+      Number(expense.amount),
+    );
+
+    // Atomic state transition — prevent concurrent double-approval
+    const result = await this.prisma.expense.updateMany({
+      where: { id, organizationId, status: ExpenseStatus.PENDING },
       data: {
         status: ExpenseStatus.APPROVED,
         approvedBy: userId,
         approvedAt: new Date(),
       },
     });
+
+    if (result.count === 0) {
+      const current = await this.prisma.expense.findFirst({ where: { id, organizationId } });
+      if (current?.status === ExpenseStatus.APPROVED) {
+        return { ...current, ruleCheck, idempotent: true };
+      }
+      throw new BadRequestException('Expense is no longer in PENDING state');
+    }
+
+    const approved = await this.findOneExpense(organizationId, id);
+
+    void this.auditService.log({
+      organizationId,
+      userId,
+      action: 'EXPENSE_APPROVED',
+      entity: 'Expense',
+      entityId: id,
+      oldValues: { status: 'PENDING' },
+      newValues: { status: 'APPROVED', approvedBy: userId },
+    });
+
+    return { ...approved, ruleCheck };
   }
 
-  async rejectExpense(organizationId: string, id: string, dto: RejectExpenseDto) {
+  async rejectExpense(organizationId: string, id: string, dto: RejectExpenseDto, userId?: string) {
     const expense = await this.prisma.expense.findFirst({ where: { id, organizationId } });
     if (!expense) throw new NotFoundException('Expense not found');
     if (expense.status !== ExpenseStatus.PENDING) {
       throw new BadRequestException('Only PENDING expenses can be rejected');
     }
 
-    return this.prisma.expense.update({
+    const rejected = await this.prisma.expense.update({
       where: { id },
       data: {
         status: ExpenseStatus.REJECTED,
         notes: dto.reason,
       },
     });
+
+    void this.auditService.log({
+      organizationId,
+      userId,
+      action: 'EXPENSE_REJECTED',
+      entity: 'Expense',
+      entityId: id,
+      oldValues: { status: 'PENDING' },
+      newValues: { status: 'REJECTED', reason: dto.reason },
+    });
+
+    return rejected;
   }
 
   async markExpensePaid(organizationId: string, id: string, dto: MarkExpensePaidDto, userId: string) {

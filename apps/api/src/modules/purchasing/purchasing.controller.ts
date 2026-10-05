@@ -76,7 +76,7 @@ export class PurchaseOrdersController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Approve purchase order' })
   approve(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.purchasingService.approvePurchaseOrder(user.organizationId, id, user.id);
+    return this.purchasingService.approvePurchaseOrder(user.organizationId, id, user.id, user.locationIds);
   }
 
   @Post(':id/cancel')
@@ -88,7 +88,7 @@ export class PurchaseOrdersController {
     @Param('id') id: string,
     @Body() body: { reason?: string },
   ) {
-    return this.purchasingService.cancelPurchaseOrder(user.organizationId, id, body.reason);
+    return this.purchasingService.cancelPurchaseOrder(user.organizationId, id, body.reason, user.id);
   }
 
   @Delete(':id')

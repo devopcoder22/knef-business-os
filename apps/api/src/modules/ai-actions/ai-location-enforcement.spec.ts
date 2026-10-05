@@ -14,6 +14,7 @@
 
 import { ForbiddenException } from '@nestjs/common';
 import { AIToolExecutorService } from './ai-tool-executor.service';
+import type { PurchasingService } from '../purchasing/purchasing.service';
 
 function makeExecutor(prismaOverrides: Record<string, unknown> = {}) {
   const prisma = {
@@ -56,8 +57,17 @@ function makeExecutor(prismaOverrides: Record<string, unknown> = {}) {
 
   const notifications = { createNotification: jest.fn(async () => null) };
 
+  const purchasingService = {
+    createPurchaseOrder: jest.fn(async (_orgId: string, dto: { locationId: string }, _userId: string, locationIds: string[] | null) => {
+      if (locationIds !== null && !locationIds.includes(dto.locationId)) {
+        throw new ForbiddenException('Not authorized to create purchase orders for this location');
+      }
+      return { id: 'po-new', reference: 'PO-AI-123', status: 'DRAFT', totalAmount: { toString: () => '1000' } };
+    }),
+  } as unknown as PurchasingService;
+
   return {
-    executor: new AIToolExecutorService(prisma as never, notifications as never),
+    executor: new AIToolExecutorService(prisma as never, notifications as never, purchasingService),
     prisma,
   };
 }

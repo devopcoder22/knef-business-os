@@ -48,6 +48,7 @@ import { ExternalAgentsModule } from './modules/external-agents/external-agents.
 import { AdminModule } from './modules/admin/admin.module';
 import { AutomationModule } from './modules/automation/automation.module';
 import { BusinessIntelligenceModule } from './modules/business-intelligence/business-intelligence.module';
+import { BusinessRulesModule } from './modules/business-rules/business-rules.module';
 
 @Module({
   imports: [
@@ -120,6 +121,7 @@ import { BusinessIntelligenceModule } from './modules/business-intelligence/busi
     AdminModule,
     AutomationModule,
     BusinessIntelligenceModule,
+    BusinessRulesModule,
   ],
   providers: [
     // Apply ThrottlerGuard globally to all routes

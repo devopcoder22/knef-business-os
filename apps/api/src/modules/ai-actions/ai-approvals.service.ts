@@ -121,6 +121,7 @@ export class AIApprovalsService {
         action.parameters as Record<string, unknown>,
         orgId,
         requestorContext?.locationIds ?? null,
+        userId,
       );
       await this.prisma.aIAction.update({
         where: { id: action.id },

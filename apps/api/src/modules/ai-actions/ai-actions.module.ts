@@ -3,6 +3,7 @@ import { AIModule } from '../ai/ai.module';
 import { CommunicationsModule } from '../communications/communications.module';
 import { PermissionsModule } from '../permissions/permissions.module';
 import { AuditModule } from '../audit/audit.module';
+import { PurchasingModule } from '../purchasing/purchasing.module';
 import { AIToolExecutorService } from './ai-tool-executor.service';
 import { AIToolsService } from './ai-tools.service';
 import { AIApprovalsService } from './ai-approvals.service';
@@ -17,7 +18,7 @@ import {
 } from './ai-actions.controller';
 
 @Module({
-  imports: [AIModule, CommunicationsModule, PermissionsModule, AuditModule],
+  imports: [AIModule, CommunicationsModule, PermissionsModule, AuditModule, PurchasingModule],
   providers: [
     AIToolExecutorService,
     AIToolsService,
