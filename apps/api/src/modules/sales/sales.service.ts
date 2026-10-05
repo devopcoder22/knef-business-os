@@ -699,4 +699,61 @@ export class SalesService {
 
     return updatedInvoice;
   }
+
+  // ── Receipts ──────────────────────────────────────────────────
+
+  async listReceipts(organizationId: string, page = 1, limit = 20) {
+    const skip = (page - 1) * limit;
+    const where = { organizationId };
+
+    const [receipts, total] = await Promise.all([
+      this.prisma.receipt.findMany({
+        where,
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          reference: true,
+          amount: true,
+          currency: true,
+          method: true,
+          issuedAt: true,
+          notes: true,
+          invoiceId: true,
+          customerId: true,
+          invoice: { select: { id: true, reference: true, status: true } },
+        },
+        orderBy: { issuedAt: 'desc' },
+      }),
+      this.prisma.receipt.count({ where }),
+    ]);
+
+    return {
+      data: receipts,
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+    };
+  }
+
+  async findReceipt(organizationId: string, id: string) {
+    const receipt = await this.prisma.receipt.findFirst({
+      where: { id, organizationId },
+      include: {
+        invoice: {
+          include: {
+            items: {
+              include: { product: { select: { id: true, name: true, sku: true } } },
+            },
+            customer: true,
+          },
+        },
+      },
+    });
+    if (!receipt) throw new NotFoundException('Receipt not found');
+
+    // Customer may be linked directly or via the invoice
+    const customer =
+      (receipt.invoice?.customer as Record<string, unknown> | null | undefined) ?? null;
+
+    return { ...receipt, customer };
+  }
 }

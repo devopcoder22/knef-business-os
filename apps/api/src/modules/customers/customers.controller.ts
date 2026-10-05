@@ -72,4 +72,16 @@ export class CustomersController {
   getSalesHistory(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.customersService.getSalesHistory(user.organizationId, id);
   }
+
+  @Get(':id/statement')
+  @Permissions(PERMISSIONS.CUSTOMERS.VIEW)
+  @ApiOperation({ summary: 'Get customer account statement' })
+  getStatement(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+  ) {
+    return this.customersService.getStatement(user.organizationId, id, startDate, endDate);
+  }
 }

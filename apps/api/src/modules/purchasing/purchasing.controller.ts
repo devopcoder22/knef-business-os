@@ -9,9 +9,12 @@ import {
   Query,
   HttpCode,
   HttpStatus,
+  Res,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { Response } from 'express';
 import { PurchasingService } from './purchasing.service';
+import { PdfService } from '../../common/services/pdf.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { PERMISSIONS } from '@knef/constants';
@@ -29,7 +32,10 @@ import { CreatePurchaseReturnDto } from './dto/create-purchase-return.dto';
 @ApiBearerAuth('JWT')
 @Controller('purchase-orders')
 export class PurchaseOrdersController {
-  constructor(private readonly purchasingService: PurchasingService) {}
+  constructor(
+    private readonly purchasingService: PurchasingService,
+    private readonly pdfService: PdfService,
+  ) {}
 
   @Get()
   @Permissions(PERMISSIONS.PURCHASING.VIEW)
@@ -98,6 +104,24 @@ export class PurchaseOrdersController {
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.purchasingService.deletePurchaseOrder(user.organizationId, id);
   }
+
+  @Get(':id/pdf')
+  @Permissions(PERMISSIONS.PURCHASING.VIEW)
+  @ApiOperation({ summary: 'Download purchase order as PDF' })
+  async generatePdf(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const po = await this.purchasingService.findPurchaseOrder(user.organizationId, id, user.locationIds);
+    const pdfBuffer = await this.pdfService.generatePoPdf(po as never, user.organizationId);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="po-${po.reference}.pdf"`,
+      'Content-Length': pdfBuffer.length,
+    });
+    res.end(pdfBuffer);
+  }
 }
 
 // ── Goods Receipts ─────────────────────────────────────────────
@@ -106,7 +130,10 @@ export class PurchaseOrdersController {
 @ApiBearerAuth('JWT')
 @Controller('goods-receipts')
 export class GoodsReceiptsController {
-  constructor(private readonly purchasingService: PurchasingService) {}
+  constructor(
+    private readonly purchasingService: PurchasingService,
+    private readonly pdfService: PdfService,
+  ) {}
 
   @Get()
   @Permissions(PERMISSIONS.PURCHASING.VIEW)
@@ -136,6 +163,24 @@ export class GoodsReceiptsController {
   @ApiOperation({ summary: 'Create goods receipt' })
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateGoodsReceiptDto) {
     return this.purchasingService.createGoodsReceipt(user.organizationId, dto, user.id);
+  }
+
+  @Get(':id/pdf')
+  @Permissions(PERMISSIONS.PURCHASING.VIEW)
+  @ApiOperation({ summary: 'Download goods received note as PDF' })
+  async generatePdf(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const grn = await this.purchasingService.findGoodsReceipt(user.organizationId, id, user.locationIds);
+    const pdfBuffer = await this.pdfService.generateGrnPdf(grn as never, user.organizationId);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="grn-${grn.reference}.pdf"`,
+      'Content-Length': pdfBuffer.length,
+    });
+    res.end(pdfBuffer);
   }
 }
 

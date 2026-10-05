@@ -3,35 +3,43 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { Plus, Package } from 'lucide-react';
+import { Receipt } from 'lucide-react';
 import { api } from '@/lib/api';
 
-interface GoodsReceipt {
+interface SalesReceipt {
   id: string;
   reference: string;
-  receivedAt: string;
-  createdAt: string;
+  amount: string;
+  currency: string;
+  method: string;
+  issuedAt: string;
   notes: string | null;
-  purchaseOrder: {
-    id: string;
-    reference: string;
-    supplier: { id: string; name: string };
-  };
-  items: Array<{ quantityReceived: number }>;
+  invoiceId: string;
+  customerId: string | null;
+  invoice: { id: string; reference: string; status: string };
 }
 
 interface ReceiptsResponse {
-  data: GoodsReceipt[];
+  data: SalesReceipt[];
   meta: { total: number; page: number; limit: number; totalPages: number };
 }
 
-export default function GoodsReceiptsPage() {
+const METHOD_LABELS: Record<string, string> = {
+  CASH: 'Cash',
+  CARD: 'Card',
+  TRANSFER: 'Transfer',
+  CHEQUE: 'Cheque',
+  CRYPTO: 'Crypto',
+  OTHER: 'Other',
+};
+
+export default function SalesReceiptsPage() {
   const [page, setPage] = useState(1);
 
   const { data, isLoading } = useQuery<ReceiptsResponse>({
-    queryKey: ['goods-receipts', page],
+    queryKey: ['sales-receipts', page],
     queryFn: async () => {
-      const res = await api().get<ReceiptsResponse>(`/goods-receipts?page=${page}&limit=20`);
+      const res = await api().get<ReceiptsResponse>(`/receipts?page=${page}&limit=20`);
       return res.data;
     },
   });
@@ -43,16 +51,9 @@ export default function GoodsReceiptsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Goods Receipts</h1>
-          <p className="text-gray-500 text-sm mt-1">Track received inventory from suppliers</p>
+          <h1 className="text-2xl font-bold text-gray-900">Receipts</h1>
+          <p className="text-gray-500 text-sm mt-1">Payment receipts issued to customers</p>
         </div>
-        <Link
-          href="/purchasing/receipts/new"
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
-        >
-          <Plus size={16} />
-          Receive Goods
-        </Link>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -61,10 +62,10 @@ export default function GoodsReceiptsPage() {
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50">
                 <th className="text-left px-4 py-3 font-medium text-gray-700">Reference</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-700">Purchase Order</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-700">Supplier</th>
-                <th className="text-center px-4 py-3 font-medium text-gray-700">Items</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-700">Received Date</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-700">Invoice</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-700">Method</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-700">Amount</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-700">Issued</th>
               </tr>
             </thead>
             <tbody>
@@ -79,30 +80,31 @@ export default function GoodsReceiptsPage() {
                 : receipts.map((receipt) => (
                     <tr key={receipt.id} className="border-b border-gray-100 hover:bg-gray-50">
                       <td className="px-4 py-3">
-                        <Link href={`/purchasing/receipts/${receipt.id}`} className="font-mono text-xs text-blue-600 hover:underline">{receipt.reference}</Link>
-                      </td>
-                      <td className="px-4 py-3">
-                        <Link
-                          href={`/purchasing/orders/${receipt.purchaseOrder.id}`}
-                          className="font-mono text-xs text-blue-600 hover:underline"
-                        >
-                          {receipt.purchaseOrder.reference}
+                        <Link href={`/sales/receipts/${receipt.id}`} className="font-mono text-xs text-blue-600 hover:underline">
+                          {receipt.reference}
                         </Link>
                       </td>
-                      <td className="px-4 py-3 text-gray-600">{receipt.purchaseOrder.supplier.name}</td>
-                      <td className="px-4 py-3 text-center text-gray-600">
-                        {receipt.items.reduce((sum, i) => sum + i.quantityReceived, 0)} units
+                      <td className="px-4 py-3">
+                        <Link href={`/sales/invoices/${receipt.invoiceId}`} className="font-mono text-xs text-blue-600 hover:underline">
+                          {receipt.invoice.reference}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3 text-gray-600">
+                        {METHOD_LABELS[receipt.method] ?? receipt.method}
+                      </td>
+                      <td className="px-4 py-3 text-right font-medium text-gray-900">
+                        {Number(receipt.amount).toLocaleString('en-NG', { style: 'currency', currency: receipt.currency })}
                       </td>
                       <td className="px-4 py-3 text-right text-gray-500 text-xs">
-                        {new Date(receipt.receivedAt).toLocaleDateString()}
+                        {new Date(receipt.issuedAt).toLocaleDateString()}
                       </td>
                     </tr>
                   ))}
               {!isLoading && receipts.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-4 py-12 text-center text-gray-400">
-                    <Package size={32} className="mx-auto mb-2 opacity-50" />
-                    <p>No goods receipts found</p>
+                    <Receipt size={32} className="mx-auto mb-2 opacity-50" />
+                    <p>No receipts found</p>
                   </td>
                 </tr>
               )}

@@ -73,6 +73,7 @@ const NAV_ITEMS: NavItem[] = [
     children: [
       { label: 'Orders', href: '/sales/orders', icon: ShoppingCart, permission: PERMISSIONS.SALES.VIEW },
       { label: 'Invoices', href: '/sales/invoices', icon: Receipt, permission: PERMISSIONS.SALES.VIEW },
+      { label: 'Receipts', href: '/sales/receipts', icon: Receipt, permission: PERMISSIONS.SALES.VIEW },
     ],
   },
   { label: 'POS', href: '/pos', icon: Monitor, permission: PERMISSIONS.POS.ACCESS },

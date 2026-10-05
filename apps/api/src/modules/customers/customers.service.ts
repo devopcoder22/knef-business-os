@@ -205,4 +205,77 @@ export class CustomersService {
       ) WHERE id = ${customerId}
     `;
   }
+
+  // ── Customer Statement ─────────────────────────────────────────
+
+  async getStatement(
+    organizationId: string,
+    customerId: string,
+    startDate: string,
+    endDate: string,
+  ) {
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: customerId, organizationId },
+      select: { id: true, firstName: true, lastName: true, phone: true, email: true, code: true },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    end.setDate(end.getDate() + 1);
+
+    const [invoices, payments] = await Promise.all([
+      this.prisma.invoice.findMany({
+        where: { organizationId, customerId, createdAt: { gte: start, lt: end } },
+        select: {
+          id: true, reference: true, status: true, currency: true,
+          totalAmount: true, paidAmount: true, dueDate: true, issuedAt: true,
+          order: { select: { reference: true } },
+        },
+        orderBy: { issuedAt: 'asc' },
+      }),
+      this.prisma.payment.findMany({
+        where: {
+          organizationId, customerId,
+          createdAt: { gte: start, lt: end },
+          status: 'COMPLETED',
+        },
+        select: { id: true, reference: true, amount: true, method: true, receivedAt: true, invoiceId: true },
+        orderBy: { receivedAt: 'asc' },
+      }),
+    ]);
+
+    const totalBilled = invoices.reduce((s, i) => s + Number(i.totalAmount), 0);
+    const totalPaid = payments
+      .filter(p => Number(p.amount) > 0)
+      .reduce((s, p) => s + Number(p.amount), 0);
+    const totalRefunded = payments
+      .filter(p => Number(p.amount) < 0)
+      .reduce((s, p) => s + Math.abs(Number(p.amount)), 0);
+    const outstandingBalance = totalBilled - totalPaid + totalRefunded;
+
+    return {
+      data: {
+        customer,
+        period: { startDate, endDate },
+        invoices: invoices.map(i => ({
+          ...i,
+          totalAmount: Number(i.totalAmount),
+          paidAmount: Number(i.paidAmount),
+          balanceDue: Number(i.totalAmount) - Number(i.paidAmount),
+        })),
+        payments: payments.filter(p => Number(p.amount) > 0).map(p => ({
+          ...p,
+          amount: Number(p.amount),
+        })),
+        refunds: payments.filter(p => Number(p.amount) < 0).map(p => ({
+          ...p,
+          amount: Math.abs(Number(p.amount)),
+        })),
+        summary: { totalBilled, totalPaid, totalRefunded, outstandingBalance },
+        note: 'Opening balance not available — statement reflects transaction history for the selected period only.',
+      },
+      meta: { generatedAt: new Date().toISOString() },
+    };
+  }
 }
