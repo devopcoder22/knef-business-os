@@ -66,12 +66,30 @@ export class CustomersService {
       sortDir = 'asc',
       hasOutstanding,
       tagId,
+      segment,
     } = query;
     const skip = (page - 1) * limit;
 
     const where: Record<string, unknown> = { organizationId };
     if (isActive !== undefined) where['isActive'] = isActive;
     if (hasOutstanding) where['outstandingBalance'] = { gt: 0 };
+
+    // Segment filter: only segments computable from stored customer fields
+    if (segment) {
+      switch (segment.toUpperCase()) {
+        case 'NEW':
+          where['createdAt'] = { gte: new Date(Date.now() - SEGMENT_DAYS_NEW * 86_400_000) };
+          break;
+        case 'HIGH_VALUE':
+          where['totalSpent'] = { gte: SEGMENT_HIGH_VALUE_NGN };
+          break;
+        case 'OUTSTANDING_BALANCE':
+          where['outstandingBalance'] = { gt: 0 };
+          break;
+        // ACTIVE, AT_RISK, INACTIVE, REPEAT require lastPurchaseDate/orderCount — not stored
+      }
+    }
+
     if (search) {
       where['OR'] = [
         { firstName: { contains: search, mode: 'insensitive' } },
@@ -407,16 +425,18 @@ export class CustomersService {
 
   // ── Timeline ──────────────────────────────────────────────────────────────
 
-  async getTimeline(organizationId: string, customerId: string, limit = 50) {
+  async getTimeline(organizationId: string, customerId: string, limit = 50, locationIds?: string[] | null) {
     const customer = await this.prisma.customer.findFirst({
       where: { id: customerId, organizationId },
       select: { id: true, createdAt: true },
     });
     if (!customer) throw new NotFoundException('Customer not found');
 
+    const locationWhere = this.buildLocationWhere(locationIds);
+
     const [orders, invoices, payments, receipts, noteRows, tasks] = await Promise.all([
       this.prisma.salesOrder.findMany({
-        where: { organizationId, customerId },
+        where: { organizationId, customerId, ...locationWhere },
         select: {
           id: true, reference: true, status: true, channel: true,
           totalAmount: true, createdAt: true,
@@ -543,14 +563,22 @@ export class CustomersService {
       where: { organizationId, name: { equals: dto.name, mode: 'insensitive' } },
     });
     if (existing) throw new ConflictException(`Tag '${dto.name}' already exists`);
-    return this.prisma.customerTag.create({
-      data: {
-        id: createId(),
-        organizationId,
-        name: dto.name,
-        color: dto.color ?? '#6B7280',
-      },
-    });
+    try {
+      return await this.prisma.customerTag.create({
+        data: {
+          id: createId(),
+          organizationId,
+          name: dto.name,
+          color: dto.color ?? '#6B7280',
+        },
+      });
+    } catch (err: unknown) {
+      const { Prisma: P } = await import('@prisma/client');
+      if (err instanceof P.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new ConflictException(`Tag '${dto.name}' already exists`);
+      }
+      throw err;
+    }
   }
 
   async assignTag(organizationId: string, customerId: string, tagId: string) {
@@ -582,14 +610,16 @@ export class CustomersService {
 
   // ── Sales History ─────────────────────────────────────────────────────────
 
-  async getSalesHistory(organizationId: string, customerId: string) {
+  async getSalesHistory(organizationId: string, customerId: string, locationIds?: string[] | null) {
     const customer = await this.prisma.customer.findFirst({
       where: { id: customerId, organizationId },
     });
     if (!customer) throw new NotFoundException('Customer not found');
 
+    const locationWhere = this.buildLocationWhere(locationIds);
+
     return this.prisma.salesOrder.findMany({
-      where: { organizationId, customerId },
+      where: { organizationId, customerId, ...locationWhere },
       select: {
         id: true,
         reference: true,
@@ -714,6 +744,12 @@ export class CustomersService {
       select: { id: true },
     });
     if (!c) throw new NotFoundException('Customer not found');
+  }
+
+  private buildLocationWhere(locationIds?: string[] | null): Record<string, unknown> {
+    if (locationIds === null || locationIds === undefined) return {};
+    if (locationIds.length === 0) return { locationId: '__none__' };
+    return { locationId: { in: locationIds } };
   }
 
   private async generateCode(organizationId: string): Promise<string> {

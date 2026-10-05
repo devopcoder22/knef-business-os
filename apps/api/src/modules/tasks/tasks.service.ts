@@ -1,6 +1,7 @@
 import {
   Injectable,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -75,6 +76,14 @@ export class TasksService {
   }
 
   async create(organizationId: string, dto: CreateTaskDto, creatorId: string) {
+    if (dto.customerId) {
+      const customer = await this.prisma.customer.findFirst({
+        where: { id: dto.customerId, organizationId },
+        select: { id: true },
+      });
+      if (!customer) throw new BadRequestException('Customer not found in this organization');
+    }
+
     const task = await this.prisma.task.create({
       data: {
         id: createId(),

@@ -38,6 +38,7 @@ function makePrisma(opts: {
   recentSales?: object[];
   recentTasks?: object[];
   pendingPOItems?: object[];
+  overdueTaskCount?: number;
 } = {}) {
   const {
     todayPaymentSum = 50_000,
@@ -53,9 +54,11 @@ function makePrisma(opts: {
     recentSales = [],
     recentTasks = [],
     pendingPOItems = [],
+    overdueTaskCount = 0,
   } = opts;
 
   let paymentCallCount = 0;
+  let taskCountCallCount = 0;
 
   return {
     payment: {
@@ -77,7 +80,11 @@ function makePrisma(opts: {
       findMany: jest.fn(async () => lowStockItems),
     },
     task: {
-      count: jest.fn(async () => openTasks),
+      count: jest.fn(async () => {
+        taskCountCallCount++;
+        // 1st call = openTasks (status IN_PROGRESS/TODO), 2nd = overdueTaskCount (+ dueDate < now)
+        return taskCountCallCount === 1 ? openTasks : overdueTaskCount;
+      }),
       findMany: jest.fn(async () => recentTasks),
     },
     purchaseOrder: {

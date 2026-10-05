@@ -167,12 +167,11 @@ export class DashboardService {
       }),
     ]);
 
-    // Low-stock: fetch inventoryLevels below product's lowStockAlert threshold (client-side filter)
+    // Low-stock: fetch inventoryLevels and filter client-side against product.lowStockAlert
     const inventoryLevelRows = await this.prisma.inventoryLevel.findMany({
       where: {
         product: { organizationId },
         ...inventoryLocationFilter,
-        quantity: { lte: 10 }, // coarse pre-filter; refined below
       },
       select: {
         id: true,
@@ -181,7 +180,7 @@ export class DashboardService {
         location: { select: { id: true, name: true } },
       },
       orderBy: { quantity: 'asc' },
-      take: 50,
+      take: 200,
     }).catch(() => [] as never[]);
 
     const lowStockItems = (inventoryLevelRows as Array<{
@@ -204,9 +203,9 @@ export class DashboardService {
       _sum: { amount: true },
     });
 
-    // Previous month for comparison
+    // Previous period: same-length window ending at the same day-of-month last month
     const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+    const prevMonthEnd = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate(), 23, 59, 59);
     const prevMonthRevenue = await this.prisma.payment.aggregate({
       where: {
         organizationId,
@@ -225,6 +224,15 @@ export class DashboardService {
         ? Math.round(((monthRev - prevMonthRev) / prevMonthRev) * 100)
         : null;
 
+    // Overdue task count — dedicated query to avoid truncation by preview take limit
+    const overdueTaskCount = await this.prisma.task.count({
+      where: {
+        organizationId,
+        status: { in: ['TODO', 'IN_PROGRESS'] },
+        dueDate: { lt: now },
+      },
+    });
+
     // Needs Attention items
     const needsAttention: Array<{ type: string; label: string; count: number; link: string }> = [];
     if (overdueInvoices > 0)
@@ -235,12 +243,8 @@ export class DashboardService {
       needsAttention.push({ type: 'LOW_STOCK', label: 'Low Stock Items', count: lowStockCount, link: '/reports/inventory?view=low-stock' });
     if (customersWithOutstanding > 0)
       needsAttention.push({ type: 'OUTSTANDING_CUSTOMERS', label: 'Customers with Balance Due', count: customersWithOutstanding, link: '/customers?hasOutstanding=true' });
-
-    const overdueTasks = (recentTasks as RecentTask[]).filter(
-      (t) => t.dueDate && new Date(t.dueDate) < now,
-    );
-    if (overdueTasks.length > 0)
-      needsAttention.push({ type: 'OVERDUE_TASKS', label: 'Overdue Tasks', count: overdueTasks.length, link: '/tasks?status=TODO' });
+    if (overdueTaskCount > 0)
+      needsAttention.push({ type: 'OVERDUE_TASKS', label: 'Overdue Tasks', count: overdueTaskCount, link: '/tasks?status=TODO&overdue=true' });
 
     return {
       data: {

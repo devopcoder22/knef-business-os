@@ -57,8 +57,17 @@ export class CustomersController {
   @Post('tags')
   @Permissions(PERMISSIONS.CUSTOMERS.EDIT)
   @ApiOperation({ summary: 'Create a customer tag' })
-  createTag(@CurrentUser() user: AuthUser, @Body() dto: CreateTagDto) {
-    return this.customersService.createTag(user.organizationId, dto);
+  async createTag(@CurrentUser() user: AuthUser, @Body() dto: CreateTagDto) {
+    const tag = await this.customersService.createTag(user.organizationId, dto);
+    void this.auditService.log({
+      organizationId: user.organizationId,
+      userId: user.id,
+      action: 'CUSTOMER_TAG_CREATED',
+      entity: 'CustomerTag',
+      entityId: tag.id,
+      newValues: { name: dto.name, color: dto.color },
+    });
+    return tag;
   }
 
   // ── Detail ────────────────────────────────────────────────────────────────
@@ -121,6 +130,7 @@ export class CustomersController {
       user.organizationId,
       id,
       limit ? parseInt(limit) : 50,
+      user.locationIds ?? null,
     );
   }
 
@@ -155,12 +165,21 @@ export class CustomersController {
   @Permissions(PERMISSIONS.CUSTOMERS.EDIT)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Delete customer note (author only)' })
-  deleteNote(
+  async deleteNote(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Param('noteId') noteId: string,
   ) {
-    return this.customersService.deleteNote(user.organizationId, id, noteId, user.id);
+    const result = await this.customersService.deleteNote(user.organizationId, id, noteId, user.id);
+    void this.auditService.log({
+      organizationId: user.organizationId,
+      userId: user.id,
+      action: 'CUSTOMER_NOTE_DELETED',
+      entity: 'Customer',
+      entityId: id,
+      newValues: { noteId },
+    });
+    return result;
   }
 
   // ── Tags (per-customer) ───────────────────────────────────────────────────
@@ -169,24 +188,42 @@ export class CustomersController {
   @Permissions(PERMISSIONS.CUSTOMERS.EDIT)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Assign tag to customer' })
-  assignTag(
+  async assignTag(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Param('tagId') tagId: string,
   ) {
-    return this.customersService.assignTag(user.organizationId, id, tagId);
+    const result = await this.customersService.assignTag(user.organizationId, id, tagId);
+    void this.auditService.log({
+      organizationId: user.organizationId,
+      userId: user.id,
+      action: 'CUSTOMER_TAG_ASSIGNED',
+      entity: 'Customer',
+      entityId: id,
+      newValues: { tagId },
+    });
+    return result;
   }
 
   @Delete(':id/tags/:tagId')
   @Permissions(PERMISSIONS.CUSTOMERS.EDIT)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Remove tag from customer' })
-  removeTag(
+  async removeTag(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Param('tagId') tagId: string,
   ) {
-    return this.customersService.removeTag(user.organizationId, id, tagId);
+    const result = await this.customersService.removeTag(user.organizationId, id, tagId);
+    void this.auditService.log({
+      organizationId: user.organizationId,
+      userId: user.id,
+      action: 'CUSTOMER_TAG_REMOVED',
+      entity: 'Customer',
+      entityId: id,
+      newValues: { tagId },
+    });
+    return result;
   }
 
   // ── History / Related records ─────────────────────────────────────────────
@@ -195,7 +232,7 @@ export class CustomersController {
   @Permissions(PERMISSIONS.CUSTOMERS.VIEW)
   @ApiOperation({ summary: 'Get customer sales orders' })
   getSalesHistory(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.customersService.getSalesHistory(user.organizationId, id);
+    return this.customersService.getSalesHistory(user.organizationId, id, user.locationIds ?? null);
   }
 
   @Get(':id/invoices')

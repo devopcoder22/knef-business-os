@@ -189,6 +189,27 @@ export default function CustomerDetailPage() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['customer-notes', id] }),
   });
 
+  // ── PDF downloads ─────────────────────────────────────────────────────────
+
+  async function downloadReceiptPdf(receiptId: string) {
+    const res = await api().get(`/receipts/${receiptId}/pdf`, { responseType: 'blob' });
+    const url = URL.createObjectURL(new Blob([res.data as BlobPart], { type: 'application/pdf' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = `receipt-${receiptId}.pdf`; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function downloadStatementPdf() {
+    const res = await api().get(
+      `/customers/${id}/statement/pdf?startDate=${stmtStart}&endDate=${stmtEnd}`,
+      { responseType: 'blob' },
+    );
+    const url = URL.createObjectURL(new Blob([res.data as BlobPart], { type: 'application/pdf' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = `statement-${id}-${stmtStart}-${stmtEnd}.pdf`; a.click();
+    URL.revokeObjectURL(url);
+  }
+
   // ── Loading / Error ───────────────────────────────────────────────────────
 
   if (isLoading) return (
@@ -255,7 +276,7 @@ export default function CustomerDetailPage() {
       {/* KPI strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: 'Lifetime Value', value: fmtNGN(m?.totalSalesValue ?? Number(customer.totalSpent)), note: 'Completed orders' },
+          { label: 'Lifetime Sales', value: fmtNGN(m?.totalSalesValue ?? Number(customer.totalSpent)), note: 'Completed orders' },
           { label: 'Total Paid', value: fmtNGN(m?.totalAmountPaid ?? 0), note: null },
           { label: 'Outstanding', value: fmtNGN(m?.outstandingAmount ?? Number(customer.outstandingBalance)), note: null, red: (m?.outstandingAmount ?? Number(customer.outstandingBalance)) > 0 },
           { label: 'Avg Order', value: m ? fmtNGN(m.averageOrderValue) : '—', note: `${m?.completedOrders ?? 0} orders` },
@@ -463,7 +484,7 @@ export default function CustomerDetailPage() {
                           <td className="py-2 px-2 text-right text-green-600">{fmtNGN(Number(r.amount))}</td>
                           <td className="py-2 px-2 text-right text-xs text-gray-400">{fmtDate(r.issuedAt as string)}</td>
                           <td className="py-2 px-2 text-right">
-                            <a href={`/api/receipts/${r.id as string}/pdf`} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline text-xs">PDF</a>
+                            <button onClick={() => void downloadReceiptPdf(r.id as string)} className="text-blue-500 hover:underline text-xs">PDF</button>
                           </td>
                         </tr>
                       ))}
@@ -566,15 +587,13 @@ export default function CustomerDetailPage() {
                   <label className="block text-xs text-gray-500 mb-1">To</label>
                   <input type="date" value={stmtEnd} onChange={(e) => setStmtEnd(e.target.value)} className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
-                <a
-                  href={`/api/customers/${id}/statement/pdf?startDate=${stmtStart}&endDate=${stmtEnd}`}
-                  target="_blank"
-                  rel="noreferrer"
+                <button
+                  onClick={() => void downloadStatementPdf()}
                   className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
                 >
                   <Download size={14} />
                   Download PDF
-                </a>
+                </button>
               </div>
 
               {stmtLoading

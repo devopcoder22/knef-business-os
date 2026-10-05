@@ -329,7 +329,11 @@ describe('SalesService — recordPayment creates Receipt', () => {
           customerId: 'cust-1',
           orderId: null,
         })),
+        findMany: jest.fn(async () => [
+          { totalAmount: '5000', paidAmount: '5000' },
+        ]),
       },
+      customer: { updateMany: jest.fn(async () => ({})) },
       receipt: { create: receiptCreate },
       payment: { create: jest.fn(async () => ({})) },
       salesOrder: { update: jest.fn(async () => ({})) },

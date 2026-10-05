@@ -598,6 +598,10 @@ export class SalesService {
       },
     });
 
+    if (invoice.customerId) {
+      await this.recalculateOutstandingBalance(invoice.customerId);
+    }
+
     this.eventEmitter.emit('invoice.created', {
       organizationId,
       invoiceId: invoice.id,
@@ -702,6 +706,10 @@ export class SalesService {
       }
     }
 
+    if (invoice.customerId) {
+      await this.recalculateOutstandingBalance(invoice.customerId);
+    }
+
     const updatedInvoice = await this.findInvoice(organizationId, invoiceId);
 
     this.eventEmitter.emit('payment.received', {
@@ -786,5 +794,20 @@ export class SalesService {
     }
 
     return { ...receipt, customer };
+  }
+
+  private async recalculateOutstandingBalance(customerId: string): Promise<void> {
+    const invoices = await this.prisma.invoice.findMany({
+      where: { customerId, status: { not: 'CANCELLED' } },
+      select: { totalAmount: true, paidAmount: true },
+    });
+    const balance = Math.max(
+      0,
+      invoices.reduce((s, i) => s + Number(i.totalAmount) - Number(i.paidAmount), 0),
+    );
+    await this.prisma.customer.updateMany({
+      where: { id: customerId },
+      data: { outstandingBalance: balance },
+    });
   }
 }
