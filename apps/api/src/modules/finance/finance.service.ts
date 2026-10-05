@@ -27,12 +27,7 @@ import type { CreateTaxRateDto } from './dto/create-tax-rate.dto';
 import type { UpdateTaxRateDto } from './dto/update-tax-rate.dto';
 import type { CreateFinancialPeriodDto } from './dto/create-financial-period.dto';
 
-function generateReference(prefix: string): string {
-  const date = new Date();
-  const dateStr = date.toISOString().slice(0, 10).replace(/-/g, '');
-  const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
-  return `${prefix}-${dateStr}-${rand}`;
-}
+import { generateReference } from '../../common/utils/references';
 
 @Injectable()
 export class FinanceService {

@@ -15,6 +15,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Response } from 'express';
 import { PurchasingService } from './purchasing.service';
 import { PdfService } from '../../common/services/pdf.service';
+import { AuditService } from '../audit/audit.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { PERMISSIONS } from '@knef/constants';
@@ -35,6 +36,7 @@ export class PurchaseOrdersController {
   constructor(
     private readonly purchasingService: PurchasingService,
     private readonly pdfService: PdfService,
+    private readonly auditService: AuditService,
   ) {}
 
   @Get()
@@ -114,6 +116,13 @@ export class PurchaseOrdersController {
     @Res() res: Response,
   ) {
     const po = await this.purchasingService.findPurchaseOrder(user.organizationId, id, user.locationIds);
+    void this.auditService.log({
+      organizationId: user.organizationId,
+      userId: user.id,
+      action: 'PO_PDF_DOWNLOADED',
+      entity: 'PurchaseOrder',
+      entityId: id,
+    });
     const pdfBuffer = await this.pdfService.generatePoPdf(po as never, user.organizationId);
     res.set({
       'Content-Type': 'application/pdf',
@@ -133,6 +142,7 @@ export class GoodsReceiptsController {
   constructor(
     private readonly purchasingService: PurchasingService,
     private readonly pdfService: PdfService,
+    private readonly auditService: AuditService,
   ) {}
 
   @Get()
@@ -174,6 +184,13 @@ export class GoodsReceiptsController {
     @Res() res: Response,
   ) {
     const grn = await this.purchasingService.findGoodsReceipt(user.organizationId, id, user.locationIds);
+    void this.auditService.log({
+      organizationId: user.organizationId,
+      userId: user.id,
+      action: 'GRN_PDF_DOWNLOADED',
+      entity: 'GoodsReceipt',
+      entityId: id,
+    });
     const pdfBuffer = await this.pdfService.generateGrnPdf(grn as never, user.organizationId);
     res.set({
       'Content-Type': 'application/pdf',

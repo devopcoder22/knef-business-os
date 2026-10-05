@@ -17,12 +17,7 @@ import type { CreateInvoiceDto } from './dto/create-invoice.dto';
 import type { RecordPaymentDto } from './dto/record-payment.dto';
 import type { RefundOrderDto } from './dto/refund-order.dto';
 
-function generateReference(prefix: string): string {
-  const date = new Date();
-  const dateStr = date.toISOString().slice(0, 10).replace(/-/g, '');
-  const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
-  return `${prefix}-${dateStr}-${rand}`;
-}
+import { generateReference } from '../../common/utils/references';
 
 @Injectable()
 export class SalesService {
@@ -640,41 +635,72 @@ export class SalesService {
       newStatus = invoice.status;
     }
 
-    const paymentReference = generateReference('PAY');
+    // Retry loop: P2002 unique constraint collision on reference is extremely rare but retryable
+    const MAX_ATTEMPTS = 5;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      const paymentReference = generateReference('PAY');
+      const receiptReference = paymentReference.replace(/^PAY-/, 'RCP-');
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.payment.create({
-        data: {
-          id: createId(),
-          organizationId,
-          reference: paymentReference,
-          invoiceId,
-          customerId: invoice.customerId,
-          amount: dto.amount,
-          method: dto.method,
-          status: PaymentStatus.COMPLETED,
-          gatewayRef: dto.reference,
-          notes: dto.notes,
-          receivedAt: dto.receivedAt ? new Date(dto.receivedAt) : new Date(),
-        },
-      });
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          await tx.payment.create({
+            data: {
+              id: createId(),
+              organizationId,
+              reference: paymentReference,
+              invoiceId,
+              customerId: invoice.customerId,
+              amount: dto.amount,
+              method: dto.method,
+              status: PaymentStatus.COMPLETED,
+              gatewayRef: dto.reference,
+              notes: dto.notes,
+              receivedAt: dto.receivedAt ? new Date(dto.receivedAt) : new Date(),
+            },
+          });
 
-      await tx.invoice.update({
-        where: { id: invoiceId },
-        data: {
-          paidAmount: newPaidAmount.toString(),
-          status: newStatus,
-        },
-      });
+          await tx.receipt.create({
+            data: {
+              id: createId(),
+              organizationId,
+              reference: receiptReference,
+              invoiceId,
+              customerId: invoice.customerId,
+              amount: dto.amount,
+              currency: invoice.currency ?? 'NGN',
+              method: dto.method,
+              notes: dto.notes,
+            },
+          });
 
-      // If invoice linked to order, update order paid amount
-      if (invoice.orderId) {
-        await tx.salesOrder.update({
-          where: { id: invoice.orderId },
-          data: { paidAmount: { increment: paymentAmount } },
+          await tx.invoice.update({
+            where: { id: invoiceId },
+            data: {
+              paidAmount: newPaidAmount.toString(),
+              status: newStatus,
+            },
+          });
+
+          // If invoice linked to order, update order paid amount
+          if (invoice.orderId) {
+            await tx.salesOrder.update({
+              where: { id: invoice.orderId },
+              data: { paidAmount: { increment: paymentAmount } },
+            });
+          }
         });
+        break; // success — exit retry loop
+      } catch (err: unknown) {
+        if (
+          attempt < MAX_ATTEMPTS &&
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002'
+        ) {
+          continue;
+        }
+        throw err;
       }
-    });
+    }
 
     const updatedInvoice = await this.findInvoice(organizationId, invoiceId);
 
@@ -750,9 +776,14 @@ export class SalesService {
     });
     if (!receipt) throw new NotFoundException('Receipt not found');
 
-    // Customer may be linked directly or via the invoice
-    const customer =
+    // Customer may be linked via invoice or directly by customerId
+    let customer: Record<string, unknown> | null =
       (receipt.invoice?.customer as Record<string, unknown> | null | undefined) ?? null;
+
+    if (!customer && receipt.customerId) {
+      const c = await this.prisma.customer.findFirst({ where: { id: receipt.customerId } });
+      customer = c as Record<string, unknown> | null;
+    }
 
     return { ...receipt, customer };
   }

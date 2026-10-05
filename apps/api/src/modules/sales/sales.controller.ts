@@ -13,6 +13,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Response } from 'express';
 import { SalesService } from './sales.service';
 import { PdfService } from '../../common/services/pdf.service';
+import { AuditService } from '../audit/audit.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { PERMISSIONS } from '@knef/constants';
@@ -173,6 +174,7 @@ export class ReceiptsController {
   constructor(
     private readonly salesService: SalesService,
     private readonly pdfService: PdfService,
+    private readonly auditService: AuditService,
   ) {}
 
   @Get()
@@ -206,6 +208,13 @@ export class ReceiptsController {
     @Res() res: Response,
   ) {
     const receipt = await this.salesService.findReceipt(user.organizationId, id);
+    void this.auditService.log({
+      organizationId: user.organizationId,
+      userId: user.id,
+      action: 'RECEIPT_PDF_DOWNLOADED',
+      entity: 'Receipt',
+      entityId: id,
+    });
     const pdfBuffer = await this.pdfService.generateReceiptPdf(receipt as never, user.organizationId);
     res.set({
       'Content-Type': 'application/pdf',
@@ -224,6 +233,13 @@ export class ReceiptsController {
     @Res() res: Response,
   ) {
     const receipt = await this.salesService.findReceipt(user.organizationId, id);
+    void this.auditService.log({
+      organizationId: user.organizationId,
+      userId: user.id,
+      action: 'RECEIPT_THERMAL_PRINTED',
+      entity: 'Receipt',
+      entityId: id,
+    });
     const html = await this.pdfService.generateThermalReceiptHtml(receipt as never, user.organizationId);
     res.set({ 'Content-Type': 'text/html; charset=utf-8' });
     res.end(html);

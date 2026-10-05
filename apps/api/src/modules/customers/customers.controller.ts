@@ -9,9 +9,13 @@ import {
   Query,
   HttpCode,
   HttpStatus,
+  Res,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { Response } from 'express';
 import { CustomersService } from './customers.service';
+import { PdfService } from '../../common/services/pdf.service';
+import { AuditService } from '../audit/audit.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { PERMISSIONS } from '@knef/constants';
@@ -24,7 +28,11 @@ import { ListCustomersDto } from './dto/list-customers.dto';
 @ApiBearerAuth('JWT')
 @Controller('customers')
 export class CustomersController {
-  constructor(private readonly customersService: CustomersService) {}
+  constructor(
+    private readonly customersService: CustomersService,
+    private readonly pdfService: PdfService,
+    private readonly auditService: AuditService,
+  ) {}
 
   @Get()
   @Permissions(PERMISSIONS.CUSTOMERS.VIEW)
@@ -83,5 +91,32 @@ export class CustomersController {
     @Query('endDate') endDate: string,
   ) {
     return this.customersService.getStatement(user.organizationId, id, startDate, endDate);
+  }
+
+  @Get(':id/statement/pdf')
+  @Permissions(PERMISSIONS.CUSTOMERS.VIEW)
+  @ApiOperation({ summary: 'Download customer statement as PDF' })
+  async getStatementPdf(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+    @Res() res: Response,
+  ) {
+    const statement = await this.customersService.getStatement(user.organizationId, id, startDate, endDate);
+    void this.auditService.log({
+      organizationId: user.organizationId,
+      userId: user.id,
+      action: 'STATEMENT_PDF_DOWNLOADED',
+      entity: 'Customer',
+      entityId: id,
+    });
+    const pdfBuffer = await this.pdfService.generateStatementPdf(statement.data as never, user.organizationId);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="statement-${id}.pdf"`,
+      'Content-Length': pdfBuffer.length,
+    });
+    res.end(pdfBuffer);
   }
 }

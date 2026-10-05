@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
+import { fmtDateNG } from '../utils/references';
 
 interface OrgBranding {
   name: string;
@@ -72,8 +73,7 @@ export class PdfService {
   }
 
   private fmtDate(val: unknown): string {
-    const d = val instanceof Date ? val : new Date(String(val ?? ''));
-    return isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-NG');
+    return fmtDateNG(val);
   }
 
   private logoHtml(org: OrgBranding): string {
@@ -99,7 +99,7 @@ export class PdfService {
 
   private baseStyles(): string {
     return `
-      * { box-sizing: border-box; margin: 0; padding: 0; }
+      * { box-sizing: border-box; margin: 0; padding: 0; word-wrap: break-word; overflow-wrap: break-word; }
       body { font-family: 'Segoe UI', Arial, sans-serif; color: #1e293b; font-size: 13px; }
       .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; }
       .doc-title { font-size: 26px; font-weight: 700; color: #1e40af; }
@@ -144,7 +144,7 @@ export class PdfService {
       await browser.close();
       return Buffer.from(pdf);
     } catch {
-      return Buffer.from(html, 'utf-8');
+      throw new InternalServerErrorException('PDF generation failed: puppeteer is unavailable');
     }
   }
 
@@ -594,6 +594,120 @@ ${itemLines}
 </body></html>`;
   }
 
+  // ── Customer Statement ────────────────────────────────────────
+
+  private buildStatementHtml(statement: Record<string, unknown>, org: OrgBranding): string {
+    const customer = (statement['customer'] as Record<string, unknown>) ?? {};
+    const invoices = (statement['invoices'] as Array<Record<string, unknown>>) ?? [];
+    const payments = (statement['payments'] as Array<Record<string, unknown>>) ?? [];
+    const refunds = (statement['refunds'] as Array<Record<string, unknown>>) ?? [];
+    const summary = (statement['summary'] as Record<string, unknown>) ?? {};
+    const dateRange = (statement['dateRange'] as Record<string, unknown>) ?? {};
+    const cur = org.currency;
+
+    const invoiceRows = invoices.map(inv => `
+      <tr>
+        <td>${this.esc(inv['reference'] ?? '')}</td>
+        <td>${this.fmtDate(inv['issuedAt'])}</td>
+        <td>${this.fmtDate(inv['dueDate'])}</td>
+        <td><span class="badge" style="background:#f1f5f9;color:#64748b;">${this.esc(inv['status'] ?? '')}</span></td>
+        <td class="text-right">${this.fmt(inv['totalAmount'], cur)}</td>
+        <td class="text-right" style="color:#16a34a;">${this.fmt(inv['paidAmount'], cur)}</td>
+      </tr>`).join('');
+
+    const paymentRows = payments.map(p => `
+      <tr>
+        <td>${this.esc(p['reference'] ?? '')}</td>
+        <td>${this.fmtDate(p['receivedAt'])}</td>
+        <td>${this.esc(p['method'] ?? '')}</td>
+        <td class="text-right" style="color:#16a34a;">${this.fmt(p['amount'], cur)}</td>
+      </tr>`).join('');
+
+    const refundRows = refunds.map(r => `
+      <tr>
+        <td>${this.esc(r['reference'] ?? '')}</td>
+        <td>${this.fmtDate(r['receivedAt'])}</td>
+        <td>${this.esc(r['method'] ?? '')}</td>
+        <td class="text-right" style="color:#dc2626;">(${this.fmt(r['amount'], cur)})</td>
+      </tr>`).join('');
+
+    const balance = Number(summary['outstandingBalance'] ?? 0);
+    const balanceColor = balance <= 0 ? '#16a34a' : '#dc2626';
+
+    return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/>
+<style>${this.baseStyles()}</style>
+</head><body>
+<div class="header">
+  ${this.orgHeaderHtml(org)}
+  <div style="text-align:right;">
+    <div class="doc-title">ACCOUNT STATEMENT</div>
+    <div class="doc-ref">${this.esc(customer['code'] ?? customer['id'] ?? '')}</div>
+    <div style="margin-top:6px;font-size:11px;color:#64748b;">
+      ${dateRange['start'] ? `${this.fmtDate(dateRange['start'])} – ${this.fmtDate(dateRange['end'])}` : 'All dates'}
+    </div>
+  </div>
+</div>
+
+<div class="info-grid">
+  <div>
+    <p class="section-title">Customer</p>
+    <p style="font-weight:600;">${this.esc(customer['firstName'] ?? '')} ${this.esc(customer['lastName'] ?? '')}</p>
+    ${customer['phone'] ? `<p style="color:#64748b;">${this.esc(customer['phone'])}</p>` : ''}
+    ${customer['email'] ? `<p style="color:#64748b;">${this.esc(customer['email'])}</p>` : ''}
+  </div>
+  <div style="text-align:right;">
+    <p class="section-title">Summary</p>
+    <p><strong>Total Billed:</strong> ${this.fmt(summary['totalBilled'], cur)}</p>
+    <p><strong>Total Paid:</strong> <span style="color:#16a34a;">${this.fmt(summary['totalPaid'], cur)}</span></p>
+    ${Number(summary['totalRefunded'] ?? 0) > 0 ? `<p><strong>Total Refunded:</strong> <span style="color:#dc2626;">(${this.fmt(summary['totalRefunded'], cur)})</span></p>` : ''}
+    <p style="font-weight:700;font-size:14px;"><strong>Balance Due:</strong> <span style="color:${balanceColor};">${this.fmt(balance, cur)}</span></p>
+  </div>
+</div>
+
+${invoices.length > 0 ? `
+<p class="section-title">Invoices</p>
+<table>
+  <thead>
+    <tr>
+      <th>Reference</th>
+      <th>Date</th>
+      <th>Due Date</th>
+      <th>Status</th>
+      <th class="text-right">Amount</th>
+      <th class="text-right">Paid</th>
+    </tr>
+  </thead>
+  <tbody>${invoiceRows}</tbody>
+</table>
+<br/>` : ''}
+
+${payments.length > 0 ? `
+<p class="section-title">Payments Received</p>
+<table>
+  <thead>
+    <tr><th>Reference</th><th>Date</th><th>Method</th><th class="text-right">Amount</th></tr>
+  </thead>
+  <tbody>${paymentRows}</tbody>
+</table>
+<br/>` : ''}
+
+${refunds.length > 0 ? `
+<p class="section-title">Refunds</p>
+<table>
+  <thead>
+    <tr><th>Reference</th><th>Date</th><th>Method</th><th class="text-right">Amount</th></tr>
+  </thead>
+  <tbody>${refundRows}</tbody>
+</table>` : ''}
+
+<div class="footer">
+  <p>Statement generated by ${this.esc(org.name)} | ${this.fmtDate(new Date())}</p>
+  ${org.email ? `<p>${this.esc(org.email)}</p>` : ''}
+</div>
+</body></html>`;
+  }
+
   // ── Public API ────────────────────────────────────────────────
 
   async generateInvoicePdf(invoice: Record<string, unknown>, organizationId?: string): Promise<Buffer> {
@@ -631,5 +745,11 @@ ${itemLines}
   async generateThermalReceiptHtml(receipt: Record<string, unknown>, organizationId: string): Promise<string> {
     const org = await this.getOrg(organizationId);
     return this.buildThermalHtml(receipt, org);
+  }
+
+  async generateStatementPdf(statement: Record<string, unknown>, organizationId: string): Promise<Buffer> {
+    const org = await this.getOrg(organizationId);
+    const html = this.buildStatementHtml(statement, org);
+    return this.renderPdf(html);
   }
 }

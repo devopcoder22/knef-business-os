@@ -11,12 +11,7 @@ import type { OpenSessionDto } from './dto/open-session.dto';
 import type { CloseSessionDto } from './dto/close-session.dto';
 import type { POSSaleDto } from './dto/pos-sale.dto';
 
-function generateReference(prefix: string): string {
-  const date = new Date();
-  const dateStr = date.toISOString().slice(0, 10).replace(/-/g, '');
-  const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
-  return `${prefix}-${dateStr}-${rand}`;
-}
+import { generateReference } from '../../common/utils/references';
 
 @Injectable()
 export class POSService {
@@ -194,22 +189,36 @@ export class POSService {
       },
     });
 
-    // Record payments
+    // Record payments + issue receipts atomically per payment
     for (const payment of dto.payments) {
       const payRef = generateReference('PAY');
-      await this.prisma.payment.create({
-        data: {
-          id: createId(),
-          organizationId,
-          reference: payRef,
-          orderId: order.id,
-          customerId: dto.customerId,
-          amount: payment.amount,
-          method: payment.method,
-          status: PaymentStatus.COMPLETED,
-          receivedAt: new Date(),
-        },
-      });
+      const rcpRef = payRef.replace(/^PAY-/, 'RCP-');
+      await this.prisma.$transaction([
+        this.prisma.payment.create({
+          data: {
+            id: createId(),
+            organizationId,
+            reference: payRef,
+            orderId: order.id,
+            customerId: dto.customerId,
+            amount: payment.amount,
+            method: payment.method,
+            status: PaymentStatus.COMPLETED,
+            receivedAt: new Date(),
+          },
+        }),
+        this.prisma.receipt.create({
+          data: {
+            id: createId(),
+            organizationId,
+            reference: rcpRef,
+            customerId: dto.customerId,
+            amount: payment.amount,
+            currency: 'NGN',
+            method: payment.method,
+          },
+        }),
+      ]);
     }
 
     // Deduct inventory
