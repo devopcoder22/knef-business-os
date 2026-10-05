@@ -383,6 +383,32 @@ export class SalesService {
     }
 
     const itemsToRefund = dto.items && dto.items.length > 0 ? dto.items : null;
+    const refundAmount = dto.refundAmount ?? order.totalAmount.toString();
+    const isFullRefund = !dto.items || dto.items.length === 0;
+
+    // Hard block: evaluate refund rule BEFORE any DB mutation
+    const refundRuleCheck = await this.businessRuleService.checkRefundAmount(
+      organizationId,
+      Number(refundAmount),
+    );
+    if (refundRuleCheck.approvalRequired) {
+      void this.auditService.log({
+        organizationId,
+        userId,
+        action: 'REFUND_BLOCKED',
+        entity: 'SalesOrder',
+        entityId: id,
+        newValues: {
+          refundAmount,
+          reason: dto.reason,
+          threshold: refundRuleCheck.threshold,
+          ruleId: refundRuleCheck.ruleId,
+        },
+      });
+      throw new ForbiddenException(
+        `Refund of ₦${refundAmount} exceeds the approval threshold of ₦${refundRuleCheck.threshold}. Manager approval required.`,
+      );
+    }
 
     // Return inventory
     const itemsForMovement = itemsToRefund
@@ -407,15 +433,6 @@ export class SalesService {
         createdBy: userId,
       });
     }
-
-    const refundAmount = dto.refundAmount ?? order.totalAmount.toString();
-    const isFullRefund = !dto.items || dto.items.length === 0;
-
-    // Evaluate refund rule (audit and flag — refund still proceeds)
-    const refundRuleCheck = await this.businessRuleService.checkRefundAmount(
-      organizationId,
-      Number(refundAmount),
-    );
 
     // Create reversal payment
     const refundReference = generateReference('RFD');

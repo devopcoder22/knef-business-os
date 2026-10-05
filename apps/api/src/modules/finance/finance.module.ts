@@ -10,9 +10,10 @@ import {
 } from './finance.controller';
 import { BusinessRulesModule } from '../business-rules/business-rules.module';
 import { AuditModule } from '../audit/audit.module';
+import { PermissionsModule } from '../permissions/permissions.module';
 
 @Module({
-  imports: [BusinessRulesModule, AuditModule],
+  imports: [BusinessRulesModule, AuditModule, PermissionsModule],
   providers: [FinanceService],
   controllers: [
     BankAccountsController,

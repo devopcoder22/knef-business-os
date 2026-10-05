@@ -11,6 +11,8 @@ import { PrismaService } from '../../common/services/prisma.service';
 import { InventoryService } from '../inventory/inventory.service';
 import { BusinessRuleService } from '../business-rules/business-rules.service';
 import { AuditService } from '../audit/audit.service';
+import { PermissionsService } from '../permissions/permissions.service';
+import { PERMISSIONS } from '@knef/constants';
 import type { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import type { ListPurchaseOrdersDto } from './dto/list-purchase-orders.dto';
 import type { CreateGoodsReceiptDto } from './dto/create-goods-receipt.dto';
@@ -33,6 +35,7 @@ export class PurchasingService {
     private readonly eventEmitter: EventEmitter2,
     private readonly businessRuleService: BusinessRuleService,
     private readonly auditService: AuditService,
+    private readonly permissionsService: PermissionsService,
   ) {}
 
   // ── Purchase Orders ───────────────────────────────────────────
@@ -275,7 +278,7 @@ export class PurchasingService {
       throw new ForbiddenException('Not authorized to approve purchase orders for this location');
     }
 
-    // Requester authority recheck — submitter must still be active in org
+    // Requester authority recheck — submitter must still be active and hold purchasing.create
     if (order.createdBy) {
       const requester = await this.prisma.user.findFirst({
         where: { id: order.createdBy, organizationId, isActive: true },
@@ -283,6 +286,11 @@ export class PurchasingService {
       });
       if (!requester) {
         throw new ForbiddenException('Requester is no longer active in this organization');
+      }
+
+      const perms = await this.permissionsService.getResolvedPermissions(organizationId, order.createdBy);
+      if (!perms.data.effective.includes(PERMISSIONS.PURCHASING.CREATE)) {
+        throw new ForbiddenException('Requester no longer has permission to create purchase orders');
       }
     }
 

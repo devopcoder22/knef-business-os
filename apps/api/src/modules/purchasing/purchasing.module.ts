@@ -9,9 +9,10 @@ import {
 import { InventoryModule } from '../inventory/inventory.module';
 import { BusinessRulesModule } from '../business-rules/business-rules.module';
 import { AuditModule } from '../audit/audit.module';
+import { PermissionsModule } from '../permissions/permissions.module';
 
 @Module({
-  imports: [InventoryModule, BusinessRulesModule, AuditModule],
+  imports: [InventoryModule, BusinessRulesModule, AuditModule, PermissionsModule],
   providers: [PurchasingService],
   controllers: [
     PurchaseOrdersController,

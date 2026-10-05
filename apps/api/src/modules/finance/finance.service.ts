@@ -10,6 +10,8 @@ import { Prisma, TransactionType, ExpenseStatus, PeriodStatus } from '@prisma/cl
 import { PrismaService } from '../../common/services/prisma.service';
 import { BusinessRuleService } from '../business-rules/business-rules.service';
 import { AuditService } from '../audit/audit.service';
+import { PermissionsService } from '../permissions/permissions.service';
+import { PERMISSIONS } from '@knef/constants';
 import type { CreateBankAccountDto } from './dto/create-bank-account.dto';
 import type { UpdateBankAccountDto } from './dto/update-bank-account.dto';
 import type { RecordTransactionDto } from './dto/record-transaction.dto';
@@ -38,6 +40,7 @@ export class FinanceService {
     private readonly prisma: PrismaService,
     private readonly businessRuleService: BusinessRuleService,
     private readonly auditService: AuditService,
+    private readonly permissionsService: PermissionsService,
   ) {}
 
   // ── Bank Accounts ─────────────────────────────────────────────
@@ -347,7 +350,7 @@ export class FinanceService {
       throw new ForbiddenException('Cannot approve your own expense');
     }
 
-    // Requester authority recheck — submitter must still be active in org
+    // Requester authority recheck — submitter must still be active and hold finance.expenses.create
     if (expense.submittedBy) {
       const requester = await this.prisma.user.findFirst({
         where: { id: expense.submittedBy, organizationId, isActive: true },
@@ -355,6 +358,11 @@ export class FinanceService {
       });
       if (!requester) {
         throw new ForbiddenException('Expense submitter is no longer active in this organization');
+      }
+
+      const perms = await this.permissionsService.getResolvedPermissions(organizationId, expense.submittedBy);
+      if (!perms.data.effective.includes(PERMISSIONS.FINANCE.EXPENSES.CREATE)) {
+        throw new ForbiddenException('Expense submitter no longer has permission to submit expenses');
       }
     }
 

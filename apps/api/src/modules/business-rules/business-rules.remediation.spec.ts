@@ -1,5 +1,5 @@
 /**
- * Stage 16 Remediation — Security and Correctness Tests
+ * Stage 16 Remediation + Final Closure — Security and Correctness Tests
  *
  * Covers all gaps identified in the Stage 16 closure audit:
  *  1. Controller rule validation (NaN, out-of-range %, negative monetary)
@@ -8,11 +8,14 @@
  *  4. Refund rule integration (checkRefundAmount called, ruleCheck returned)
  *  5. Self-approval prevention in PurchasingService
  *  6. Approver location scope enforcement in PurchasingService
- *  7. Requester authority recheck in PurchasingService
+ *  7. Requester authority recheck in PurchasingService (isActive + permission)
  *  8. Atomic PO approval idempotency (count=0 concurrent case)
  *  9. Self-approval prevention in FinanceService
- * 10. Requester authority recheck in FinanceService
+ * 10. Requester authority recheck in FinanceService (isActive + permission)
  * 11. Atomic expense approval idempotency (count=0 concurrent case)
+ * 12. Refund hard block — above threshold blocks before any DB mutation
+ * 13. Requester permission recheck — PO approval blocked when permission revoked
+ * 14. Requester permission recheck — expense approval blocked when permission revoked
  */
 
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
@@ -47,6 +50,18 @@ function makeBusinessRuleService(overrides: Record<string, jest.Mock> = {}) {
 
 function makeInventoryService() {
   return { recordMovement: jest.fn() };
+}
+
+function makePermissionsService(hasPermission = true) {
+  return {
+    getResolvedPermissions: jest.fn(async () => ({
+      data: {
+        effective: hasPermission
+          ? ['purchasing.create', 'finance.expenses.create', 'sales.refund']
+          : [],
+      },
+    })),
+  };
 }
 
 function makeSettingsService(findAllResult: unknown[] = []) {
@@ -108,7 +123,7 @@ function makePrismaForFinance(expenseOverrides?: Record<string, unknown>, userEx
   };
 }
 
-function makePurchasingService(prismaOverrides?: Record<string, unknown>, userExists = true) {
+function makePurchasingService(prismaOverrides?: Record<string, unknown>, userExists = true, hasPermission = true) {
   const prisma = makePrismaForPurchasing(prismaOverrides, userExists);
   return new PurchasingService(
     prisma as never,
@@ -116,15 +131,17 @@ function makePurchasingService(prismaOverrides?: Record<string, unknown>, userEx
     makeEventEmitter() as never,
     makeBusinessRuleService() as never,
     makeAuditService() as never,
+    makePermissionsService(hasPermission) as never,
   );
 }
 
-function makeFinanceService(expenseOverrides?: Record<string, unknown>, userExists = true) {
+function makeFinanceService(expenseOverrides?: Record<string, unknown>, userExists = true, hasPermission = true) {
   const prisma = makePrismaForFinance(expenseOverrides, userExists);
   return new FinanceService(
     prisma as never,
     makeBusinessRuleService() as never,
     makeAuditService() as never,
+    makePermissionsService(hasPermission) as never,
   );
 }
 
@@ -312,8 +329,8 @@ describe('SalesService — margin bypass prevention', () => {
 // ── 4. SalesService — Refund rule integration ─────────────────────────────────
 
 describe('SalesService — refund rule integration', () => {
-  it('calls checkRefundAmount and includes ruleCheck in response', async () => {
-    const ruleCheck = { allowed: true, approvalRequired: true, ruleId: 'rules.sales.refund_approval_threshold_ngn', reason: 'High value refund', threshold: 50_000, observedValue: 75_000 };
+  it('calls checkRefundAmount and includes ruleCheck in response when below threshold', async () => {
+    const ruleCheck = { allowed: true, approvalRequired: false, ruleId: 'rules.sales.refund_approval_threshold_ngn', reason: 'ok', threshold: 100_000, observedValue: 75_000 };
     const checkRefundAmount = jest.fn(async () => ruleCheck);
     const prisma = {
       salesOrder: {
@@ -428,6 +445,7 @@ describe('PurchasingService — atomic approval (concurrent case)', () => {
       makeEventEmitter() as never,
       makeBusinessRuleService() as never,
       makeAuditService() as never,
+      makePermissionsService() as never,
     );
 
     const result = await svc.approvePurchaseOrder('org-1', 'po-1', 'user-approver', null) as { idempotent: boolean };
@@ -458,6 +476,109 @@ describe('FinanceService — requester authority recheck', () => {
   });
 });
 
+// ── 12. SalesService — Refund hard block ────────────────────────────────────
+
+describe('SalesService — refund threshold hard block', () => {
+  function makeRefundPrisma() {
+    return {
+      salesOrder: {
+        findFirst: jest.fn(async () => ({
+          id: 'so-1',
+          status: 'COMPLETED',
+          totalAmount: { toString: () => '75000' },
+          customerId: 'cust-1',
+          locationId: 'loc-1',
+          items: [],
+        })),
+        update: jest.fn(async () => ({ id: 'so-1', status: 'REFUNDED' })),
+        findMany: jest.fn(async () => []),
+        count: jest.fn(async () => 0),
+      },
+      payment: { create: jest.fn(async () => null) },
+    };
+  }
+
+  it('refund below threshold → proceeds without throw', async () => {
+    const checkRefundAmount = jest.fn(async () => ({
+      allowed: true,
+      approvalRequired: false,
+      ruleId: 'rules.sales.refund_approval_threshold_ngn',
+      reason: 'ok',
+      threshold: 100_000,
+      observedValue: 75_000,
+    }));
+    const prisma = makeRefundPrisma();
+    const svc = new SalesService(
+      prisma as never,
+      makeInventoryService() as never,
+      makeEventEmitter() as never,
+      makeBusinessRuleService({ checkRefundAmount }) as never,
+      makeAuditService() as never,
+    );
+
+    await expect(svc.refundSalesOrder('org-1', 'so-1', {}, 'user-1')).resolves.not.toThrow();
+    expect(prisma.payment.create).toHaveBeenCalled();
+    expect(prisma.salesOrder.update).toHaveBeenCalled();
+  });
+
+  it('refund above threshold → ForbiddenException, no DB mutations', async () => {
+    const checkRefundAmount = jest.fn(async () => ({
+      allowed: false,
+      approvalRequired: true,
+      ruleId: 'rules.sales.refund_approval_threshold_ngn',
+      reason: 'Refund exceeds threshold',
+      threshold: 50_000,
+      observedValue: 75_000,
+    }));
+    const inventoryService = makeInventoryService();
+    const prisma = makeRefundPrisma();
+    const svc = new SalesService(
+      prisma as never,
+      inventoryService as never,
+      makeEventEmitter() as never,
+      makeBusinessRuleService({ checkRefundAmount }) as never,
+      makeAuditService() as never,
+    );
+
+    await expect(svc.refundSalesOrder('org-1', 'so-1', {}, 'user-1')).rejects.toThrow(ForbiddenException);
+    expect(inventoryService.recordMovement).not.toHaveBeenCalled();
+    expect(prisma.payment.create).not.toHaveBeenCalled();
+    expect(prisma.salesOrder.update).not.toHaveBeenCalled();
+  });
+});
+
+// ── 13. PurchasingService — Requester permission recheck ─────────────────────
+
+describe('PurchasingService — requester permission recheck', () => {
+  it('throws ForbiddenException when requester permission purchasing.create is revoked', async () => {
+    const svc = makePurchasingService(undefined, true, false);
+    await expect(
+      svc.approvePurchaseOrder('org-1', 'po-1', 'user-approver', null),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('proceeds when requester still holds purchasing.create', async () => {
+    const svc = makePurchasingService(undefined, true, true);
+    await expect(
+      svc.approvePurchaseOrder('org-1', 'po-1', 'user-approver', null),
+    ).resolves.not.toThrow();
+  });
+});
+
+// ── 14. FinanceService — Requester permission recheck ────────────────────────
+
+describe('FinanceService — requester permission recheck', () => {
+  it('throws ForbiddenException when requester permission finance.expenses.create is revoked', async () => {
+    const svc = makeFinanceService(undefined, true, false);
+    await expect(svc.approveExpense('org-1', 'exp-1', 'user-approver')).rejects.toThrow(ForbiddenException);
+  });
+
+  it('proceeds when requester still holds finance.expenses.create', async () => {
+    const svc = makeFinanceService(undefined, true, true);
+    await expect(svc.approveExpense('org-1', 'exp-1', 'user-approver')).resolves.not.toThrow();
+  });
+});
+
 // ── 11. FinanceService — Atomic approval idempotency ────────────────────────
 
 describe('FinanceService — atomic approval (concurrent case)', () => {
@@ -482,6 +603,7 @@ describe('FinanceService — atomic approval (concurrent case)', () => {
       prisma as never,
       makeBusinessRuleService() as never,
       makeAuditService() as never,
+      makePermissionsService() as never,
     );
 
     const result = await svc.approveExpense('org-1', 'exp-1', 'user-approver') as { idempotent: boolean };
