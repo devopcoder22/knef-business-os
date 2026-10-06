@@ -199,7 +199,7 @@ describe('FinanceService — reconcileTransaction idempotency', () => {
 // ── 5: markExpensePaid insufficient balance (FinanceService) ─────────────────
 
 describe('FinanceService — markExpensePaid insufficient balance', () => {
-  it('5: expense amount exceeds bank balance → BadRequestException, no ops executed', async () => {
+  it('5: expense amount exceeds bank balance → BadRequestException, no writes committed', async () => {
     const expense = {
       id: 'exp-1',
       organizationId: ORG,
@@ -213,17 +213,25 @@ describe('FinanceService — markExpensePaid insufficient balance', () => {
       balance: new Prisma.Decimal('100000'),
       isActive: true,
     };
-    const $transaction = jest.fn(async () => null);
+    const txBankTxCreate = jest.fn(async () => null);
+    const txBankAccountUpdate = jest.fn(async () => account);
     const prisma = {
       expense: {
         findFirst: jest.fn(async () => expense),
-        update: jest.fn(async () => expense),
       },
       bankAccount: {
         findFirst: jest.fn(async () => account),
       },
       bankTransaction: { create: jest.fn(async () => null) },
-      $transaction,
+      // Interactive Serializable TX: balance check happens inside
+      $transaction: jest.fn(async (fn: (tx: unknown) => unknown, _opts?: unknown) => {
+        const tx = {
+          expense: { findFirst: jest.fn(async () => expense), update: jest.fn(async () => expense) },
+          bankAccount: { findFirst: jest.fn(async () => account), update: txBankAccountUpdate },
+          bankTransaction: { create: txBankTxCreate },
+        };
+        return fn(tx);
+      }),
     };
     const svc = new FinanceService(
       prisma as never,
@@ -236,6 +244,8 @@ describe('FinanceService — markExpensePaid insufficient balance', () => {
       svc.markExpensePaid(ORG, 'exp-1', { bankAccountId: 'bank-1' } as never, 'user-1'),
     ).rejects.toThrow(BadRequestException);
 
-    expect($transaction).not.toHaveBeenCalled();
+    // TX was entered but no financial writes committed
+    expect(txBankTxCreate).not.toHaveBeenCalled();
+    expect(txBankAccountUpdate).not.toHaveBeenCalled();
   });
 });

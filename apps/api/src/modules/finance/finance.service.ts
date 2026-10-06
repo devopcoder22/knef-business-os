@@ -444,55 +444,74 @@ export class FinanceService {
   }
 
   async markExpensePaid(organizationId: string, id: string, dto: MarkExpensePaidDto, userId: string) {
-    const expense = await this.prisma.expense.findFirst({ where: { id, organizationId } });
-    if (!expense) throw new NotFoundException('Expense not found');
-    if (expense.status !== ExpenseStatus.APPROVED) {
+    // Pre-TX fast-fail: NotFoundException and obvious status guard (immutable for not-found)
+    const expenseCheck = await this.prisma.expense.findFirst({ where: { id, organizationId } });
+    if (!expenseCheck) throw new NotFoundException('Expense not found');
+    if (expenseCheck.status !== ExpenseStatus.APPROVED) {
       throw new BadRequestException('Only APPROVED expenses can be marked as paid');
     }
 
-    const ops: Prisma.PrismaPromise<unknown>[] = [
-      this.prisma.expense.update({
-        where: { id },
-        data: { status: ExpenseStatus.PAID, paidAt: new Date() },
-      }),
-    ];
+    try {
+      await this.prisma.$transaction(
+        async (tx) => {
+          // In-TX re-read: closes concurrent double-pay race (two callers both saw APPROVED)
+          const expense = await tx.expense.findFirst({ where: { id, organizationId } });
+          if (!expense) throw new NotFoundException('Expense not found');
+          if (expense.status !== ExpenseStatus.APPROVED) {
+            throw new BadRequestException('Only APPROVED expenses can be marked as paid');
+          }
 
-    if (dto.bankAccountId) {
-      const account = await this.prisma.bankAccount.findFirst({
-        where: { id: dto.bankAccountId, organizationId },
-      });
-      if (account && account.isActive) {
-        const balanceBefore = account.balance;
-        const balanceAfter = balanceBefore.sub(expense.amount);
-        if (balanceAfter.lessThan(0)) {
-          throw new BadRequestException('Insufficient bank account balance to pay this expense');
-        }
-        ops.push(
-          this.prisma.bankTransaction.create({
-            data: {
-              id: createId(),
-              organizationId,
-              bankAccountId: dto.bankAccountId,
-              type: TransactionType.DEBIT,
-              amount: expense.amount,
-              balanceBefore,
-              balanceAfter,
-              description: `Expense payment: ${expense.reference}`,
-              reference: expense.reference,
-              category: 'EXPENSE',
-              date: new Date(),
-            },
-          }),
-          this.prisma.bankAccount.update({
-            where: { id: dto.bankAccountId },
-            data: { balance: balanceAfter },
-          }),
-        );
+          if (dto.bankAccountId) {
+            // In-TX bank account read: closes concurrent balance race
+            const account = await tx.bankAccount.findFirst({
+              where: { id: dto.bankAccountId, organizationId },
+            });
+            if (!account) throw new NotFoundException('Bank account not found');
+            if (!account.isActive) throw new BadRequestException('Bank account is inactive');
+
+            const balanceBefore = account.balance;
+            const balanceAfter = balanceBefore.sub(expense.amount);
+            if (balanceAfter.lessThan(0)) {
+              throw new BadRequestException('Insufficient bank account balance to pay this expense');
+            }
+
+            await tx.bankTransaction.create({
+              data: {
+                id: createId(),
+                organizationId,
+                bankAccountId: dto.bankAccountId,
+                type: TransactionType.DEBIT,
+                amount: expense.amount,
+                balanceBefore,
+                balanceAfter,
+                description: `Expense payment: ${expense.reference}`,
+                reference: expense.reference,
+                category: 'EXPENSE',
+                date: new Date(),
+              },
+            });
+
+            await tx.bankAccount.update({
+              where: { id: dto.bankAccountId },
+              data: { balance: balanceAfter },
+            });
+          }
+
+          await tx.expense.update({
+            where: { id },
+            data: { status: ExpenseStatus.PAID, paidAt: new Date() },
+          });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2034') {
+        throw new ConflictException('Concurrent financial modification detected — please retry');
       }
+      throw err;
     }
 
-    await this.prisma.$transaction(ops);
-
+    // Audit fires only after successful commit
     void this.auditService.log({
       organizationId,
       userId,
@@ -500,7 +519,7 @@ export class FinanceService {
       entity: 'Expense',
       entityId: id,
       newValues: {
-        amount: expense.amount.toString(),
+        amount: expenseCheck.amount.toString(),
         ...(dto.bankAccountId ? { bankAccountId: dto.bankAccountId } : {}),
       },
     });

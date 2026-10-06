@@ -21,6 +21,7 @@ const ALL_PERMISSIONS = [
   'ai.access', 'ai.manage_providers', 'ai.view_usage', 'ai.manage_budget',
   'settings.view', 'settings.edit', 'settings.manage_integrations',
   'admin.manage_users', 'admin.manage_roles', 'admin.manage_feature_flags', 'admin.view_audit', 'admin.manage_locations', 'admin.manage_departments',
+  'automation.view', 'automation.create', 'automation.edit', 'automation.delete', 'automation.activate', 'automation.execute', 'automation.history.view',
 ];
 
 const ROLE_PERMISSIONS: Record<string, string[]> = {
@@ -39,6 +40,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'reports.view', 'reports.export', 'reports.finance', 'reports.inventory', 'reports.sales', 'reports.staff',
     'ai.access', 'ai.view_usage',
     'settings.view', 'admin.view_audit',
+    'automation.view', 'automation.create', 'automation.edit', 'automation.activate', 'automation.execute', 'automation.history.view',
   ],
   SALES_MANAGER: [
     'products.view', 'products.export',
@@ -50,6 +52,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'goals.view', 'goals.create', 'goals.edit',
     'reports.view', 'reports.sales',
     'ai.access',
+    'automation.view', 'automation.history.view',
   ],
   SALES_STAFF: [
     'products.view',
