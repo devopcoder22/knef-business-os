@@ -10,6 +10,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { POStatus, InvoiceStatus, MovementType, ReturnStatus, Prisma, SerializedUnitStatus } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { InventoryService } from '../inventory/inventory.service';
+import type { PrismaTx } from '../inventory/inventory.service';
 import { BusinessRuleService } from '../business-rules/business-rules.service';
 import { AuditService } from '../audit/audit.service';
 import { PermissionsService } from '../permissions/permissions.service';
@@ -471,140 +472,161 @@ export class PurchasingService {
 
     const reference = generateReference('GR');
 
-    const receipt = await this.prisma.$transaction(async (tx) => {
-      // Validate quantities against remaining (concurrent-safe inside transaction)
-      for (const item of dto.items) {
-        const poItem = po.items.find(
-          (i) => i.productId === item.productId &&
-            (item.variantId ? i.variantId === item.variantId : true),
-        );
-        if (!poItem) {
-          throw new BadRequestException(`Product ${item.productId} is not on this purchase order`);
-        }
-        if (item.quantityReceived <= 0) {
-          throw new BadRequestException(`Received quantity must be greater than 0 for product ${item.productId}`);
-        }
-        const remaining = poItem.quantity - poItem.receivedQty;
-        if (item.quantityReceived > remaining) {
-          throw new BadRequestException(
-            `Cannot receive ${item.quantityReceived} units of product ${item.productId}: only ${remaining} remaining on PO`,
-          );
-        }
-      }
-
-      const gr = await tx.goodsReceipt.create({
-        data: {
-          id: createId(),
-          organizationId,
-          reference,
-          purchaseOrderId: dto.purchaseOrderId,
-          locationId: po.locationId,
-          receivedBy: userId,
-          notes: dto.notes,
-          items: {
-            create: dto.items.map((item) => ({
-              id: createId(),
-              productId: item.productId,
-              variantId: item.variantId,
-              quantityOrdered:
-                po.items.find((i) => i.productId === item.productId)?.quantity ?? 0,
-              quantityReceived: item.quantityReceived,
-              unitCost: item.unitCost,
-              notes: item.notes,
-            })),
-          },
-        },
-        include: { items: true },
-      });
-
-      // Update PO item received quantities
-      for (const item of dto.items) {
-        await tx.purchaseOrderItem.updateMany({
-          where: {
-            purchaseOrderId: dto.purchaseOrderId,
-            productId: item.productId,
-            ...(item.variantId ? { variantId: item.variantId } : {}),
-          },
-          data: {
-            receivedQty: {
-              increment: item.quantityReceived,
-            },
-          },
+    const receipt = await (async () => {
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+        // Re-read current PO items inside TX for fresh data (prevents stale-snapshot over-receive)
+        const currentPoItems = await tx.purchaseOrderItem.findMany({
+          where: { purchaseOrderId: dto.purchaseOrderId },
         });
-      }
 
-      // Determine new PO status
-      const updatedItems = await tx.purchaseOrderItem.findMany({
-        where: { purchaseOrderId: dto.purchaseOrderId },
-      });
-      const allReceived = updatedItems.every((i) => i.receivedQty >= i.quantity);
-      const anyReceived = updatedItems.some((i) => i.receivedQty > 0);
-
-      await tx.purchaseOrder.update({
-        where: { id: dto.purchaseOrderId },
-        data: {
-          status: allReceived
-            ? POStatus.RECEIVED
-            : anyReceived
-            ? POStatus.PARTIALLY_RECEIVED
-            : po.status,
-        },
-      });
-
-      return gr;
-    });
-
-    // Record inventory movements (after transaction)
-    for (const item of dto.items) {
-      await this.inventoryService.recordMovement(organizationId, {
-        productId: item.productId,
-        variantId: item.variantId,
-        locationId: po.locationId,
-        type: MovementType.PURCHASE_RECEIPT,
-        quantity: item.quantityReceived,
-        referenceType: 'GoodsReceipt',
-        referenceId: receipt.id,
-        notes: `Received via ${reference}`,
-        createdBy: userId,
-      });
-    }
-
-    // Create SerializedUnit records for serialized products
-    for (const item of dto.items) {
-      if (item.serializedUnits && item.serializedUnits.length > 0) {
-        if (item.serializedUnits.length !== item.quantityReceived) {
-          throw new BadRequestException(
-            `Serialized product ${item.productId}: received ${item.quantityReceived} but ${item.serializedUnits.length} unit identities provided`,
+        for (const item of dto.items) {
+          const currentPoItem = currentPoItems.find(
+            (i) => i.productId === item.productId &&
+              (item.variantId ? i.variantId === item.variantId : true),
           );
-        }
-        const imeis = item.serializedUnits.map((u) => u.imei1).filter(Boolean);
-        if (new Set(imeis).size !== imeis.length) {
-          throw new BadRequestException('Duplicate IMEI within the same goods receipt');
-        }
-        for (const su of item.serializedUnits) {
-          if (su.imei1) {
-            const existing = await this.prisma.serializedUnit.findFirst({
-              where: { organizationId, imei1: su.imei1 },
-            });
-            if (existing) throw new ConflictException(`IMEI ${su.imei1} already exists in this organization`);
+          if (!currentPoItem) {
+            throw new BadRequestException(`Product ${item.productId} is not on this purchase order`);
           }
-          const poItem = po.items.find((i) => i.productId === item.productId);
-          await this.prisma.serializedUnit.create({
-            data: {
-              id: createId(),
-              organizationId,
-              productId: item.productId,
-              locationId: po.locationId,
-              imei1: su.imei1 ?? createId(),
-              imei2: su.imei2 ?? null,
-              serialNumber: su.serialNumber ?? null,
-              status: SerializedUnitStatus.IN_STOCK,
-              costPrice: poItem?.unitCost ?? item.unitCost,
+          if (item.quantityReceived <= 0) {
+            throw new BadRequestException(`Received quantity must be greater than 0 for product ${item.productId}`);
+          }
+          const remaining = currentPoItem.quantity - currentPoItem.receivedQty;
+          if (item.quantityReceived > remaining) {
+            throw new BadRequestException(
+              `Cannot receive ${item.quantityReceived} units of product ${item.productId}: only ${remaining} remaining on PO`,
+            );
+          }
+        }
+
+        // Validate serialized unit identities before any writes
+        for (const item of dto.items) {
+          if (item.serializedUnits && item.serializedUnits.length > 0) {
+            if (item.serializedUnits.length !== item.quantityReceived) {
+              throw new BadRequestException(
+                `Serialized product ${item.productId}: received ${item.quantityReceived} but ${item.serializedUnits.length} unit identities provided`,
+              );
+            }
+            const normalizedImeis = item.serializedUnits.map((u) => {
+              const imei1 = u.imei1?.trim();
+              if (!imei1) throw new BadRequestException('IMEI cannot be empty or whitespace-only');
+              return imei1;
+            });
+            if (new Set(normalizedImeis).size !== normalizedImeis.length) {
+              throw new BadRequestException('Duplicate IMEI within the same goods receipt');
+            }
+          }
+        }
+
+        const gr = await tx.goodsReceipt.create({
+          data: {
+            id: createId(),
+            organizationId,
+            reference,
+            purchaseOrderId: dto.purchaseOrderId,
+            locationId: po.locationId,
+            receivedBy: userId,
+            notes: dto.notes,
+            items: {
+              create: dto.items.map((item) => ({
+                id: createId(),
+                productId: item.productId,
+                variantId: item.variantId,
+                quantityOrdered:
+                  currentPoItems.find((i) => i.productId === item.productId)?.quantity ?? 0,
+                quantityReceived: item.quantityReceived,
+                unitCost: item.unitCost,
+                notes: item.notes,
+              })),
             },
+          },
+          include: { items: true },
+        });
+
+        // Update PO item received quantities
+        for (const item of dto.items) {
+          await tx.purchaseOrderItem.updateMany({
+            where: {
+              purchaseOrderId: dto.purchaseOrderId,
+              productId: item.productId,
+              ...(item.variantId ? { variantId: item.variantId } : {}),
+            },
+            data: { receivedQty: { increment: item.quantityReceived } },
           });
         }
+
+        // Determine new PO status
+        const updatedItems = await tx.purchaseOrderItem.findMany({
+          where: { purchaseOrderId: dto.purchaseOrderId },
+        });
+        const allReceived = updatedItems.every((i) => i.receivedQty >= i.quantity);
+        const anyReceived = updatedItems.some((i) => i.receivedQty > 0);
+
+        await tx.purchaseOrder.update({
+          where: { id: dto.purchaseOrderId },
+          data: {
+            status: allReceived
+              ? POStatus.RECEIVED
+              : anyReceived
+              ? POStatus.PARTIALLY_RECEIVED
+              : po.status,
+          },
+        });
+
+        // Inventory movements inside TX
+        for (const item of dto.items) {
+          await this.inventoryService.recordMovement(organizationId, {
+            productId: item.productId,
+            variantId: item.variantId,
+            locationId: po.locationId,
+            type: MovementType.PURCHASE_RECEIPT,
+            quantity: item.quantityReceived,
+            referenceType: 'GoodsReceipt',
+            referenceId: gr.id,
+            notes: `Received via ${reference}`,
+            createdBy: userId,
+          }, tx);
+        }
+
+        // SerializedUnit creation inside TX
+        for (const item of dto.items) {
+          if (item.serializedUnits && item.serializedUnits.length > 0) {
+            const poItem = currentPoItems.find((i) => i.productId === item.productId);
+            for (const su of item.serializedUnits) {
+              const imei1 = su.imei1!.trim();
+              const existing = await tx.serializedUnit.findFirst({
+                where: { organizationId, imei1 },
+              });
+              if (existing) throw new ConflictException(`IMEI ${imei1} already exists in this organization`);
+              try {
+                await tx.serializedUnit.create({
+                  data: {
+                    id: createId(),
+                    organizationId,
+                    productId: item.productId,
+                    locationId: po.locationId,
+                    imei1,
+                    imei2: su.imei2 ?? null,
+                    serialNumber: su.serialNumber ?? null,
+                    status: SerializedUnitStatus.IN_STOCK,
+                    costPrice: poItem?.unitCost ?? item.unitCost,
+                  },
+                });
+              } catch (e: any) {
+                if (e?.code === 'P2002') throw new ConflictException(`IMEI ${imei1} already exists (concurrent)`);
+                throw e;
+              }
+            }
+          }
+        }
+
+        return gr;
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      } catch (e: any) {
+        if (e?.code === 'P2034') throw new ConflictException('Concurrent modification — please retry');
+        throw e;
       }
-    }
+    })();
 
     return receipt;
   }

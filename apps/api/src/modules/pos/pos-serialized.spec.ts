@@ -3,12 +3,12 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { POSService } from './pos.service';
 import { PrismaService } from '../../common/services/prisma.service';
 import { InventoryService } from '../inventory/inventory.service';
-import { SerializedUnitStatus, SessionStatus } from '@prisma/client';
+import { ProductStatus, SerializedUnitStatus, SessionStatus } from '@prisma/client';
 
 const mockPrisma: any = {
   pOSSession: { findFirst: jest.fn(), update: jest.fn() },
   salesOrder: { create: jest.fn() },
-  serializedUnit: { findFirst: jest.fn(), update: jest.fn() },
+  serializedUnit: { findFirst: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
   payment: { create: jest.fn() },
   receipt: { create: jest.fn() },
   customer: { update: jest.fn() },
@@ -51,24 +51,26 @@ describe('POSService — serialized unit validation', () => {
     payments: [{ method: 'CASH' as const, amount: '50000' }],
   };
 
+  const activeUnit = (overrides: object = {}) => ({
+    id: 'unit1', imei1: '123456789012345', imei2: null, serialNumber: null,
+    productId: 'p1', status: SerializedUnitStatus.IN_STOCK, locationId: 'loc1',
+    product: { id: 'p1', status: ProductStatus.ACTIVE },
+    variant: null,
+    ...overrides,
+  });
+
   it('rejects sale when unit status is SOLD', async () => {
-    mockPrisma.serializedUnit.findFirst.mockResolvedValueOnce({
-      id: 'unit1', imei1: '123', productId: 'p1', status: SerializedUnitStatus.SOLD, locationId: 'loc1', organizationId: 'org1',
-    });
+    mockPrisma.serializedUnit.findFirst.mockResolvedValueOnce(activeUnit({ status: SerializedUnitStatus.SOLD }));
     await expect(service.processSale('org1', 'sess1', 'u1', baseDto as any)).rejects.toThrow(BadRequestException);
   });
 
   it('rejects sale when unit status is DEFECTIVE', async () => {
-    mockPrisma.serializedUnit.findFirst.mockResolvedValueOnce({
-      id: 'unit1', imei1: '123', productId: 'p1', status: SerializedUnitStatus.DEFECTIVE, locationId: 'loc1', organizationId: 'org1',
-    });
+    mockPrisma.serializedUnit.findFirst.mockResolvedValueOnce(activeUnit({ status: SerializedUnitStatus.DEFECTIVE }));
     await expect(service.processSale('org1', 'sess1', 'u1', baseDto as any)).rejects.toThrow(BadRequestException);
   });
 
   it('rejects sale when unit location differs from session location', async () => {
-    mockPrisma.serializedUnit.findFirst.mockResolvedValueOnce({
-      id: 'unit1', imei1: '123', productId: 'p1', status: SerializedUnitStatus.IN_STOCK, locationId: 'loc2', organizationId: 'org1',
-    });
+    mockPrisma.serializedUnit.findFirst.mockResolvedValueOnce(activeUnit({ locationId: 'loc2' }));
     await expect(service.processSale('org1', 'sess1', 'u1', baseDto as any)).rejects.toThrow(BadRequestException);
   });
 
@@ -92,19 +94,22 @@ describe('POSService — serialized unit validation', () => {
       payments: [{ method: 'CASH' as const, amount: '100000' }],
     };
     mockPrisma.serializedUnit.findFirst
-      .mockResolvedValueOnce({ id: 'unit1', imei1: 'IMEI1', productId: 'p1', status: SerializedUnitStatus.IN_STOCK, locationId: 'loc1' })
-      .mockResolvedValueOnce({ id: 'unit2', imei1: 'IMEI2', productId: 'p1', status: SerializedUnitStatus.IN_STOCK, locationId: 'loc1' });
+      .mockResolvedValueOnce(activeUnit({ id: 'unit1', imei1: 'IMEI1' }))
+      .mockResolvedValueOnce(activeUnit({ id: 'unit2', imei1: 'IMEI2' }));
+    mockPrisma.serializedUnit.updateMany.mockResolvedValue({ count: 1 });
     await expect(service.processSale('org1', 'sess1', 'u1', dto as any)).resolves.toBeDefined();
-    expect(mockPrisma.serializedUnit.update).toHaveBeenCalledTimes(2);
+    expect(mockPrisma.serializedUnit.updateMany).toHaveBeenCalledTimes(2);
   });
 
-  it('marks unit as SOLD after successful sale', async () => {
-    mockPrisma.serializedUnit.findFirst.mockResolvedValueOnce({
-      id: 'unit1', imei1: 'IMEI_OK', productId: 'p1', status: SerializedUnitStatus.IN_STOCK, locationId: 'loc1',
-    });
+  it('marks unit as SOLD via atomic updateMany', async () => {
+    mockPrisma.serializedUnit.findFirst.mockResolvedValueOnce(activeUnit({ imei1: 'IMEI_OK' }));
+    mockPrisma.serializedUnit.updateMany.mockResolvedValueOnce({ count: 1 });
     await service.processSale('org1', 'sess1', 'u1', baseDto as any);
-    expect(mockPrisma.serializedUnit.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'unit1' }, data: expect.objectContaining({ status: SerializedUnitStatus.SOLD }) })
+    expect(mockPrisma.serializedUnit.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 'unit1', status: { in: [SerializedUnitStatus.IN_STOCK, SerializedUnitStatus.RETURNED] } }),
+        data: expect.objectContaining({ status: SerializedUnitStatus.SOLD }),
+      }),
     );
   });
 
@@ -113,9 +118,37 @@ describe('POSService — serialized unit validation', () => {
       items: [{ productId: 'p1', quantity: 2, unitPrice: '50000', costPrice: '40000', serializedUnitId: 'unit1' }],
       payments: [{ method: 'CASH' as const, amount: '100000' }],
     };
-    mockPrisma.serializedUnit.findFirst.mockResolvedValueOnce({
-      id: 'unit1', imei1: '123', productId: 'p1', status: SerializedUnitStatus.IN_STOCK, locationId: 'loc1',
-    });
+    mockPrisma.serializedUnit.findFirst.mockResolvedValueOnce(activeUnit({ imei1: '123' }));
     await expect(service.processSale('org1', 'sess1', 'u1', dto as any)).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects when atomic claim returns count 0 (double-sale race)', async () => {
+    mockPrisma.serializedUnit.findFirst.mockResolvedValueOnce(activeUnit({ imei1: 'RACE_IMEI' }));
+    mockPrisma.serializedUnit.updateMany.mockResolvedValueOnce({ count: 0 });
+    await expect(service.processSale('org1', 'sess1', 'u1', baseDto as any)).rejects.toThrow(BadRequestException);
+  });
+
+  it('stores IMEI (not CUID) in serialNumbers field', async () => {
+    const EXPECTED_IMEI = '356938035643809';
+    mockPrisma.serializedUnit.findFirst.mockResolvedValueOnce(activeUnit({ imei1: EXPECTED_IMEI }));
+    mockPrisma.serializedUnit.updateMany.mockResolvedValueOnce({ count: 1 });
+    await service.processSale('org1', 'sess1', 'u1', baseDto as any);
+    const createCall = mockPrisma.salesOrder.create.mock.calls[0][0];
+    const item = createCall.data.items.create[0];
+    expect(item.serialNumbers).toEqual([EXPECTED_IMEI]);
+  });
+
+  it('rejects sale when parent product is DISCONTINUED', async () => {
+    mockPrisma.serializedUnit.findFirst.mockResolvedValueOnce(
+      activeUnit({ product: { id: 'p1', status: ProductStatus.DISCONTINUED } })
+    );
+    await expect(service.processSale('org1', 'sess1', 'u1', baseDto as any)).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects sale when variant is inactive', async () => {
+    mockPrisma.serializedUnit.findFirst.mockResolvedValueOnce(
+      activeUnit({ variant: { id: 'v1', isActive: false } })
+    );
+    await expect(service.processSale('org1', 'sess1', 'u1', baseDto as any)).rejects.toThrow(BadRequestException);
   });
 });

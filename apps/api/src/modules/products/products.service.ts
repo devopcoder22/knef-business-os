@@ -367,6 +367,8 @@ export class ProductsService {
       throw new ConflictException(`Variant SKU '${dto.sku}' already exists for this product`);
     }
 
+    await this.validateVariantBarcodeUniqueness(organizationId, dto.barcode, dto.gtin);
+
     const variant = await this.prisma.productVariant.create({
       data: {
         id: createId(),
@@ -405,6 +407,8 @@ export class ProductsService {
       });
       if (existing) throw new ConflictException(`Variant SKU '${dto.sku}' already exists`);
     }
+
+    await this.validateVariantBarcodeUniqueness(organizationId, dto.barcode, dto.gtin, variantId);
 
     return this.prisma.productVariant.update({
       where: { id: variantId },
@@ -676,56 +680,105 @@ export class ProductsService {
     excludeProductId?: string,
   ) {
     if (barcode) {
-      const existing = await this.prisma.product.findFirst({
+      const existingProduct = await this.prisma.product.findFirst({
         where: { organizationId, barcode, NOT: excludeProductId ? { id: excludeProductId } : undefined },
         select: { id: true },
       });
-      if (existing) throw new ConflictException(`Barcode '${barcode}' is already used by another product`);
+      if (existingProduct) throw new ConflictException(`Barcode '${barcode}' is already used by another product`);
+      const existingVariant = await this.prisma.productVariant.findFirst({
+        where: { product: { organizationId }, barcode },
+        select: { id: true },
+      });
+      if (existingVariant) throw new ConflictException(`Barcode '${barcode}' is already used by a product variant`);
     }
     if (gtin) {
-      const existing = await this.prisma.product.findFirst({
+      const existingProduct = await this.prisma.product.findFirst({
         where: { organizationId, gtin, NOT: excludeProductId ? { id: excludeProductId } : undefined },
         select: { id: true },
       });
-      if (existing) throw new ConflictException(`GTIN '${gtin}' is already used by another product`);
+      if (existingProduct) throw new ConflictException(`GTIN '${gtin}' is already used by another product`);
+      const existingVariant = await this.prisma.productVariant.findFirst({
+        where: { product: { organizationId }, gtin },
+        select: { id: true },
+      });
+      if (existingVariant) throw new ConflictException(`GTIN '${gtin}' is already used by a product variant`);
+    }
+  }
+
+  private async validateVariantBarcodeUniqueness(
+    organizationId: string,
+    barcode: string | undefined,
+    gtin: string | undefined,
+    excludeVariantId?: string,
+  ) {
+    if (barcode) {
+      const existingProduct = await this.prisma.product.findFirst({
+        where: { organizationId, barcode },
+        select: { id: true },
+      });
+      if (existingProduct) throw new ConflictException(`Barcode '${barcode}' is already used by a product`);
+      const existingVariant = await this.prisma.productVariant.findFirst({
+        where: { product: { organizationId }, barcode, NOT: excludeVariantId ? { id: excludeVariantId } : undefined },
+        select: { id: true },
+      });
+      if (existingVariant) throw new ConflictException(`Barcode '${barcode}' is already used by another variant`);
+    }
+    if (gtin) {
+      const existingProduct = await this.prisma.product.findFirst({
+        where: { organizationId, gtin },
+        select: { id: true },
+      });
+      if (existingProduct) throw new ConflictException(`GTIN '${gtin}' is already used by a product`);
+      const existingVariant = await this.prisma.productVariant.findFirst({
+        where: { product: { organizationId }, gtin, NOT: excludeVariantId ? { id: excludeVariantId } : undefined },
+        select: { id: true },
+      });
+      if (existingVariant) throw new ConflictException(`GTIN '${gtin}' is already used by another variant`);
     }
   }
 
   async lookupByCode(organizationId: string, code: string) {
+    const serializedSelect = {
+      id: true, imei1: true, imei2: true, serialNumber: true,
+      status: true, locationId: true,
+      product: { select: { id: true, name: true, sku: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true, status: true } },
+      variant: { select: { id: true, isActive: true } },
+    } as const;
+
     // 1. SerializedUnit by imei1 — highest priority (unique per org)
     const byImei1 = await this.prisma.serializedUnit.findFirst({
       where: { organizationId, imei1: code },
-      select: {
-        id: true, imei1: true, imei2: true, serialNumber: true,
-        status: true, locationId: true,
-        product: { select: { id: true, name: true, sku: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true } },
-      },
+      select: serializedSelect,
     });
-    if (byImei1) return this._unitResult(byImei1);
+    if (byImei1) {
+      if (byImei1.product.status === ProductStatus.DISCONTINUED) throw new NotFoundException('No product found for code');
+      if (byImei1.variant && !byImei1.variant.isActive) throw new NotFoundException('No product found for code');
+      return this._unitResult(byImei1);
+    }
 
     // 2. SerializedUnit by imei2
     if (code.length >= 8) {
       const byImei2 = await this.prisma.serializedUnit.findFirst({
         where: { organizationId, imei2: code },
-        select: {
-          id: true, imei1: true, imei2: true, serialNumber: true,
-          status: true, locationId: true,
-          product: { select: { id: true, name: true, sku: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true } },
-        },
+        select: serializedSelect,
       });
-      if (byImei2) return this._unitResult(byImei2);
+      if (byImei2) {
+        if (byImei2.product.status === ProductStatus.DISCONTINUED) throw new NotFoundException('No product found for code');
+        if (byImei2.variant && !byImei2.variant.isActive) throw new NotFoundException('No product found for code');
+        return this._unitResult(byImei2);
+      }
     }
 
     // 3. SerializedUnit by serialNumber
     const bySerial = await this.prisma.serializedUnit.findFirst({
       where: { organizationId, serialNumber: code },
-      select: {
-        id: true, imei1: true, imei2: true, serialNumber: true,
-        status: true, locationId: true,
-        product: { select: { id: true, name: true, sku: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true } },
-      },
+      select: serializedSelect,
     });
-    if (bySerial) return this._unitResult(bySerial);
+    if (bySerial) {
+      if (bySerial.product.status === ProductStatus.DISCONTINUED) throw new NotFoundException('No product found for code');
+      if (bySerial.variant && !bySerial.variant.isActive) throw new NotFoundException('No product found for code');
+      return this._unitResult(bySerial);
+    }
 
     // 4. Product by barcode — check for multiple matches (ambiguity)
     const productsByBarcode = await this.prisma.product.findMany({
@@ -790,11 +843,12 @@ export class ProductsService {
   private _unitResult(unit: {
     id: string; imei1: string; imei2: string | null; serialNumber: string | null;
     status: string; locationId: string | null;
-    product: { id: string; name: string; sku: string; sellingPrice: unknown; costPrice: unknown; isSerialized: boolean; hasVariants: boolean };
+    product: { id: string; name: string; sku: string; sellingPrice: unknown; costPrice: unknown; isSerialized: boolean; hasVariants: boolean; status?: string };
+    variant?: { id: string; isActive: boolean } | null;
   }) {
     return {
       type: 'SERIALIZED_UNIT' as const,
-      product: unit.product,
+      product: { id: unit.product.id, name: unit.product.name, sku: unit.product.sku, sellingPrice: unit.product.sellingPrice, costPrice: unit.product.costPrice, isSerialized: unit.product.isSerialized, hasVariants: unit.product.hasVariants },
       unit: { id: unit.id, imei1: unit.imei1, imei2: unit.imei2, serialNumber: unit.serialNumber, status: unit.status, locationId: unit.locationId },
     };
   }

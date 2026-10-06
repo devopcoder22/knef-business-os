@@ -6,8 +6,10 @@ import {
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { createId } from '@paralleldrive/cuid2';
-import { MovementType } from '@prisma/client';
+import { MovementType, PrismaClient } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
+
+export type PrismaTx = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>;
 
 export interface RecordMovementParams {
   productId: string;
@@ -87,6 +89,7 @@ export class InventoryService {
   async recordMovement(
     organizationId: string,
     params: RecordMovementParams,
+    tx?: PrismaTx,
   ) {
     const {
       productId,
@@ -100,16 +103,17 @@ export class InventoryService {
       createdBy,
     } = params;
 
+    const client = tx ?? this.prisma;
+
     // Validate product belongs to org
-    const product = await this.prisma.product.findFirst({
+    const product = await client.product.findFirst({
       where: { id: productId, organizationId },
       select: { id: true, lowStockAlert: true },
     });
     if (!product) throw new NotFoundException('Product not found');
 
-    const result = await this.prisma.$transaction(async (tx) => {
-      // Get or create inventory level
-      let level = await tx.inventoryLevel.findFirst({
+    const doWork = async (txClient: typeof this.prisma | PrismaTx) => {
+      let level = await txClient.inventoryLevel.findFirst({
         where: {
           productId,
           locationId,
@@ -118,7 +122,7 @@ export class InventoryService {
       });
 
       if (!level) {
-        level = await tx.inventoryLevel.create({
+        level = await txClient.inventoryLevel.create({
           data: {
             id: createId(),
             productId,
@@ -134,7 +138,6 @@ export class InventoryService {
       const quantityBefore = level.quantity;
       const quantityAfter = quantityBefore + quantity;
 
-      // Prevent negative stock
       if (quantityAfter < 0) {
         throw new HttpException(
           `Insufficient stock: only ${quantityBefore} units available`,
@@ -142,14 +145,12 @@ export class InventoryService {
         );
       }
 
-      // Update level
-      const updatedLevel = await tx.inventoryLevel.update({
+      const updatedLevel = await txClient.inventoryLevel.update({
         where: { id: level.id },
         data: { quantity: quantityAfter },
       });
 
-      // Create movement record (immutable ledger)
-      const movement = await tx.inventoryMovement.create({
+      const movement = await txClient.inventoryMovement.create({
         data: {
           id: createId(),
           organizationId,
@@ -168,24 +169,28 @@ export class InventoryService {
       });
 
       return { level: updatedLevel, movement };
-    });
+    };
 
-    // Emit events after transaction
-    this.eventEmitter.emit('inventory.updated', {
-      organizationId,
-      productId,
-      locationId,
-      quantity: result.level.quantity,
-    });
+    const result = tx ? await doWork(tx) : await this.prisma.$transaction(doWork);
 
-    if (result.level.quantity <= product.lowStockAlert) {
-      this.eventEmitter.emit('inventory.low', {
+    // Only emit events when not inside a parent transaction
+    if (!tx) {
+      this.eventEmitter.emit('inventory.updated', {
         organizationId,
         productId,
         locationId,
         quantity: result.level.quantity,
-        threshold: product.lowStockAlert,
       });
+
+      if (result.level.quantity <= product.lowStockAlert) {
+        this.eventEmitter.emit('inventory.low', {
+          organizationId,
+          productId,
+          locationId,
+          quantity: result.level.quantity,
+          threshold: product.lowStockAlert,
+        });
+      }
     }
 
     return result;
