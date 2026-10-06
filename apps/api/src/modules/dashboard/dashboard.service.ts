@@ -24,13 +24,32 @@ export class DashboardService {
 
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    // Location scope for order queries
+    // Location scope for order queries (direct locationId field)
     const orderLocationWhere =
       locationIds === null
         ? {}
         : locationIds.length === 0
         ? { locationId: '__none__' }
         : { locationId: { in: locationIds } };
+
+    // Location scope for PO queries (direct locationId field)
+    const poLocationWhere = orderLocationWhere;
+
+    // Location scope for invoice queries (via SalesOrder relation)
+    const invoiceLocationWhere =
+      locationIds === null
+        ? {}
+        : locationIds.length === 0
+        ? { order: { locationId: '__none__' } }
+        : { order: { locationId: { in: locationIds } } };
+
+    // Location scope for payment queries (via Invoice → SalesOrder relation)
+    const paymentLocationWhere =
+      locationIds === null
+        ? {}
+        : locationIds.length === 0
+        ? { invoice: { order: { locationId: '__none__' } } }
+        : { invoice: { order: { locationId: { in: locationIds } } } };
 
     // Location scope for inventoryLevel queries (via relation filter)
     const inventoryLocationFilter =
@@ -52,13 +71,14 @@ export class DashboardService {
       recentTasks,
       pendingPOItems,
     ] = await Promise.all([
-      // Today's received payments
+      // Today's received payments (location-scoped via invoice.order)
       this.prisma.payment.aggregate({
         where: {
           organizationId,
           status: 'COMPLETED',
           receivedAt: { gte: todayStart, lte: todayEnd },
           amount: { gt: 0 },
+          ...paymentLocationWhere,
         },
         _sum: { amount: true },
       }),
@@ -72,7 +92,7 @@ export class DashboardService {
         },
       }),
 
-      // Open tasks (TODO + IN_PROGRESS)
+      // Open tasks (TODO + IN_PROGRESS) — org-wide
       this.prisma.task.count({
         where: {
           organizationId,
@@ -80,29 +100,31 @@ export class DashboardService {
         },
       }),
 
-      // Pending purchase orders (SUBMITTED + APPROVED — not yet received)
+      // Pending purchase orders (location-scoped)
       this.prisma.purchaseOrder.count({
         where: {
           organizationId,
           status: { in: ['SUBMITTED', 'APPROVED'] },
+          ...poLocationWhere,
         },
       }),
 
-      // Overdue invoices (UNPAID or PARTIAL, dueDate in the past)
+      // Overdue invoices (location-scoped via SalesOrder)
       this.prisma.invoice.count({
         where: {
           organizationId,
           status: { in: ['UNPAID', 'PARTIAL'] },
           dueDate: { lt: now },
+          ...invoiceLocationWhere,
         },
       }),
 
-      // New customers this month
+      // New customers this month — org-wide (customers are org-level)
       this.prisma.customer.count({
         where: { organizationId, createdAt: { gte: monthStart } },
       }),
 
-      // Customers with outstanding balance
+      // Customers with outstanding balance — org-wide
       this.prisma.customer.count({
         where: { organizationId, outstandingBalance: { gt: 0 } },
       }),
@@ -129,7 +151,7 @@ export class DashboardService {
         take: 8,
       }),
 
-      // Recent open tasks
+      // Recent open tasks — org-wide
       this.prisma.task.findMany({
         where: {
           organizationId,
@@ -148,11 +170,12 @@ export class DashboardService {
         take: 8,
       }),
 
-      // Pending POs detail (for Needs Attention)
+      // Pending POs detail (location-scoped)
       this.prisma.purchaseOrder.findMany({
         where: {
           organizationId,
           status: { in: ['SUBMITTED', 'APPROVED'] },
+          ...poLocationWhere,
         },
         select: {
           id: true,
@@ -167,8 +190,11 @@ export class DashboardService {
       }),
     ]);
 
-    // Low-stock: fetch inventoryLevels and filter client-side against product.lowStockAlert
-    const inventoryLevelRows = await this.prisma.inventoryLevel.findMany({
+    // ── Low-stock: authoritative count + limited preview (independent) ──────────
+    // Fetch ALL authorized inventory levels without cap, then filter client-side.
+    // This avoids the column-to-column comparison limitation in Prisma while
+    // ensuring the count is not truncated by a preview limit.
+    const allInventoryLevels = await this.prisma.inventoryLevel.findMany({
       where: {
         product: { organizationId },
         ...inventoryLocationFilter,
@@ -180,17 +206,17 @@ export class DashboardService {
         location: { select: { id: true, name: true } },
       },
       orderBy: { quantity: 'asc' },
-      take: 200,
     }).catch(() => [] as never[]);
 
-    const lowStockItems = (inventoryLevelRows as Array<{
+    const allLowStock = (allInventoryLevels as Array<{
       id: string;
       quantity: number;
       product: { id: string; name: string; sku: string; lowStockAlert: number };
       location: { id: string; name: string };
-    }>).filter((r) => r.quantity <= r.product.lowStockAlert).slice(0, 8);
+    }>).filter((r) => r.quantity <= r.product.lowStockAlert);
 
-    const lowStockCount = lowStockItems.length;
+    const lowStockCount = allLowStock.length;          // authoritative — no preview cap
+    const lowStockItems = allLowStock.slice(0, 8);     // preview only
 
     // Month revenue for comparison
     const monthRevenue = await this.prisma.payment.aggregate({
@@ -199,6 +225,7 @@ export class DashboardService {
         status: 'COMPLETED',
         receivedAt: { gte: monthStart, lte: now },
         amount: { gt: 0 },
+        ...paymentLocationWhere,
       },
       _sum: { amount: true },
     });
@@ -212,6 +239,7 @@ export class DashboardService {
         status: 'COMPLETED',
         receivedAt: { gte: prevMonthStart, lte: prevMonthEnd },
         amount: { gt: 0 },
+        ...paymentLocationWhere,
       },
       _sum: { amount: true },
     });
@@ -224,7 +252,7 @@ export class DashboardService {
         ? Math.round(((monthRev - prevMonthRev) / prevMonthRev) * 100)
         : null;
 
-    // Overdue task count — dedicated query to avoid truncation by preview take limit
+    // Overdue task count
     const overdueTaskCount = await this.prisma.task.count({
       where: {
         organizationId,

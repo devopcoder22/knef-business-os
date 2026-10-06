@@ -346,7 +346,9 @@ describe('SalesService — refund rule integration', () => {
         findMany: jest.fn(async () => []),
         count: jest.fn(async () => 0),
       },
-      payment: { create: jest.fn(async () => null) },
+      invoice: { findMany: jest.fn(async () => []) },
+      payment: { create: jest.fn(async () => null), findMany: jest.fn(async () => []) },
+      customer: { updateMany: jest.fn(async () => ({})) },
     };
     const svc = new SalesService(
       prisma as never,
@@ -494,7 +496,9 @@ describe('SalesService — refund threshold hard block', () => {
         findMany: jest.fn(async () => []),
         count: jest.fn(async () => 0),
       },
-      payment: { create: jest.fn(async () => null) },
+      invoice: { findMany: jest.fn(async () => []) },
+      payment: { create: jest.fn(async () => null), findMany: jest.fn(async () => []) },
+      customer: { updateMany: jest.fn(async () => ({})) },
     };
   }
 

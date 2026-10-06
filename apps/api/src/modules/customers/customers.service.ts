@@ -3,9 +3,11 @@ import {
   NotFoundException,
   ConflictException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { OrderStatus } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import type { CreateCustomerDto } from './dto/create-customer.dto';
 import type { UpdateCustomerDto } from './dto/update-customer.dto';
@@ -74,9 +76,12 @@ export class CustomersService {
     if (isActive !== undefined) where['isActive'] = isActive;
     if (hasOutstanding) where['outstandingBalance'] = { gt: 0 };
 
-    // Segment filter: only segments computable from stored customer fields
+    const COMPLETED_STATUSES: OrderStatus[] = [OrderStatus.COMPLETED, OrderStatus.PARTIAL_REFUND];
+
+    // Segment filter — all seven supported
     if (segment) {
-      switch (segment.toUpperCase()) {
+      const seg = segment.toUpperCase();
+      switch (seg) {
         case 'NEW':
           where['createdAt'] = { gte: new Date(Date.now() - SEGMENT_DAYS_NEW * 86_400_000) };
           break;
@@ -86,7 +91,49 @@ export class CustomersService {
         case 'OUTSTANDING_BALANCE':
           where['outstandingBalance'] = { gt: 0 };
           break;
-        // ACTIVE, AT_RISK, INACTIVE, REPEAT require lastPurchaseDate/orderCount — not stored
+        case 'ACTIVE': {
+          const cutoff = new Date(Date.now() - SEGMENT_DAYS_ACTIVE * 86_400_000);
+          where['salesOrders'] = { some: { status: { in: COMPLETED_STATUSES }, completedAt: { gte: cutoff } } };
+          break;
+        }
+        case 'AT_RISK': {
+          const cutoff60 = new Date(Date.now() - SEGMENT_DAYS_AT_RISK * 86_400_000);
+          const cutoff180 = new Date(Date.now() - SEGMENT_DAYS_INACTIVE * 86_400_000);
+          where['AND'] = [
+            { salesOrders: { some: { status: { in: COMPLETED_STATUSES } } } },
+            { salesOrders: { none: { status: { in: COMPLETED_STATUSES }, completedAt: { gte: cutoff60 } } } },
+            { salesOrders: { some: { status: { in: COMPLETED_STATUSES }, completedAt: { gte: cutoff180 } } } },
+          ];
+          break;
+        }
+        case 'INACTIVE': {
+          const cutoff30 = new Date(Date.now() - SEGMENT_DAYS_NEW * 86_400_000);
+          const cutoff180 = new Date(Date.now() - SEGMENT_DAYS_INACTIVE * 86_400_000);
+          where['AND'] = [
+            { createdAt: { lt: cutoff30 } },
+            {
+              OR: [
+                { salesOrders: { none: { status: { in: COMPLETED_STATUSES } } } },
+                { salesOrders: { none: { status: { in: COMPLETED_STATUSES }, completedAt: { gte: cutoff180 } } } },
+              ],
+            },
+          ];
+          break;
+        }
+        case 'REPEAT': {
+          const repeatGroups = await this.prisma.salesOrder.groupBy({
+            by: ['customerId'],
+            where: { organizationId, customerId: { not: null }, status: { in: COMPLETED_STATUSES } },
+            having: { customerId: { _count: { gte: 2 } } },
+          });
+          const ids = repeatGroups.map((g) => g.customerId).filter(Boolean) as string[];
+          where['id'] = ids.length > 0 ? { in: ids } : '__none__';
+          break;
+        }
+        default:
+          throw new BadRequestException(
+            `Unsupported segment filter: '${segment}'. Supported: NEW, ACTIVE, REPEAT, HIGH_VALUE, AT_RISK, INACTIVE, OUTSTANDING_BALANCE`,
+          );
       }
     }
 
@@ -135,20 +182,45 @@ export class CustomersService {
       this.prisma.customer.count({ where }),
     ]);
 
-    // Compute segments client-side from available fields (no extra queries needed for list)
+    // Aggregate last purchase date and order count for accurate list badges
+    const customerIds = customers.map((c) => c.id);
+    const orderAggregates =
+      customerIds.length > 0
+        ? await this.prisma.salesOrder.groupBy({
+            by: ['customerId'],
+            where: {
+              organizationId,
+              customerId: { in: customerIds },
+              status: { in: ['COMPLETED', 'PARTIAL_REFUND'] },
+            },
+            _max: { completedAt: true },
+            _count: { id: true },
+          })
+        : [];
+
+    const orderMetaMap = new Map(
+      orderAggregates.map((r) => [
+        r.customerId,
+        { lastPurchaseDate: r._max.completedAt, orderCount: r._count.id },
+      ]),
+    );
+
     const now = new Date();
-    const enriched = customers.map((c) => ({
-      ...c,
-      tags: c.tagAssignments.map((a) => a.tag),
-      segments: this.computeSegmentsFromFields(
-        Number(c.totalSpent),
-        Number(c.outstandingBalance),
-        null, // lastPurchaseDate not fetched on list for performance
-        0,    // orderCount not fetched on list for performance
-        c.createdAt,
-        now,
-      ),
-    }));
+    const enriched = customers.map((c) => {
+      const meta = orderMetaMap.get(c.id);
+      return {
+        ...c,
+        tags: c.tagAssignments.map((a) => a.tag),
+        segments: this.computeSegmentsFromFields(
+          Number(c.totalSpent),
+          Number(c.outstandingBalance),
+          meta?.lastPurchaseDate ?? null,
+          meta?.orderCount ?? 0,
+          c.createdAt,
+          now,
+        ),
+      };
+    });
 
     return {
       data: enriched,
@@ -416,10 +488,33 @@ export class CustomersService {
     const customerAgeDays = Math.floor(
       (now.getTime() - customerCreatedAt.getTime()) / 86_400_000,
     );
-    if (customerAgeDays <= SEGMENT_DAYS_NEW) labels.push('NEW');
-    if (totalSpent >= SEGMENT_HIGH_VALUE_NGN) labels.push('HIGH_VALUE');
-    if (outstandingBalance > 0) labels.push('OUTSTANDING_BALANCE');
+    const daysSinceLast = lastPurchaseDate
+      ? Math.floor((now.getTime() - lastPurchaseDate.getTime()) / 86_400_000)
+      : null;
+
+    const isNew =
+      customerAgeDays <= SEGMENT_DAYS_NEW ||
+      (lastPurchaseDate !== null &&
+        Math.floor((now.getTime() - lastPurchaseDate.getTime()) / 86_400_000) <=
+          SEGMENT_DAYS_NEW);
+
+    if (isNew) labels.push('NEW');
+    if (daysSinceLast !== null && daysSinceLast <= SEGMENT_DAYS_ACTIVE) labels.push('ACTIVE');
     if (orderCount > 1) labels.push('REPEAT');
+    if (totalSpent >= SEGMENT_HIGH_VALUE_NGN) labels.push('HIGH_VALUE');
+
+    const wasActive = orderCount > 0;
+    const isAtRisk =
+      wasActive &&
+      daysSinceLast !== null &&
+      daysSinceLast > SEGMENT_DAYS_AT_RISK &&
+      daysSinceLast <= SEGMENT_DAYS_INACTIVE;
+    const isInactive = daysSinceLast === null || daysSinceLast > SEGMENT_DAYS_INACTIVE;
+
+    if (isAtRisk) labels.push('AT_RISK');
+    if (isInactive && !isNew) labels.push('INACTIVE');
+    if (outstandingBalance > 0) labels.push('OUTSTANDING_BALANCE');
+
     return labels;
   }
 
@@ -433,6 +528,9 @@ export class CustomersService {
     if (!customer) throw new NotFoundException('Customer not found');
 
     const locationWhere = this.buildLocationWhere(locationIds);
+    const invoiceLocationWhere = this.buildInvoiceLocationWhere(locationIds);
+    const paymentLocationWhere = this.buildPaymentTimelineLocationWhere(locationIds);
+    const receiptLocationWhere = this.buildReceiptLocationWhere(locationIds);
 
     const [orders, invoices, payments, receipts, noteRows, tasks] = await Promise.all([
       this.prisma.salesOrder.findMany({
@@ -445,19 +543,19 @@ export class CustomersService {
         take: limit,
       }),
       this.prisma.invoice.findMany({
-        where: { organizationId, customerId },
+        where: { organizationId, customerId, ...invoiceLocationWhere },
         select: { id: true, reference: true, status: true, totalAmount: true, issuedAt: true },
         orderBy: { issuedAt: 'desc' },
         take: limit,
       }),
       this.prisma.payment.findMany({
-        where: { organizationId, customerId, status: 'COMPLETED' },
+        where: { organizationId, customerId, status: 'COMPLETED', ...paymentLocationWhere },
         select: { id: true, reference: true, amount: true, method: true, receivedAt: true },
         orderBy: { receivedAt: 'desc' },
         take: limit,
       }),
       this.prisma.receipt.findMany({
-        where: { organizationId, customerId },
+        where: { organizationId, customerId, ...receiptLocationWhere },
         select: { id: true, reference: true, amount: true, method: true, issuedAt: true },
         orderBy: { issuedAt: 'desc' },
         take: limit,
@@ -638,10 +736,11 @@ export class CustomersService {
 
   // ── Invoices / Receipts (customer-scoped lists) ───────────────────────────
 
-  async getInvoices(organizationId: string, customerId: string) {
+  async getInvoices(organizationId: string, customerId: string, locationIds?: string[] | null) {
     await this.assertExists(organizationId, customerId);
+    const invoiceLocationWhere = this.buildInvoiceLocationWhere(locationIds);
     const invoices = await this.prisma.invoice.findMany({
-      where: { organizationId, customerId },
+      where: { organizationId, customerId, ...invoiceLocationWhere },
       select: {
         id: true, reference: true, status: true,
         totalAmount: true, paidAmount: true, dueDate: true, issuedAt: true,
@@ -652,10 +751,11 @@ export class CustomersService {
     return { data: invoices };
   }
 
-  async getReceipts(organizationId: string, customerId: string) {
+  async getReceipts(organizationId: string, customerId: string, locationIds?: string[] | null) {
     await this.assertExists(organizationId, customerId);
+    const receiptLocationWhere = this.buildReceiptLocationWhere(locationIds);
     const receipts = await this.prisma.receipt.findMany({
-      where: { organizationId, customerId },
+      where: { organizationId, customerId, ...receiptLocationWhere },
       select: { id: true, reference: true, amount: true, method: true, issuedAt: true },
       orderBy: { issuedAt: 'desc' },
       take: 50,
@@ -695,7 +795,7 @@ export class CustomersService {
         where: {
           organizationId, customerId,
           createdAt: { gte: start, lt: end },
-          status: 'COMPLETED',
+          status: { in: ['COMPLETED', 'REFUNDED'] },
         },
         select: { id: true, reference: true, amount: true, method: true, receivedAt: true, invoiceId: true },
         orderBy: { receivedAt: 'asc' },
@@ -744,6 +844,24 @@ export class CustomersService {
       select: { id: true },
     });
     if (!c) throw new NotFoundException('Customer not found');
+  }
+
+  private buildInvoiceLocationWhere(locationIds?: string[] | null): Record<string, unknown> {
+    if (locationIds === null || locationIds === undefined) return {};
+    if (locationIds.length === 0) return { order: { locationId: '__none__' } };
+    return { order: { locationId: { in: locationIds } } };
+  }
+
+  private buildReceiptLocationWhere(locationIds?: string[] | null): Record<string, unknown> {
+    if (locationIds === null || locationIds === undefined) return {};
+    if (locationIds.length === 0) return { invoice: { order: { locationId: '__none__' } } };
+    return { invoice: { order: { locationId: { in: locationIds } } } };
+  }
+
+  private buildPaymentTimelineLocationWhere(locationIds?: string[] | null): Record<string, unknown> {
+    if (locationIds === null || locationIds === undefined) return {};
+    if (locationIds.length === 0) return { invoice: { order: { locationId: '__none__' } } };
+    return { invoice: { order: { locationId: { in: locationIds } } } };
   }
 
   private buildLocationWhere(locationIds?: string[] | null): Record<string, unknown> {

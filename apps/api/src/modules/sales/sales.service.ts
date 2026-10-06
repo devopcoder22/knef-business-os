@@ -453,6 +453,10 @@ export class SalesService {
       },
     });
 
+    if (order.customerId) {
+      await this.recalculateOutstandingBalance(order.customerId);
+    }
+
     void this.auditService.log({
       organizationId,
       userId,
@@ -797,14 +801,24 @@ export class SalesService {
   }
 
   private async recalculateOutstandingBalance(customerId: string): Promise<void> {
-    const invoices = await this.prisma.invoice.findMany({
-      where: { customerId, status: { not: 'CANCELLED' } },
-      select: { totalAmount: true, paidAmount: true },
-    });
-    const balance = Math.max(
-      0,
-      invoices.reduce((s, i) => s + Number(i.totalAmount) - Number(i.paidAmount), 0),
-    );
+    const [invoices, payments] = await Promise.all([
+      this.prisma.invoice.findMany({
+        where: { customerId, status: { not: 'CANCELLED' } },
+        select: { totalAmount: true },
+      }),
+      this.prisma.payment.findMany({
+        where: { customerId, status: { in: ['COMPLETED', 'REFUNDED'] } },
+        select: { amount: true },
+      }),
+    ]);
+    const totalBilled = invoices.reduce((s, i) => s + Number(i.totalAmount), 0);
+    const totalPaid = payments
+      .filter((p) => Number(p.amount) > 0)
+      .reduce((s, p) => s + Number(p.amount), 0);
+    const totalRefunded = payments
+      .filter((p) => Number(p.amount) < 0)
+      .reduce((s, p) => s + Math.abs(Number(p.amount)), 0);
+    const balance = Math.max(0, totalBilled - totalPaid + totalRefunded);
     await this.prisma.customer.updateMany({
       where: { id: customerId },
       data: { outstandingBalance: balance },

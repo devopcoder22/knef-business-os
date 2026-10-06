@@ -239,14 +239,14 @@ export class CustomersController {
   @Permissions(PERMISSIONS.CUSTOMERS.VIEW)
   @ApiOperation({ summary: 'Get customer invoices' })
   getInvoices(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.customersService.getInvoices(user.organizationId, id);
+    return this.customersService.getInvoices(user.organizationId, id, user.locationIds ?? null);
   }
 
   @Get(':id/receipts')
   @Permissions(PERMISSIONS.CUSTOMERS.VIEW)
   @ApiOperation({ summary: 'Get customer receipts' })
   getReceipts(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.customersService.getReceipts(user.organizationId, id);
+    return this.customersService.getReceipts(user.organizationId, id, user.locationIds ?? null);
   }
 
   @Get(':id/statement')
