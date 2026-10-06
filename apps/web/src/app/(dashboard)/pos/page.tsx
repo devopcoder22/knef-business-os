@@ -30,6 +30,7 @@ interface Product {
   sellingPrice: string;
   costPrice: string;
   hasVariants: boolean;
+  isSerialized?: boolean;
   category: { name: string } | null;
 }
 
@@ -66,6 +67,40 @@ interface ReceiptData {
 }
 
 const PAYMENT_METHODS = ['CASH', 'CARD', 'BANK_TRANSFER', 'POS_TERMINAL', 'USSD'];
+
+// ---- Keyboard-wedge scanner hook ----
+function useBarcodeScanner(onCode: (code: string) => void) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const bufferRef = useRef('');
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const focus = useCallback(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const code = bufferRef.current.trim();
+      bufferRef.current = '';
+      if (code) onCode(code);
+      // Re-focus for next scan
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  }, [onCode]);
+
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    bufferRef.current = e.target.value;
+    // Clear field to keep it visually empty while capturing
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      if (inputRef.current) inputRef.current.value = '';
+      bufferRef.current = '';
+    }, 2000);
+  }, []);
+
+  return { inputRef, focus, handleKeyDown, handleChange };
+}
 
 // ---- Receipt Modal ----
 function ReceiptModal({ receipt, onClose }: { receipt: ReceiptData; onClose: () => void }) {
@@ -318,6 +353,7 @@ export default function POSPage() {
 
   // Cart state
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [showCart, setShowCart] = useState(false);
   const [productSearch, setProductSearch] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
@@ -329,6 +365,10 @@ export default function POSPage() {
 
   // Receipt
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
+
+  // Scanner feedback
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [scanSuccess, setScanSuccess] = useState<string | null>(null);
 
   // --- Queries ---
   const { data: sessionData, isLoading: sessionLoading } = useQuery<POSSession>({
@@ -421,6 +461,39 @@ export default function POSPage() {
       setSelectedCustomerName('');
       queryClient.invalidateQueries({ queryKey: ['pos-current-session'] });
     },
+  });
+
+  // --- Barcode lookup mutation ---
+  const lookupMutation = useMutation({
+    mutationFn: async (code: string) => {
+      const res = await api().get<{ type: string; product: Product & { isSerialized?: boolean }; variant?: { id: string; name: string; sku: string; sellingPrice?: string } }>(`/products/lookup?code=${encodeURIComponent(code)}`);
+      return res.data;
+    },
+    onSuccess: (data) => {
+      const p = data.product;
+      const v = data.variant;
+      addToCart({
+        id: p.id,
+        name: v ? `${p.name} — ${v.name}` : p.name,
+        sku: v?.sku ?? p.sku,
+        sellingPrice: v?.sellingPrice ?? p.sellingPrice,
+        costPrice: p.costPrice,
+        hasVariants: false,
+        category: null,
+      });
+      setScanSuccess(v ? `${p.name} — ${v.name}` : p.name);
+      setScanError(null);
+      setTimeout(() => setScanSuccess(null), 2000);
+    },
+    onError: () => {
+      setScanError('Product not found for scanned code');
+      setTimeout(() => setScanError(null), 2000);
+    },
+  });
+
+  const scanner = useBarcodeScanner((code) => {
+    setScanError(null);
+    lookupMutation.mutate(code);
   });
 
   // --- Cart helpers ---
@@ -624,7 +697,7 @@ export default function POSPage() {
 
   // ---- Main POS interface ----
   return (
-    <div className="h-full flex gap-4" style={{ height: 'calc(100vh - 80px)' }}>
+    <div className="h-full flex flex-col md:flex-row gap-4" style={{ height: 'calc(100vh - 80px)' }}>
       {/* Left: Product Browser */}
       <div className="flex-1 flex flex-col space-y-3 min-w-0">
         {/* Session Bar */}
@@ -646,16 +719,49 @@ export default function POSPage() {
         </div>
 
         {/* Product Search */}
-        <div className="relative">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <div className="space-y-2">
+          <div className="relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              ref={searchRef}
+              type="search"
+              placeholder="Search products by name or SKU..."
+              value={productSearch}
+              onChange={(e) => setProductSearch(e.target.value)}
+              className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            />
+          </div>
+
+          {/* Hidden scanner capture input — focused for keyboard-wedge scanners */}
           <input
-            ref={searchRef}
-            type="search"
-            placeholder="Search products by name or SKU..."
-            value={productSearch}
-            onChange={(e) => setProductSearch(e.target.value)}
-            className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            ref={scanner.inputRef}
+            onKeyDown={scanner.handleKeyDown}
+            onChange={scanner.handleChange}
+            className="sr-only"
+            aria-label="Barcode scanner input"
+            tabIndex={-1}
+            readOnly={false}
           />
+
+          {/* Scan status indicators */}
+          {scanSuccess && (
+            <div className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-1.5 flex items-center gap-1.5">
+              <CheckCircle size={12} /> Added: {scanSuccess}
+            </div>
+          )}
+          {scanError && (
+            <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-1.5">
+              {scanError}
+            </div>
+          )}
+
+          {/* Mobile: tap to activate scanner */}
+          <button
+            onClick={scanner.focus}
+            className="md:hidden w-full py-2 border border-dashed border-blue-300 rounded-lg text-xs text-blue-600 flex items-center justify-center gap-1.5"
+          >
+            <Search size={13} /> Tap to enable scanner
+          </button>
         </div>
 
         {/* Products Grid */}
@@ -697,8 +803,25 @@ export default function POSPage() {
         </div>
       </div>
 
-      {/* Right: Cart */}
-      <div className="w-80 flex flex-col bg-white rounded-xl border border-gray-200 overflow-hidden flex-shrink-0">
+      {/* Mobile: floating cart button */}
+      <button
+        onClick={() => setShowCart(true)}
+        className={cn(
+          'md:hidden fixed bottom-4 right-4 z-30 flex items-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-full shadow-lg font-medium text-sm',
+        )}
+      >
+        <ShoppingCart size={16} />
+        {cart.length > 0 && (
+          <span className="font-bold">{cart.reduce((s, i) => s + i.quantity, 0)} items · {cartTotal.toLocaleString('en-NG', { style: 'currency', currency: 'NGN' })}</span>
+        )}
+        {cart.length === 0 && 'Cart'}
+      </button>
+
+      {/* Cart — full screen on mobile, fixed sidebar on desktop */}
+      <div className={cn(
+        'flex flex-col bg-white rounded-xl border border-gray-200 overflow-hidden flex-shrink-0',
+        showCart ? 'fixed inset-0 z-40 md:static md:w-80' : 'hidden md:flex md:w-80'
+      )}>
         {/* Cart Header */}
         <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -710,11 +833,16 @@ export default function POSPage() {
               </span>
             )}
           </div>
-          {cart.length > 0 && (
-            <button onClick={() => setCart([])} className="text-xs text-red-500 hover:text-red-700">
-              Clear
+          <div className="flex items-center gap-2">
+            {cart.length > 0 && (
+              <button onClick={() => setCart([])} className="text-xs text-red-500 hover:text-red-700">
+                Clear
+              </button>
+            )}
+            <button onClick={() => setShowCart(false)} className="md:hidden p-1.5 text-gray-400 hover:text-gray-600">
+              <X size={16} />
             </button>
-          )}
+          </div>
         </div>
 
         {/* Customer Search */}

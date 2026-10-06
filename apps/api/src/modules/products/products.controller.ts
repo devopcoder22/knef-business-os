@@ -9,6 +9,7 @@ import {
   Query,
   HttpCode,
   HttpStatus,
+  BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { ProductStatus } from '@prisma/client';
@@ -45,6 +46,14 @@ export class ProductsController {
   @ApiOperation({ summary: 'List products (paginated + filterable)' })
   findAll(@CurrentUser() user: AuthUser, @Query() query: ListProductsDto) {
     return this.productsService.findAll(user.organizationId, query);
+  }
+
+  @Get('lookup')
+  @Permissions(PERMISSIONS.PRODUCTS.VIEW)
+  @ApiOperation({ summary: 'Look up a product by barcode, GTIN, or IMEI/serial' })
+  lookup(@CurrentUser() user: AuthUser, @Query('code') code: string) {
+    if (!code?.trim()) throw new BadRequestException('code query param is required');
+    return this.productsService.lookupByCode(user.organizationId, code.trim());
   }
 
   @Get(':id')

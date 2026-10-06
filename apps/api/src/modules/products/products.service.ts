@@ -591,6 +591,65 @@ export class ProductsService {
     });
   }
 
+  // ── Barcode / code lookup ─────────────────────────────────────
+
+  async lookupByCode(organizationId: string, code: string) {
+    // 1. Product by barcode
+    const byBarcode = await this.prisma.product.findFirst({
+      where: { organizationId, barcode: code, status: { not: ProductStatus.DISCONTINUED } },
+      select: { id: true, name: true, sku: true, barcode: true, gtin: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true },
+    });
+    if (byBarcode) return { type: 'PRODUCT' as const, product: byBarcode };
+
+    // 2. Product by GTIN
+    const byGtin = await this.prisma.product.findFirst({
+      where: { organizationId, gtin: code, status: { not: ProductStatus.DISCONTINUED } },
+      select: { id: true, name: true, sku: true, barcode: true, gtin: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true },
+    });
+    if (byGtin) return { type: 'PRODUCT' as const, product: byGtin };
+
+    // 3. ProductVariant by barcode
+    const variantByBarcode = await this.prisma.productVariant.findFirst({
+      where: { product: { organizationId }, barcode: code },
+      select: { id: true, name: true, sku: true, barcode: true, sellingPrice: true, product: { select: { id: true, name: true, sku: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true } } },
+    });
+    if (variantByBarcode) {
+      return {
+        type: 'VARIANT' as const,
+        product: variantByBarcode.product,
+        variant: { id: variantByBarcode.id, name: variantByBarcode.name, sku: variantByBarcode.sku, sellingPrice: variantByBarcode.sellingPrice?.toString() },
+      };
+    }
+
+    // 4. ProductVariant by GTIN
+    const variantByGtin = await this.prisma.productVariant.findFirst({
+      where: { product: { organizationId }, gtin: code },
+      select: { id: true, name: true, sku: true, gtin: true, sellingPrice: true, product: { select: { id: true, name: true, sku: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true } } },
+    });
+    if (variantByGtin) {
+      return {
+        type: 'VARIANT' as const,
+        product: variantByGtin.product,
+        variant: { id: variantByGtin.id, name: variantByGtin.name, sku: variantByGtin.sku, sellingPrice: variantByGtin.sellingPrice?.toString() },
+      };
+    }
+
+    // 5. SerializedUnit by IMEI1, IMEI2, or serialNumber
+    const unit = await this.prisma.serializedUnit.findFirst({
+      where: { organizationId, OR: [{ imei1: code }, { imei2: code }, { serialNumber: code }] },
+      select: { id: true, imei1: true, imei2: true, serialNumber: true, status: true, locationId: true, product: { select: { id: true, name: true, sku: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true } } },
+    });
+    if (unit) {
+      return {
+        type: 'SERIALIZED_UNIT' as const,
+        product: unit.product,
+        unit: { id: unit.id, imei1: unit.imei1, status: unit.status, locationId: unit.locationId },
+      };
+    }
+
+    throw new NotFoundException('No product found for code');
+  }
+
   // ── Helpers ───────────────────────────────────────────────────
 
   private async createInventoryLevelsForAllLocations(

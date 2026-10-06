@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Save } from 'lucide-react';
@@ -45,6 +45,11 @@ export default function NewGoodsReceiptPage() {
   const [receiptItems, setReceiptItems] = useState<ReceiptItem[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  // Scanner state
+  const [scanInput, setScanInput] = useState('');
+  const [scanMsg, setScanMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const scanInputRef = useRef<HTMLInputElement>(null);
+
   // Fetch approved/partially_received POs
   const { data: posData } = useQuery<{ data: PurchaseOrder[] }>({
     queryKey: ['pos-for-receipt'],
@@ -80,6 +85,29 @@ export default function NewGoodsReceiptPage() {
       );
     }
   }, [selectedPO]);
+
+  const handleScanInput = async (code: string) => {
+    if (!code.trim()) return;
+    try {
+      const res = await api().get<{ product: { id: string } }>(`/products/lookup?code=${encodeURIComponent(code.trim())}`);
+      const productId = res.data.product.id;
+      const idx = receiptItems.findIndex((i) => i.productId === productId);
+      if (idx === -1) {
+        setScanMsg({ type: 'error', text: `Product not on this PO` });
+      } else {
+        setReceiptItems((prev) => prev.map((item, i) => i === idx
+          ? { ...item, quantityReceived: String((parseInt(item.quantityReceived, 10) || 0) + 1) }
+          : item
+        ));
+        setScanMsg({ type: 'success', text: `+1 ${receiptItems[idx].productName}` });
+      }
+    } catch {
+      setScanMsg({ type: 'error', text: `Not found: ${code}` });
+    }
+    setTimeout(() => setScanMsg(null), 2000);
+    setScanInput('');
+    setTimeout(() => scanInputRef.current?.focus(), 50);
+  };
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -158,6 +186,26 @@ export default function NewGoodsReceiptPage() {
             <div className="bg-blue-50 rounded-lg p-3 text-sm text-blue-700">
               <strong>PO:</strong> {selectedPO.reference} &bull; <strong>Supplier:</strong> {selectedPO.supplier.name}
             </div>
+
+            {/* Scan-to-receive input */}
+            {purchaseOrderId && receiptItems.length > 0 && (
+              <div className="flex gap-2 items-center">
+                <input
+                  ref={scanInputRef}
+                  type="text"
+                  value={scanInput}
+                  onChange={(e) => setScanInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleScanInput(scanInput); } }}
+                  placeholder="Scan barcode to receive..."
+                  className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                {scanMsg && (
+                  <span className={cn('text-xs px-2 py-1 rounded-lg', scanMsg.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700')}>
+                    {scanMsg.text}
+                  </span>
+                )}
+              </div>
+            )}
 
             <table className="w-full text-sm">
               <thead>
