@@ -216,6 +216,7 @@ export class FinanceService {
       where: { id: transactionId, bankAccountId, organizationId },
     });
     if (!tx) throw new NotFoundException('Transaction not found');
+    if (tx.reconciled) return tx; // idempotent — preserve original reconciledAt
 
     return this.prisma.bankTransaction.update({
       where: { id: transactionId },
@@ -449,6 +450,9 @@ export class FinanceService {
       if (account && account.isActive) {
         const balanceBefore = account.balance;
         const balanceAfter = balanceBefore.sub(expense.amount);
+        if (balanceAfter.lessThan(0)) {
+          throw new BadRequestException('Insufficient bank account balance to pay this expense');
+        }
         ops.push(
           this.prisma.bankTransaction.create({
             data: {

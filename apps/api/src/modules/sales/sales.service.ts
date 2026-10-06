@@ -381,6 +381,14 @@ export class SalesService {
     const refundAmount = dto.refundAmount ?? order.totalAmount.toString();
     const isFullRefund = !dto.items || dto.items.length === 0;
 
+    // Ceiling check: refund must not exceed what was actually paid
+    const paidAmount = new Prisma.Decimal(order.paidAmount.toString());
+    if (new Prisma.Decimal(refundAmount).gt(paidAmount)) {
+      throw new BadRequestException(
+        `Refund amount (${refundAmount}) exceeds paid amount (${paidAmount})`,
+      );
+    }
+
     // Hard block: evaluate refund rule BEFORE any DB mutation
     const refundRuleCheck = await this.businessRuleService.checkRefundAmount(
       organizationId,
@@ -631,8 +639,23 @@ export class SalesService {
       throw new BadRequestException('Cannot record payment for a cancelled invoice');
     }
 
+    // Idempotency: if the same gateway reference was already recorded, return the current invoice
+    if (dto.reference) {
+      const existing = await this.prisma.payment.findFirst({
+        where: { organizationId, invoiceId, gatewayRef: dto.reference, status: PaymentStatus.COMPLETED },
+      });
+      if (existing) return this.findInvoice(organizationId, invoiceId);
+    }
+
     const paymentAmount = new Prisma.Decimal(dto.amount);
     const newPaidAmount = new Prisma.Decimal(invoice.paidAmount.toString()).add(paymentAmount);
+
+    // Overpayment guard — backend must not silently accept excess
+    if (newPaidAmount.gt(invoice.totalAmount)) {
+      throw new BadRequestException(
+        `Payment of ${paymentAmount} would exceed invoice total of ${invoice.totalAmount}. Outstanding: ${new Prisma.Decimal(invoice.totalAmount.toString()).sub(invoice.paidAmount.toString())}`,
+      );
+    }
 
     let newStatus: InvoiceStatus;
     if (newPaidAmount.gte(invoice.totalAmount)) {

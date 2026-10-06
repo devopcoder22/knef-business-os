@@ -17,6 +17,7 @@ import { ApiKeyScopeGuard } from '../../common/guards/api-key-scope.guard';
 import { RequireApiScope } from '../../common/decorators/require-api-scope.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
+import { Public } from '../../common/decorators/public.decorator';
 import { PERMISSIONS } from '@knef/constants';
 import type { AuthUser } from '@knef/types';
 import type { PublicProductsQueryDto } from './dto/public-products-query.dto';
@@ -33,6 +34,7 @@ interface ApiKeyRequest extends Request {
 
 @ApiTags('ecommerce-public')
 @ApiSecurity('x-api-key')
+@Public() // JWT guard skips this controller; ApiKeyGuard handles auth
 @UseGuards(ApiKeyGuard, ApiKeyScopeGuard)
 @Controller('ecommerce/public')
 export class EcommercePublicController {

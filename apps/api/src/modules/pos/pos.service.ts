@@ -276,9 +276,10 @@ export class POSService {
         });
       }
 
-      // Record payments
+      // Record payments and create persistent receipts
       for (const payment of dto.payments) {
         const payRef = generateReference('PAY');
+        const rcpRef = payRef.replace(/^PAY-/, 'RCP-');
         await tx.payment.create({
           data: {
             id: createId(),
@@ -290,6 +291,17 @@ export class POSService {
             method: payment.method,
             status: PaymentStatus.COMPLETED,
             receivedAt: new Date(),
+          },
+        });
+        await tx.receipt.create({
+          data: {
+            id: createId(),
+            organizationId,
+            reference: rcpRef,
+            customerId: dto.customerId,
+            amount: payment.amount,
+            currency: 'NGN',
+            method: payment.method,
           },
         });
       }

@@ -4,6 +4,8 @@ import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { LoggerMiddleware } from './common/middleware/logger.middleware';
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { PermissionGuard } from './common/guards/permission.guard';
 import appConfig, { validateConfig } from './config/app.config';
 import { CommonModule } from './common/services/common.module';
 import { HealthModule } from './modules/health/health.module';
@@ -126,8 +128,12 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
     DashboardModule,
   ],
   providers: [
-    // Apply ThrottlerGuard globally to all routes
+    // Rate limiting — must run before auth so unauthenticated bots are throttled
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // JWT authentication — @Public() on any handler/class skips it
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // Permission check — runs after JWT populates request.user
+    { provide: APP_GUARD, useClass: PermissionGuard },
   ],
 })
 export class AppModule implements NestModule {

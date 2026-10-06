@@ -151,6 +151,7 @@ describe('SalesService — refundSalesOrder triggers balance recalculation', () 
       locationId: 'loc-1',
       status: 'COMPLETED',
       totalAmount: '500000',
+      paidAmount: '500000',
       items: [{ productId: 'p-1', variantId: null, quantity: 5 }],
     };
     const customerUpdateMany = jest.fn(async () => ({}));
