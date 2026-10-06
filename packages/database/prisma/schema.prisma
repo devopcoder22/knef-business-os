@@ -302,6 +302,8 @@ model Product {
   @@index([organizationId])
   @@index([categoryId])
   @@index([brandId])
+  @@index([organizationId, barcode])
+  @@index([organizationId, gtin])
   @@index([searchVector], type: Gin, map: "product_search_gin_idx")
 }
 
@@ -334,6 +336,8 @@ model ProductVariant {
 
   @@unique([productId, sku])
   @@index([productId])
+  @@index([barcode])
+  @@index([gtin])
 }
 
 model ProductImage {
@@ -376,6 +380,8 @@ model SerializedUnit {
   @@index([organizationId])
   @@index([productId])
   @@index([imei1])
+  @@index([imei2])
+  @@index([serialNumber])
   @@index([status])
 }
 

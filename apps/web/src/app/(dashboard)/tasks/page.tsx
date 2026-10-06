@@ -141,7 +141,7 @@ function TaskPanel({ taskId, onClose }: { taskId: string; onClose: () => void })
   });
 
   return (
-    <div className="fixed inset-y-0 right-0 w-96 bg-white border-l border-gray-200 shadow-xl z-40 flex flex-col">
+    <div className="fixed inset-y-0 right-0 w-full sm:w-96 bg-white border-l border-gray-200 shadow-xl z-40 flex flex-col">
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
         <h3 className="font-semibold text-gray-900 text-sm">Task Detail</h3>
         <button onClick={onClose} className="p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100">

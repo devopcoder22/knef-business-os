@@ -43,6 +43,11 @@ export class POSSaleItemDto {
   @IsOptional()
   @IsString()
   discountRate?: string;
+
+  @ApiPropertyOptional({ description: 'Required for serialized products — the exact unit being sold' })
+  @IsOptional()
+  @IsString()
+  serializedUnitId?: string;
 }
 
 export class PaymentSplitDto {

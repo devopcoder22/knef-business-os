@@ -4,14 +4,19 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
-import { SessionStatus, OrderStatus, PaymentStatus, MovementType, Prisma } from '@prisma/client';
+import { SessionStatus, OrderStatus, PaymentStatus, MovementType, Prisma, SerializedUnitStatus } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { InventoryService } from '../inventory/inventory.service';
 import type { OpenSessionDto } from './dto/open-session.dto';
 import type { CloseSessionDto } from './dto/close-session.dto';
 import type { POSSaleDto } from './dto/pos-sale.dto';
 
-import { generateReference } from '../../common/utils/references';
+function generateReference(prefix: string): string {
+  const date = new Date();
+  const dateStr = date.toISOString().slice(0, 10).replace(/-/g, '');
+  const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
+  return `${prefix}-${dateStr}-${rand}`;
+}
 
 @Injectable()
 export class POSService {
@@ -124,6 +129,35 @@ export class POSService {
       throw new BadRequestException('Sale must have at least one item');
     }
 
+    // Validate serialized units
+    const SELLABLE_STATUSES: SerializedUnitStatus[] = [SerializedUnitStatus.IN_STOCK, SerializedUnitStatus.RETURNED];
+
+    // Pre-scan: reject duplicate serialized unit IDs before any DB call
+    const allSerializedIds = dto.items.filter((i) => i.serializedUnitId).map((i) => i.serializedUnitId!);
+    if (new Set(allSerializedIds).size !== allSerializedIds.length) {
+      throw new BadRequestException('Sale contains duplicate serialized unit IDs');
+    }
+
+    for (const item of dto.items) {
+      if (item.serializedUnitId) {
+
+        const unit = await this.prisma.serializedUnit.findFirst({
+          where: { id: item.serializedUnitId, organizationId },
+        });
+        if (!unit) throw new NotFoundException(`Serialized unit not found: ${item.serializedUnitId}`);
+        if (unit.productId !== item.productId) throw new BadRequestException(`Unit ${item.serializedUnitId} does not match product ${item.productId}`);
+        if (!SELLABLE_STATUSES.includes(unit.status as SerializedUnitStatus)) {
+          throw new BadRequestException(`Unit ${unit.imei1} has status ${unit.status} and cannot be sold`);
+        }
+        if (unit.locationId !== session.locationId) {
+          throw new BadRequestException(`Unit ${unit.imei1} is at a different location and cannot be sold from this session`);
+        }
+        if (item.quantity !== 1) {
+          throw new BadRequestException(`Serialized unit ${unit.imei1}: quantity must be 1, got ${item.quantity}`);
+        }
+      }
+    }
+
     const reference = generateReference('SO');
 
     // Calculate totals
@@ -150,6 +184,7 @@ export class POSService {
         discountRate: discountRate.toString(),
         taxRate: '0',
         totalPrice: lineTotal.toString(),
+        serialNumbers: item.serializedUnitId ? [item.serializedUnitId] : [],
       };
     });
 
@@ -189,36 +224,22 @@ export class POSService {
       },
     });
 
-    // Record payments + issue receipts atomically per payment
+    // Record payments
     for (const payment of dto.payments) {
       const payRef = generateReference('PAY');
-      const rcpRef = payRef.replace(/^PAY-/, 'RCP-');
-      await this.prisma.$transaction([
-        this.prisma.payment.create({
-          data: {
-            id: createId(),
-            organizationId,
-            reference: payRef,
-            orderId: order.id,
-            customerId: dto.customerId,
-            amount: payment.amount,
-            method: payment.method,
-            status: PaymentStatus.COMPLETED,
-            receivedAt: new Date(),
-          },
-        }),
-        this.prisma.receipt.create({
-          data: {
-            id: createId(),
-            organizationId,
-            reference: rcpRef,
-            customerId: dto.customerId,
-            amount: payment.amount,
-            currency: 'NGN',
-            method: payment.method,
-          },
-        }),
-      ]);
+      await this.prisma.payment.create({
+        data: {
+          id: createId(),
+          organizationId,
+          reference: payRef,
+          orderId: order.id,
+          customerId: dto.customerId,
+          amount: payment.amount,
+          method: payment.method,
+          status: PaymentStatus.COMPLETED,
+          receivedAt: new Date(),
+        },
+      });
     }
 
     // Deduct inventory
@@ -234,6 +255,16 @@ export class POSService {
         notes: `POS Sale: ${reference}`,
         createdBy: userId,
       });
+    }
+
+    // Mark serialized units as SOLD
+    for (const item of dto.items) {
+      if (item.serializedUnitId) {
+        await this.prisma.serializedUnit.update({
+          where: { id: item.serializedUnitId },
+          data: { status: SerializedUnitStatus.SOLD, soldOrderId: order.id },
+        });
+      }
     }
 
     // Update session total sales

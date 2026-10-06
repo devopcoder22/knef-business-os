@@ -16,6 +16,7 @@ import {
   AlertTriangle,
   CheckCircle,
 } from 'lucide-react';
+import { BarcodeDisplay } from '@/components/barcode/barcode-display';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -188,9 +189,19 @@ export default function ProductDetailPage() {
                   </div>
                   <div>
                     <p className="text-xs text-gray-500 uppercase tracking-wide">Barcode</p>
-                    <p className="text-sm font-medium text-gray-900 mt-1 font-mono">
-                      {product.barcode ?? '—'}
-                    </p>
+                    {product.barcode ? (
+                      <div className="mt-2 space-y-2">
+                        <p className="text-sm font-medium text-gray-900 font-mono">{product.barcode}</p>
+                        <BarcodeDisplay
+                          value={product.barcode}
+                          label={`${product.name} · ${product.sku}`}
+                          width={200}
+                          height={60}
+                        />
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-400 mt-1">No barcode — add one to enable scanner lookup</p>
+                    )}
                   </div>
                   <div>
                     <p className="text-xs text-gray-500 uppercase tracking-wide">Total Stock</p>

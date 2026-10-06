@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Save } from 'lucide-react';
@@ -13,7 +13,7 @@ interface POItem {
   quantity: number;
   receivedQty: number;
   unitCost: string;
-  product: { id: string; name: string; sku: string };
+  product: { id: string; name: string; sku: string; isSerialized?: boolean };
 }
 
 interface PurchaseOrder {
@@ -33,6 +33,7 @@ interface ReceiptItem {
   quantityPrevReceived: number;
   quantityReceived: string;
   unitCost: string;
+  isSerialized?: boolean;
 }
 
 export default function NewGoodsReceiptPage() {
@@ -44,11 +45,7 @@ export default function NewGoodsReceiptPage() {
   const [notes, setNotes] = useState('');
   const [receiptItems, setReceiptItems] = useState<ReceiptItem[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
-
-  // Scanner state
-  const [scanInput, setScanInput] = useState('');
-  const [scanMsg, setScanMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const scanInputRef = useRef<HTMLInputElement>(null);
+  const [serializedInputs, setSerializedInputs] = useState<Record<string, string[]>>({});
 
   // Fetch approved/partially_received POs
   const { data: posData } = useQuery<{ data: PurchaseOrder[] }>({
@@ -81,33 +78,12 @@ export default function NewGoodsReceiptPage() {
           quantityPrevReceived: item.receivedQty,
           quantityReceived: String(Math.max(0, item.quantity - item.receivedQty)),
           unitCost: item.unitCost,
+          isSerialized: item.product.isSerialized ?? false,
         })),
       );
+      setSerializedInputs({});
     }
   }, [selectedPO]);
-
-  const handleScanInput = async (code: string) => {
-    if (!code.trim()) return;
-    try {
-      const res = await api().get<{ product: { id: string } }>(`/products/lookup?code=${encodeURIComponent(code.trim())}`);
-      const productId = res.data.product.id;
-      const idx = receiptItems.findIndex((i) => i.productId === productId);
-      if (idx === -1) {
-        setScanMsg({ type: 'error', text: `Product not on this PO` });
-      } else {
-        setReceiptItems((prev) => prev.map((item, i) => i === idx
-          ? { ...item, quantityReceived: String((parseInt(item.quantityReceived, 10) || 0) + 1) }
-          : item
-        ));
-        setScanMsg({ type: 'success', text: `+1 ${receiptItems[idx].productName}` });
-      }
-    } catch {
-      setScanMsg({ type: 'error', text: `Not found: ${code}` });
-    }
-    setTimeout(() => setScanMsg(null), 2000);
-    setScanInput('');
-    setTimeout(() => scanInputRef.current?.focus(), 50);
-  };
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -117,6 +93,13 @@ export default function NewGoodsReceiptPage() {
           productId: item.productId,
           quantityReceived: parseInt(item.quantityReceived, 10),
           unitCost: item.unitCost,
+          ...(item.isSerialized && serializedInputs[item.productId]?.length
+            ? {
+                serializedUnits: (serializedInputs[item.productId] ?? [])
+                  .filter(Boolean)
+                  .map((imei1) => ({ imei1 })),
+              }
+            : {}),
         }));
 
       if (items.length === 0) {
@@ -142,6 +125,24 @@ export default function NewGoodsReceiptPage() {
     if (!purchaseOrderId) errs['po'] = 'Purchase order is required';
     const hasAny = receiptItems.some((i) => parseInt(i.quantityReceived, 10) > 0);
     if (!hasAny) errs['items'] = 'Enter received quantities for at least one item';
+
+    // Check for over-receiving
+    const hasOverReceive = receiptItems.some((i) => {
+      const maxAllowed = i.quantityOrdered - i.quantityPrevReceived;
+      return parseInt(i.quantityReceived, 10) > maxAllowed;
+    });
+    if (hasOverReceive) errs['items'] = 'Cannot receive more than the remaining quantity for any item';
+
+    // Check serialized completeness
+    const hasIncompleteSerialized = receiptItems.some((item) => {
+      if (!item.isSerialized) return false;
+      const qty = parseInt(item.quantityReceived, 10);
+      if (qty === 0) return false;
+      const imeis = (serializedInputs[item.productId] ?? []).filter(Boolean);
+      return imeis.length !== qty;
+    });
+    if (hasIncompleteSerialized) errs['items'] = 'Please enter IMEI for all serialized units being received';
+
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -187,26 +188,6 @@ export default function NewGoodsReceiptPage() {
               <strong>PO:</strong> {selectedPO.reference} &bull; <strong>Supplier:</strong> {selectedPO.supplier.name}
             </div>
 
-            {/* Scan-to-receive input */}
-            {purchaseOrderId && receiptItems.length > 0 && (
-              <div className="flex gap-2 items-center">
-                <input
-                  ref={scanInputRef}
-                  type="text"
-                  value={scanInput}
-                  onChange={(e) => setScanInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleScanInput(scanInput); } }}
-                  placeholder="Scan barcode to receive..."
-                  className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                {scanMsg && (
-                  <span className={cn('text-xs px-2 py-1 rounded-lg', scanMsg.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700')}>
-                    {scanMsg.text}
-                  </span>
-                )}
-              </div>
-            )}
-
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-200">
@@ -220,11 +201,15 @@ export default function NewGoodsReceiptPage() {
               <tbody>
                 {receiptItems.map((item, i) => {
                   const remaining = item.quantityOrdered - item.quantityPrevReceived;
+                  const currentQty = parseInt(item.quantityReceived, 10) || 0;
                   return (
                     <tr key={item.productId} className="border-b border-gray-100">
                       <td className="py-3">
                         <p className="font-medium">{item.productName}</p>
                         <p className="text-xs text-gray-400 font-mono">{item.productSku}</p>
+                        {item.isSerialized && (
+                          <span className="text-xs text-purple-600 font-medium">Serialized</span>
+                        )}
                       </td>
                       <td className="py-3 text-center">{item.quantityOrdered}</td>
                       <td className="py-3 text-center text-gray-500">{item.quantityPrevReceived}</td>
@@ -240,11 +225,29 @@ export default function NewGoodsReceiptPage() {
                             )
                           }
                           min="0"
-                          max={remaining}
+                          max={String(remaining)}
                           className="w-20 px-2 py-1 text-center text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
                         {remaining <= 0 && (
                           <p className="text-xs text-green-600 mt-0.5">Fully received</p>
+                        )}
+                        {item.isSerialized && currentQty > 0 && (
+                          <div className="mt-2 space-y-1">
+                            {Array.from({ length: currentQty }).map((_, idx) => (
+                              <input
+                                key={idx}
+                                type="text"
+                                placeholder={`IMEI ${idx + 1}`}
+                                value={(serializedInputs[item.productId]?.[idx]) ?? ''}
+                                onChange={(e) => {
+                                  const vals = [...(serializedInputs[item.productId] ?? [])];
+                                  vals[idx] = e.target.value.trim();
+                                  setSerializedInputs((prev) => ({ ...prev, [item.productId]: vals }));
+                                }}
+                                className="w-full px-2 py-1 text-xs border border-gray-200 rounded font-mono focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                              />
+                            ))}
+                          </div>
                         )}
                       </td>
                       <td className="py-3 text-right">

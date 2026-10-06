@@ -3,10 +3,11 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  ConflictException,
 } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { POStatus, InvoiceStatus, MovementType, ReturnStatus, Prisma } from '@prisma/client';
+import { POStatus, InvoiceStatus, MovementType, ReturnStatus, Prisma, SerializedUnitStatus } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { InventoryService } from '../inventory/inventory.service';
 import { BusinessRuleService } from '../business-rules/business-rules.service';
@@ -471,6 +472,26 @@ export class PurchasingService {
     const reference = generateReference('GR');
 
     const receipt = await this.prisma.$transaction(async (tx) => {
+      // Validate quantities against remaining (concurrent-safe inside transaction)
+      for (const item of dto.items) {
+        const poItem = po.items.find(
+          (i) => i.productId === item.productId &&
+            (item.variantId ? i.variantId === item.variantId : true),
+        );
+        if (!poItem) {
+          throw new BadRequestException(`Product ${item.productId} is not on this purchase order`);
+        }
+        if (item.quantityReceived <= 0) {
+          throw new BadRequestException(`Received quantity must be greater than 0 for product ${item.productId}`);
+        }
+        const remaining = poItem.quantity - poItem.receivedQty;
+        if (item.quantityReceived > remaining) {
+          throw new BadRequestException(
+            `Cannot receive ${item.quantityReceived} units of product ${item.productId}: only ${remaining} remaining on PO`,
+          );
+        }
+      }
+
       const gr = await tx.goodsReceipt.create({
         data: {
           id: createId(),
@@ -546,6 +567,43 @@ export class PurchasingService {
         notes: `Received via ${reference}`,
         createdBy: userId,
       });
+    }
+
+    // Create SerializedUnit records for serialized products
+    for (const item of dto.items) {
+      if (item.serializedUnits && item.serializedUnits.length > 0) {
+        if (item.serializedUnits.length !== item.quantityReceived) {
+          throw new BadRequestException(
+            `Serialized product ${item.productId}: received ${item.quantityReceived} but ${item.serializedUnits.length} unit identities provided`,
+          );
+        }
+        const imeis = item.serializedUnits.map((u) => u.imei1).filter(Boolean);
+        if (new Set(imeis).size !== imeis.length) {
+          throw new BadRequestException('Duplicate IMEI within the same goods receipt');
+        }
+        for (const su of item.serializedUnits) {
+          if (su.imei1) {
+            const existing = await this.prisma.serializedUnit.findFirst({
+              where: { organizationId, imei1: su.imei1 },
+            });
+            if (existing) throw new ConflictException(`IMEI ${su.imei1} already exists in this organization`);
+          }
+          const poItem = po.items.find((i) => i.productId === item.productId);
+          await this.prisma.serializedUnit.create({
+            data: {
+              id: createId(),
+              organizationId,
+              productId: item.productId,
+              locationId: po.locationId,
+              imei1: su.imei1 ?? createId(),
+              imei2: su.imei2 ?? null,
+              serialNumber: su.serialNumber ?? null,
+              status: SerializedUnitStatus.IN_STOCK,
+              costPrice: poItem?.unitCost ?? item.unitCost,
+            },
+          });
+        }
+      }
     }
 
     return receipt;

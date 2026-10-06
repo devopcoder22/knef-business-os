@@ -130,6 +130,8 @@ export class ProductsService {
       throw new ConflictException(`SKU '${dto.sku}' already exists in this organization`);
     }
 
+    await this.validateBarcodeUniqueness(organizationId, dto.barcode, dto.gtin);
+
     const slug = await this.generateUniqueSlug(organizationId, dto.name);
 
     // Validate category and brand if provided
@@ -213,6 +215,8 @@ export class ProductsService {
         throw new ConflictException(`SKU '${dto.sku}' already exists`);
       }
     }
+
+    await this.validateBarcodeUniqueness(organizationId, dto.barcode, dto.gtin, id);
 
     let slug = product.slug;
     if (dto.name && dto.name !== product.name) {
@@ -591,65 +595,6 @@ export class ProductsService {
     });
   }
 
-  // ── Barcode / code lookup ─────────────────────────────────────
-
-  async lookupByCode(organizationId: string, code: string) {
-    // 1. Product by barcode
-    const byBarcode = await this.prisma.product.findFirst({
-      where: { organizationId, barcode: code, status: { not: ProductStatus.DISCONTINUED } },
-      select: { id: true, name: true, sku: true, barcode: true, gtin: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true },
-    });
-    if (byBarcode) return { type: 'PRODUCT' as const, product: byBarcode };
-
-    // 2. Product by GTIN
-    const byGtin = await this.prisma.product.findFirst({
-      where: { organizationId, gtin: code, status: { not: ProductStatus.DISCONTINUED } },
-      select: { id: true, name: true, sku: true, barcode: true, gtin: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true },
-    });
-    if (byGtin) return { type: 'PRODUCT' as const, product: byGtin };
-
-    // 3. ProductVariant by barcode
-    const variantByBarcode = await this.prisma.productVariant.findFirst({
-      where: { product: { organizationId }, barcode: code },
-      select: { id: true, name: true, sku: true, barcode: true, sellingPrice: true, product: { select: { id: true, name: true, sku: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true } } },
-    });
-    if (variantByBarcode) {
-      return {
-        type: 'VARIANT' as const,
-        product: variantByBarcode.product,
-        variant: { id: variantByBarcode.id, name: variantByBarcode.name, sku: variantByBarcode.sku, sellingPrice: variantByBarcode.sellingPrice?.toString() },
-      };
-    }
-
-    // 4. ProductVariant by GTIN
-    const variantByGtin = await this.prisma.productVariant.findFirst({
-      where: { product: { organizationId }, gtin: code },
-      select: { id: true, name: true, sku: true, gtin: true, sellingPrice: true, product: { select: { id: true, name: true, sku: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true } } },
-    });
-    if (variantByGtin) {
-      return {
-        type: 'VARIANT' as const,
-        product: variantByGtin.product,
-        variant: { id: variantByGtin.id, name: variantByGtin.name, sku: variantByGtin.sku, sellingPrice: variantByGtin.sellingPrice?.toString() },
-      };
-    }
-
-    // 5. SerializedUnit by IMEI1, IMEI2, or serialNumber
-    const unit = await this.prisma.serializedUnit.findFirst({
-      where: { organizationId, OR: [{ imei1: code }, { imei2: code }, { serialNumber: code }] },
-      select: { id: true, imei1: true, imei2: true, serialNumber: true, status: true, locationId: true, product: { select: { id: true, name: true, sku: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true } } },
-    });
-    if (unit) {
-      return {
-        type: 'SERIALIZED_UNIT' as const,
-        product: unit.product,
-        unit: { id: unit.id, imei1: unit.imei1, status: unit.status, locationId: unit.locationId },
-      };
-    }
-
-    throw new NotFoundException('No product found for code');
-  }
-
   // ── Helpers ───────────────────────────────────────────────────
 
   private async createInventoryLevelsForAllLocations(
@@ -722,5 +667,135 @@ export class ProductsService {
     }
 
     return slug;
+  }
+
+  private async validateBarcodeUniqueness(
+    organizationId: string,
+    barcode: string | undefined,
+    gtin: string | undefined,
+    excludeProductId?: string,
+  ) {
+    if (barcode) {
+      const existing = await this.prisma.product.findFirst({
+        where: { organizationId, barcode, NOT: excludeProductId ? { id: excludeProductId } : undefined },
+        select: { id: true },
+      });
+      if (existing) throw new ConflictException(`Barcode '${barcode}' is already used by another product`);
+    }
+    if (gtin) {
+      const existing = await this.prisma.product.findFirst({
+        where: { organizationId, gtin, NOT: excludeProductId ? { id: excludeProductId } : undefined },
+        select: { id: true },
+      });
+      if (existing) throw new ConflictException(`GTIN '${gtin}' is already used by another product`);
+    }
+  }
+
+  async lookupByCode(organizationId: string, code: string) {
+    // 1. SerializedUnit by imei1 — highest priority (unique per org)
+    const byImei1 = await this.prisma.serializedUnit.findFirst({
+      where: { organizationId, imei1: code },
+      select: {
+        id: true, imei1: true, imei2: true, serialNumber: true,
+        status: true, locationId: true,
+        product: { select: { id: true, name: true, sku: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true } },
+      },
+    });
+    if (byImei1) return this._unitResult(byImei1);
+
+    // 2. SerializedUnit by imei2
+    if (code.length >= 8) {
+      const byImei2 = await this.prisma.serializedUnit.findFirst({
+        where: { organizationId, imei2: code },
+        select: {
+          id: true, imei1: true, imei2: true, serialNumber: true,
+          status: true, locationId: true,
+          product: { select: { id: true, name: true, sku: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true } },
+        },
+      });
+      if (byImei2) return this._unitResult(byImei2);
+    }
+
+    // 3. SerializedUnit by serialNumber
+    const bySerial = await this.prisma.serializedUnit.findFirst({
+      where: { organizationId, serialNumber: code },
+      select: {
+        id: true, imei1: true, imei2: true, serialNumber: true,
+        status: true, locationId: true,
+        product: { select: { id: true, name: true, sku: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true } },
+      },
+    });
+    if (bySerial) return this._unitResult(bySerial);
+
+    // 4. Product by barcode — check for multiple matches (ambiguity)
+    const productsByBarcode = await this.prisma.product.findMany({
+      where: { organizationId, barcode: code, status: { not: ProductStatus.DISCONTINUED } },
+      select: { id: true, name: true, sku: true, barcode: true, gtin: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true },
+      take: 2,
+    });
+    if (productsByBarcode.length > 1) throw new ConflictException(`Ambiguous barcode '${code}': matches multiple products`);
+    if (productsByBarcode.length === 1) return { type: 'PRODUCT' as const, product: productsByBarcode[0] };
+
+    // 5. Product by GTIN
+    const productsByGtin = await this.prisma.product.findMany({
+      where: { organizationId, gtin: code, status: { not: ProductStatus.DISCONTINUED } },
+      select: { id: true, name: true, sku: true, barcode: true, gtin: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true },
+      take: 2,
+    });
+    if (productsByGtin.length > 1) throw new ConflictException(`Ambiguous GTIN '${code}': matches multiple products`);
+    if (productsByGtin.length === 1) return { type: 'PRODUCT' as const, product: productsByGtin[0] };
+
+    // 6. ProductVariant by barcode (active only)
+    const variantByBarcode = await this.prisma.productVariant.findFirst({
+      where: { product: { organizationId }, barcode: code, isActive: true },
+      select: {
+        id: true, name: true, sku: true, barcode: true, sellingPrice: true,
+        product: { select: { id: true, name: true, sku: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true } },
+      },
+    });
+    if (variantByBarcode) {
+      return {
+        type: 'VARIANT' as const,
+        product: variantByBarcode.product,
+        variant: { id: variantByBarcode.id, name: variantByBarcode.name, sku: variantByBarcode.sku, sellingPrice: variantByBarcode.sellingPrice?.toString() },
+      };
+    }
+
+    // 7. ProductVariant by GTIN (active only)
+    const variantByGtin = await this.prisma.productVariant.findFirst({
+      where: { product: { organizationId }, gtin: code, isActive: true },
+      select: {
+        id: true, name: true, sku: true, gtin: true, sellingPrice: true,
+        product: { select: { id: true, name: true, sku: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true } },
+      },
+    });
+    if (variantByGtin) {
+      return {
+        type: 'VARIANT' as const,
+        product: variantByGtin.product,
+        variant: { id: variantByGtin.id, name: variantByGtin.name, sku: variantByGtin.sku, sellingPrice: variantByGtin.sellingPrice?.toString() },
+      };
+    }
+
+    // 8. Product by SKU (indexed @@unique([organizationId, sku]))
+    const bySkuProduct = await this.prisma.product.findFirst({
+      where: { organizationId, sku: code, status: { not: ProductStatus.DISCONTINUED } },
+      select: { id: true, name: true, sku: true, barcode: true, gtin: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true },
+    });
+    if (bySkuProduct) return { type: 'PRODUCT' as const, product: bySkuProduct };
+
+    throw new NotFoundException('No product found for code');
+  }
+
+  private _unitResult(unit: {
+    id: string; imei1: string; imei2: string | null; serialNumber: string | null;
+    status: string; locationId: string | null;
+    product: { id: string; name: string; sku: string; sellingPrice: unknown; costPrice: unknown; isSerialized: boolean; hasVariants: boolean };
+  }) {
+    return {
+      type: 'SERIALIZED_UNIT' as const,
+      product: unit.product,
+      unit: { id: unit.id, imei1: unit.imei1, imei2: unit.imei2, serialNumber: unit.serialNumber, status: unit.status, locationId: unit.locationId },
+    };
   }
 }

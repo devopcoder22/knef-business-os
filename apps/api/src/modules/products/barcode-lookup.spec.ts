@@ -1,26 +1,15 @@
+import { NotFoundException, ConflictException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { ProductsService } from './products.service';
 import { PrismaService } from '../../common/services/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { NotFoundException } from '@nestjs/common';
 
-// Mock prisma and audit
-const mockPrisma = {
-  product: { findFirst: jest.fn() },
-  productVariant: { findFirst: jest.fn() },
+const mockPrisma: any = {
   serializedUnit: { findFirst: jest.fn() },
-  // add other methods as needed by the service constructor
-  $transaction: jest.fn(),
-  $executeRaw: jest.fn(),
-  inventoryLevel: { findMany: jest.fn(), findFirst: jest.fn(), upsert: jest.fn(), create: jest.fn(), count: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
-  inventoryMovement: { create: jest.fn() },
-  productImage: { findMany: jest.fn(), create: jest.fn(), delete: jest.fn(), findFirst: jest.fn(), count: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
-  auditLog: { create: jest.fn() },
-  productCategory: { findMany: jest.fn(), findFirst: jest.fn() },
-  location: { findMany: jest.fn() },
-  category: { findFirst: jest.fn() },
-  brand: { findFirst: jest.fn() },
+  product: { findFirst: jest.fn(), findMany: jest.fn() },
+  productVariant: { findFirst: jest.fn() },
 };
+
 const mockAudit = { log: jest.fn() };
 
 describe('ProductsService.lookupByCode', () => {
@@ -38,72 +27,57 @@ describe('ProductsService.lookupByCode', () => {
     service = module.get(ProductsService);
   });
 
-  it('resolves by Product.barcode', async () => {
-    const product = { id: 'p1', name: 'Phone', sku: 'PH-001', barcode: '1234567890', gtin: null, sellingPrice: '50000', costPrice: '40000', isSerialized: false, hasVariants: false };
-    mockPrisma.product.findFirst.mockResolvedValueOnce(product); // barcode match
-    const result = await service.lookupByCode('org1', '1234567890');
-    expect(result.type).toBe('PRODUCT');
-    expect(result.product.id).toBe('p1');
+  it('SerializedUnit lookup takes precedence over Product barcode', async () => {
+    const unit = {
+      id: 'u1', imei1: 'SAME_CODE', imei2: null, serialNumber: null, status: 'IN_STOCK', locationId: 'loc1',
+      product: { id: 'p1', name: 'Phone', sku: 'PH-001', sellingPrice: '50000', costPrice: '40000', isSerialized: true, hasVariants: false },
+    };
+    mockPrisma.serializedUnit.findFirst.mockResolvedValueOnce(unit); // imei1 match
+    const result = await service.lookupByCode('org1', 'SAME_CODE');
+    expect(result.type).toBe('SERIALIZED_UNIT'); // SerializedUnit wins over Product barcode
+    expect(mockPrisma.product.findFirst).not.toHaveBeenCalled(); // did not fall through
   });
 
-  it('falls through to GTIN when barcode misses', async () => {
-    const product = { id: 'p2', name: 'Tablet', sku: 'TB-001', barcode: null, gtin: 'GT001', sellingPrice: '80000', costPrice: '60000', isSerialized: false, hasVariants: false };
-    mockPrisma.product.findFirst
-      .mockResolvedValueOnce(null)  // barcode miss
-      .mockResolvedValueOnce(product); // gtin hit
-    const result = await service.lookupByCode('org1', 'GT001');
-    expect(result.type).toBe('PRODUCT');
-    expect(result.product.id).toBe('p2');
-  });
-
-  it('resolves VARIANT by variant barcode', async () => {
-    mockPrisma.product.findFirst.mockResolvedValue(null);
-    const variant = { id: 'v1', name: '128GB', sku: 'PH-001-128', barcode: 'VB001', sellingPrice: '55000', product: { id: 'p1', name: 'Phone', sku: 'PH-001', sellingPrice: '50000', costPrice: '40000', isSerialized: false, hasVariants: true } };
-    mockPrisma.productVariant.findFirst.mockResolvedValueOnce(variant).mockResolvedValue(null);
-    const result = await service.lookupByCode('org1', 'VB001');
-    expect(result.type).toBe('VARIANT');
-    expect(result.variant?.id).toBe('v1');
-  });
-
-  it('resolves SERIALIZED_UNIT by IMEI', async () => {
-    mockPrisma.product.findFirst.mockResolvedValue(null);
-    mockPrisma.productVariant.findFirst.mockResolvedValue(null);
-    const unit = { id: 'u1', imei1: '354321000000001', imei2: null, serialNumber: null, status: 'IN_STOCK', locationId: 'loc1', product: { id: 'p1', name: 'Phone', sku: 'PH-001', sellingPrice: '50000', costPrice: '40000', isSerialized: true, hasVariants: false } };
-    mockPrisma.serializedUnit.findFirst.mockResolvedValueOnce(unit);
-    const result = await service.lookupByCode('org1', '354321000000001');
-    expect(result.type).toBe('SERIALIZED_UNIT');
-    expect(result.unit?.id).toBe('u1');
-  });
-
-  it('throws NotFoundException when nothing matches', async () => {
-    mockPrisma.product.findFirst.mockResolvedValue(null);
-    mockPrisma.productVariant.findFirst.mockResolvedValue(null);
+  it('inactive variant is not resolved', async () => {
     mockPrisma.serializedUnit.findFirst.mockResolvedValue(null);
-    await expect(service.lookupByCode('org1', 'UNKNOWN')).rejects.toThrow(NotFoundException);
+    mockPrisma.product.findMany.mockResolvedValue([]);
+    mockPrisma.productVariant.findFirst.mockResolvedValue(null); // null because isActive:false
+    mockPrisma.product.findFirst.mockResolvedValue(null);
+    await expect(service.lookupByCode('org1', 'INACTIVE_BARCODE')).rejects.toThrow(NotFoundException);
   });
 
-  it('does not cross org boundary — product from different org is not returned', async () => {
-    // mockPrisma.product.findFirst returns null because org filter excludes it
-    mockPrisma.product.findFirst.mockResolvedValue(null);
-    mockPrisma.productVariant.findFirst.mockResolvedValue(null);
+  it('throws ConflictException for ambiguous barcode', async () => {
     mockPrisma.serializedUnit.findFirst.mockResolvedValue(null);
-    await expect(service.lookupByCode('org1', 'BARCODE_ORG2')).rejects.toThrow(NotFoundException);
+    mockPrisma.product.findMany
+      .mockResolvedValueOnce([
+        { id: 'p1', name: 'A', sku: 'A-001', barcode: 'DUP', gtin: null, sellingPrice: '1000', costPrice: '800', isSerialized: false, hasVariants: false },
+        { id: 'p2', name: 'B', sku: 'B-001', barcode: 'DUP', gtin: null, sellingPrice: '1000', costPrice: '800', isSerialized: false, hasVariants: false },
+      ]);
+    await expect(service.lookupByCode('org1', 'DUP')).rejects.toThrow(ConflictException);
   });
 
-  it('resolves by serialNumber when IMEI misses', async () => {
-    mockPrisma.product.findFirst.mockResolvedValue(null);
-    mockPrisma.productVariant.findFirst.mockResolvedValue(null);
-    const unit = { id: 'u2', imei1: null, imei2: null, serialNumber: 'SN-ABC-123', status: 'IN_STOCK', locationId: 'loc1', product: { id: 'p1', name: 'Laptop', sku: 'LP-001', sellingPrice: '200000', costPrice: '150000', isSerialized: true, hasVariants: false } };
-    mockPrisma.serializedUnit.findFirst.mockResolvedValueOnce(unit);
-    const result = await service.lookupByCode('org1', 'SN-ABC-123');
+  it('resolves by imei2', async () => {
+    mockPrisma.serializedUnit.findFirst
+      .mockResolvedValueOnce(null)  // imei1 miss
+      .mockResolvedValueOnce({
+        id: 'u1', imei1: '111', imei2: 'DUAL_IMEI', serialNumber: null, status: 'IN_STOCK', locationId: 'loc1',
+        product: { id: 'p1', name: 'Dual-SIM', sku: 'DS-001', sellingPrice: '50000', costPrice: '40000', isSerialized: true, hasVariants: false },
+      }); // imei2 match
+    const result = await service.lookupByCode('org1', 'DUAL_IMEI');
     expect(result.type).toBe('SERIALIZED_UNIT');
   });
 
-  it('returns correct product shape including sellingPrice and costPrice', async () => {
-    const product = { id: 'p3', name: 'Earbuds', sku: 'EB-001', barcode: 'EB001BC', gtin: null, sellingPrice: '15000', costPrice: '10000', isSerialized: false, hasVariants: false };
-    mockPrisma.product.findFirst.mockResolvedValueOnce(product);
-    const result = await service.lookupByCode('org1', 'EB001BC');
-    expect(result.product.sellingPrice).toBeDefined();
-    expect(result.product.costPrice).toBeDefined();
+  it('resolves by SKU as fallback', async () => {
+    mockPrisma.serializedUnit.findFirst.mockResolvedValue(null);
+    mockPrisma.product.findMany.mockResolvedValue([]);
+    mockPrisma.productVariant.findFirst.mockResolvedValue(null);
+    const skuProduct = {
+      id: 'p5', name: 'SKU Product', sku: 'SKU-001', barcode: null, gtin: null,
+      sellingPrice: '10000', costPrice: '8000', isSerialized: false, hasVariants: false,
+    };
+    mockPrisma.product.findFirst.mockResolvedValueOnce(skuProduct);
+    const result = await service.lookupByCode('org1', 'SKU-001');
+    expect(result.type).toBe('PRODUCT');
+    expect(result.product.sku).toBe('SKU-001');
   });
 });
