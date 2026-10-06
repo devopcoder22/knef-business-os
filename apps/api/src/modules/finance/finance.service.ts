@@ -211,17 +211,31 @@ export class FinanceService {
     };
   }
 
-  async reconcileTransaction(organizationId: string, bankAccountId: string, transactionId: string) {
+  async reconcileTransaction(organizationId: string, bankAccountId: string, transactionId: string, userId?: string) {
     const tx = await this.prisma.bankTransaction.findFirst({
       where: { id: transactionId, bankAccountId, organizationId },
     });
     if (!tx) throw new NotFoundException('Transaction not found');
     if (tx.reconciled) return tx; // idempotent — preserve original reconciledAt
 
-    return this.prisma.bankTransaction.update({
+    const reconciled = await this.prisma.bankTransaction.update({
       where: { id: transactionId },
       data: { reconciled: true, reconciledAt: new Date() },
     });
+
+    void this.auditService.log({
+      organizationId,
+      ...(userId ? { userId } : {}),
+      action: 'BANK_TRANSACTION_RECONCILED',
+      entity: 'BankTransaction',
+      entityId: transactionId,
+      newValues: {
+        bankAccountId,
+        reconciledAt: reconciled.reconciledAt?.toISOString(),
+      },
+    });
+
+    return reconciled;
   }
 
   // ── Expenses ──────────────────────────────────────────────────
@@ -478,6 +492,19 @@ export class FinanceService {
     }
 
     await this.prisma.$transaction(ops);
+
+    void this.auditService.log({
+      organizationId,
+      userId,
+      action: 'EXPENSE_PAID',
+      entity: 'Expense',
+      entityId: id,
+      newValues: {
+        amount: expense.amount.toString(),
+        ...(dto.bankAccountId ? { bankAccountId: dto.bankAccountId } : {}),
+      },
+    });
+
     return this.prisma.expense.findFirst({ where: { id } });
   }
 

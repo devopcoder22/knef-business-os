@@ -332,7 +332,7 @@ describe('SalesService — refund rule integration', () => {
   it('calls checkRefundAmount and includes ruleCheck in response when below threshold', async () => {
     const ruleCheck = { allowed: true, approvalRequired: false, ruleId: 'rules.sales.refund_approval_threshold_ngn', reason: 'ok', threshold: 100_000, observedValue: 75_000 };
     const checkRefundAmount = jest.fn(async () => ruleCheck);
-    const prisma = {
+    const prisma: Record<string, unknown> = {
       salesOrder: {
         findFirst: jest.fn(async () => ({
           id: 'so-1',
@@ -351,6 +351,7 @@ describe('SalesService — refund rule integration', () => {
       payment: { create: jest.fn(async () => null), findMany: jest.fn(async () => []) },
       customer: { updateMany: jest.fn(async () => ({})) },
     };
+    prisma.$transaction = jest.fn(async (fn: (tx: unknown) => unknown, _opts?: unknown) => fn(prisma));
     const svc = new SalesService(
       prisma as never,
       makeInventoryService() as never,
@@ -483,7 +484,10 @@ describe('FinanceService — requester authority recheck', () => {
 
 describe('SalesService — refund threshold hard block', () => {
   function makeRefundPrisma() {
-    return {
+    const paymentCreate = jest.fn(async () => null);
+    const paymentFindMany = jest.fn(async () => []);
+    const salesOrderUpdate = jest.fn(async () => ({ id: 'so-1', status: 'REFUNDED' }));
+    const pr: Record<string, unknown> = {
       salesOrder: {
         findFirst: jest.fn(async () => ({
           id: 'so-1',
@@ -494,14 +498,16 @@ describe('SalesService — refund threshold hard block', () => {
           locationId: 'loc-1',
           items: [],
         })),
-        update: jest.fn(async () => ({ id: 'so-1', status: 'REFUNDED' })),
+        update: salesOrderUpdate,
         findMany: jest.fn(async () => []),
         count: jest.fn(async () => 0),
       },
       invoice: { findMany: jest.fn(async () => []) },
-      payment: { create: jest.fn(async () => null), findMany: jest.fn(async () => []) },
+      payment: { create: paymentCreate, findMany: paymentFindMany },
       customer: { updateMany: jest.fn(async () => ({})) },
     };
+    pr.$transaction = jest.fn(async (fn: (tx: unknown) => unknown, _opts?: unknown) => fn(pr));
+    return { prisma: pr, paymentCreate, salesOrderUpdate };
   }
 
   it('refund below threshold → proceeds without throw', async () => {
@@ -513,7 +519,7 @@ describe('SalesService — refund threshold hard block', () => {
       threshold: 100_000,
       observedValue: 75_000,
     }));
-    const prisma = makeRefundPrisma();
+    const { prisma, paymentCreate, salesOrderUpdate } = makeRefundPrisma();
     const svc = new SalesService(
       prisma as never,
       makeInventoryService() as never,
@@ -523,8 +529,8 @@ describe('SalesService — refund threshold hard block', () => {
     );
 
     await expect(svc.refundSalesOrder('org-1', 'so-1', {}, 'user-1')).resolves.not.toThrow();
-    expect(prisma.payment.create).toHaveBeenCalled();
-    expect(prisma.salesOrder.update).toHaveBeenCalled();
+    expect(paymentCreate).toHaveBeenCalled();
+    expect(salesOrderUpdate).toHaveBeenCalled();
   });
 
   it('refund above threshold → ForbiddenException, no DB mutations', async () => {
@@ -537,7 +543,7 @@ describe('SalesService — refund threshold hard block', () => {
       observedValue: 75_000,
     }));
     const inventoryService = makeInventoryService();
-    const prisma = makeRefundPrisma();
+    const { prisma, paymentCreate, salesOrderUpdate } = makeRefundPrisma();
     const svc = new SalesService(
       prisma as never,
       inventoryService as never,
@@ -548,8 +554,8 @@ describe('SalesService — refund threshold hard block', () => {
 
     await expect(svc.refundSalesOrder('org-1', 'so-1', {}, 'user-1')).rejects.toThrow(ForbiddenException);
     expect(inventoryService.recordMovement).not.toHaveBeenCalled();
-    expect(prisma.payment.create).not.toHaveBeenCalled();
-    expect(prisma.salesOrder.update).not.toHaveBeenCalled();
+    expect(paymentCreate).not.toHaveBeenCalled();
+    expect(salesOrderUpdate).not.toHaveBeenCalled();
   });
 });
 

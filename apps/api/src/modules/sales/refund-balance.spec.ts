@@ -155,7 +155,7 @@ describe('SalesService — refundSalesOrder triggers balance recalculation', () 
       items: [{ productId: 'p-1', variantId: null, quantity: 5 }],
     };
     const customerUpdateMany = jest.fn(async () => ({}));
-    const prisma = {
+    const prisma: Record<string, unknown> = {
       salesOrder: {
         findFirst: jest.fn(async () => order),
         update: jest.fn(async () => ({ ...order, status: 'PARTIAL_REFUND' })),
@@ -163,15 +163,20 @@ describe('SalesService — refundSalesOrder triggers balance recalculation', () 
       },
       payment: {
         create: jest.fn(async () => ({})),
-        findMany: jest.fn(async () => [
-          { amount: '500000', status: 'COMPLETED' },
-          { amount: '-100000', status: 'REFUNDED' },
-        ]),
+        // First call (inside $transaction — existing refunds for refundable calc): no prior refunds
+        // Subsequent calls (recalculateOutstandingBalance): full payment list
+        findMany: jest.fn()
+          .mockResolvedValueOnce([])
+          .mockResolvedValue([
+            { amount: '500000', status: 'COMPLETED' },
+            { amount: '-100000', status: 'REFUNDED' },
+          ]),
       },
       invoice: { findMany: jest.fn(async () => [{ totalAmount: '500000' }]) },
       customer: { updateMany: customerUpdateMany },
     };
-    const svc = makeMinimalSalesService(prisma);
+    prisma.$transaction = jest.fn(async (fn: (tx: unknown) => unknown, _opts?: unknown) => fn(prisma));
+    const svc = makeMinimalSalesService(prisma as never);
     await svc.refundSalesOrder(ORG, ORDER_ID, { refundAmount: '100000', reason: 'Test', items: [{ productId: 'p-1', quantity: 1 }] }, 'user-1');
     expect(customerUpdateMany).toHaveBeenCalledWith({
       where: { id: CUST_ID },

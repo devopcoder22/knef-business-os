@@ -56,7 +56,7 @@ describe('SalesService — recordPayment integrity', () => {
   it('1: overpayment → BadRequestException before any DB write', async () => {
     const invoice = makeInvoiceBase();
     const paymentCreate = jest.fn(async () => null);
-    const prisma = {
+    const prisma: Record<string, unknown> = {
       invoice: {
         findFirst: jest.fn(async () => invoice),
         update: jest.fn(async () => invoice),
@@ -69,13 +69,10 @@ describe('SalesService — recordPayment integrity', () => {
       },
       receipt: { create: jest.fn(async () => null) },
       customer: { updateMany: jest.fn(async () => ({})) },
-      salesOrder: { findMany: jest.fn(async () => []) },
-      $transaction: jest.fn(async (fn: (tx: unknown) => unknown) => fn({
-        payment: { create: paymentCreate },
-        receipt: { create: jest.fn(async () => null) },
-        invoice: { update: jest.fn(async () => invoice) },
-      })),
+      salesOrder: { findMany: jest.fn(async () => []), findFirst: jest.fn(async () => null) },
     };
+    // $transaction passes prisma as tx — overpayment check fires inside TX
+    prisma.$transaction = jest.fn(async (fn: (tx: unknown) => unknown, _opts?: unknown) => fn(prisma));
     const svc = new SalesService(
       prisma as never,
       makeInventoryService() as never,

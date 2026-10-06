@@ -1173,6 +1173,7 @@ model Payment {
   customer  Customer?   @relation(fields: [customerId], references: [id])
 
   @@unique([organizationId, reference])
+  @@unique([organizationId, gatewayRef])
   @@index([organizationId])
   @@index([orderId])
   @@index([customerId])

@@ -335,13 +335,25 @@ describe('SalesService — recordPayment creates Receipt', () => {
       },
       customer: { updateMany: jest.fn(async () => ({})) },
       receipt: { create: receiptCreate },
-      payment: { create: jest.fn(async () => ({})), findMany: jest.fn(async () => []) },
-      salesOrder: { update: jest.fn(async () => ({})) },
+      payment: { findFirst: jest.fn(async () => null), create: jest.fn(async () => ({})), findMany: jest.fn(async () => []) },
+      salesOrder: { update: jest.fn(async () => ({})), findMany: jest.fn(async () => []) },
       $transaction: jest.fn(async (fn: (tx: unknown) => Promise<void>) => {
         const tx = {
-          payment: { create: jest.fn(async () => ({})) },
+          payment: { findFirst: jest.fn(async () => null), create: jest.fn(async () => ({})) },
           receipt: { create: receiptCreate },
-          invoice: { update: jest.fn(async () => ({})) },
+          invoice: {
+            findFirst: jest.fn(async () => ({
+              id: 'inv-1',
+              organizationId: 'org-1',
+              status: 'UNPAID',
+              paidAmount: '0',
+              totalAmount: '5000',
+              currency: 'NGN',
+              customerId: 'cust-1',
+              orderId: null,
+            })),
+            update: jest.fn(async () => ({})),
+          },
           salesOrder: { update: jest.fn(async () => ({})) },
         };
         return fn(tx);

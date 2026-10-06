@@ -105,7 +105,7 @@ export class BankAccountsController {
     @Param('id') id: string,
     @Param('transactionId') transactionId: string,
   ) {
-    return this.financeService.reconcileTransaction(user.organizationId, id, transactionId);
+    return this.financeService.reconcileTransaction(user.organizationId, id, transactionId, user.id);
   }
 }
 
