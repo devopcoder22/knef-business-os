@@ -1,7 +1,7 @@
 # KNEF Business OS — Caddy reverse proxy configuration
 # Replace yourdomain.com with your actual domain
 
-yourdomain.com {
+:80 {
     # API routes
     handle /api/* {
         reverse_proxy api:4000 {
