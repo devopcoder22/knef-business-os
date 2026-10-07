@@ -3,3 +3,7 @@ Allow: /
 Disallow: /cart
 Disallow: /checkout
 Disallow: /order
+Disallow: /account
+Disallow: /login
+Disallow: /register
+Disallow: /api/
