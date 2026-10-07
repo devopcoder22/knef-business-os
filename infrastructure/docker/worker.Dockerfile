@@ -14,6 +14,7 @@ RUN pnpm install --frozen-lockfile --prod=false
 
 # ─── Stage 2: Builder ─────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
+RUN apk add --no-cache openssl
 RUN corepack enable && corepack prepare pnpm@9.1.4 --activate
 WORKDIR /app
 
@@ -30,7 +31,7 @@ RUN pnpm --filter @knef/worker build
 
 # ─── Stage 3: Runner ──────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
-RUN apk add --no-cache dumb-init postgresql-client
+RUN apk add --no-cache dumb-init postgresql-client openssl
 
 WORKDIR /app
 

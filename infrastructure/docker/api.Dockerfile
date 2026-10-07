@@ -15,6 +15,7 @@ RUN pnpm install --frozen-lockfile --prod=false
 
 # ─── Stage 2: Builder ─────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
+RUN apk add --no-cache openssl
 RUN corepack enable && corepack prepare pnpm@9.1.4 --activate
 WORKDIR /app
 
@@ -47,7 +48,7 @@ CMD ["pnpm", "--filter", "@knef/api", "dev"]
 
 # ─── Stage 4: Production Runner ───────────────────────────────────────────────
 FROM node:20-alpine AS runner
-RUN apk add --no-cache dumb-init
+RUN apk add --no-cache dumb-init openssl
 WORKDIR /app
 
 ENV NODE_ENV=production
