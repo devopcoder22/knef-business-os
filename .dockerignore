@@ -16,7 +16,6 @@ coverage
 .vscode
 .idea
 .claude
-pnpm-lock.yaml
 README.md
 docs
 *.md
