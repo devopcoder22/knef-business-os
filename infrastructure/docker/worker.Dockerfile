@@ -18,6 +18,11 @@ RUN corepack enable && corepack prepare pnpm@9.1.4 --activate
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/apps/worker/node_modules ./apps/worker/node_modules
+COPY --from=deps /app/packages/constants/node_modules ./packages/constants/node_modules
+COPY --from=deps /app/packages/utils/node_modules ./packages/utils/node_modules
+COPY --from=deps /app/packages/types/node_modules ./packages/types/node_modules
+COPY --from=deps /app/packages/database/node_modules ./packages/database/node_modules
 COPY . .
 
 RUN pnpm --filter @knef/database db:generate
