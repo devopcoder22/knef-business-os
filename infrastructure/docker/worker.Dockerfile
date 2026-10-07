@@ -22,6 +22,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 RUN pnpm --filter @knef/database db:generate
+RUN pnpm --filter @knef/database build
 RUN pnpm --filter @knef/constants build
 RUN pnpm --filter @knef/utils build
 RUN pnpm --filter @knef/types build

@@ -22,8 +22,9 @@ COPY --from=deps /app/node_modules ./node_modules
 
 COPY . .
 
-# Generate Prisma client
+# Generate Prisma client then compile database package to dist/
 RUN pnpm --filter @knef/database db:generate
+RUN pnpm --filter @knef/database build
 
 # Build all packages then the API
 RUN pnpm --filter @knef/constants build
