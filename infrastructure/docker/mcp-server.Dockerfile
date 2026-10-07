@@ -6,7 +6,7 @@ WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
 COPY apps/mcp-server/package.json ./apps/mcp-server/
 
-RUN pnpm install --frozen-lockfile --prod=false --filter @knef/mcp-server
+RUN pnpm install --frozen-lockfile --prod=false
 
 # ─── Stage 2: Builder ─────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
@@ -14,8 +14,9 @@ RUN corepack enable && corepack prepare pnpm@9.1.4 --activate
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
-COPY package.json pnpm-workspace.yaml ./
-COPY apps/mcp-server ./apps/mcp-server
+COPY --from=deps /app/apps/mcp-server/node_modules ./apps/mcp-server/node_modules
+
+COPY . .
 
 RUN pnpm --filter @knef/mcp-server build
 
