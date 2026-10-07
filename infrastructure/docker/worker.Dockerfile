@@ -31,7 +31,7 @@ RUN pnpm --filter @knef/worker build
 
 # ─── Stage 3: Runner ──────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
-RUN apk add --no-cache dumb-init postgresql-client openssl bash
+RUN apk add --no-cache dumb-init postgresql-client openssl bash gnupg
 
 WORKDIR /app
 
