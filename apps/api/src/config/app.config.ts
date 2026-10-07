@@ -20,6 +20,7 @@ const AppConfigSchema = z.object({
   SMTP_PASS: z.string().optional(),
   SMTP_FROM_EMAIL: z.string().email().default('noreply@knefgadgets.com'),
   SMTP_FROM_NAME: z.string().default('KNEF Gadgets'),
+  STOREFRONT_ORG_ID: z.string().optional(),
 });
 
 export type AppConfig = z.infer<typeof AppConfigSchema>;
