@@ -49,7 +49,7 @@ services:
       - uploads:/app/uploads
       - backups:/app/backups
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/api/v1/health/live || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/api/v1/health/live || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
