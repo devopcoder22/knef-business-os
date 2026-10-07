@@ -46,7 +46,7 @@ COPY --from=builder --chown=worker:nodejs /app/scripts ./scripts
 
 RUN mkdir -p /app/uploads /app/backups && \
     chown -R worker:nodejs /app/uploads /app/backups && \
-    chmod +x /app/scripts/backup.sh
+    chmod +x /app/scripts/backup.sh /app/scripts/redis-healthcheck.js
 
 USER worker
 

@@ -1,8 +1,8 @@
 # KNEF Business OS V1.1 — Disaster Recovery Plan
 
 **System:** KNEF Business OS  
-**Version:** V1.1 (branch `v1.1-development`, commit `797d702`)  
-**Last updated:** 2026-10-06  
+**Version:** V1.1 (branch `v1.1-development`)  
+**Last updated:** 2026-10-07  
 **Operator contact:** joao.pinton@imeri.com
 
 ---

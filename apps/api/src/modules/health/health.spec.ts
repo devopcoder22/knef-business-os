@@ -9,8 +9,11 @@
  *  5.  GET /health/ready — calls redisHealth.isHealthy
  *  6.  GET /health (legacy) — calls both prismaHealth and redisHealth
  *  7.  Liveness never invokes HealthCheckService (no external dep check)
+ *  8.  Readiness propagates database failure (KNEF wiring produces failure)
+ *  9.  Readiness propagates Redis failure (KNEF wiring produces failure)
  */
 
+import { ServiceUnavailableException } from '@nestjs/common';
 import { HealthController } from './health.controller';
 
 function makeHealthService(result: Record<string, unknown> = { status: 'ok' }) {
@@ -133,5 +136,34 @@ describe('HealthController — legacy GET /health', () => {
 
     expect(prisma.isHealthy).toHaveBeenCalledWith('database');
     expect(redis.isHealthy).toHaveBeenCalledWith('redis');
+  });
+});
+
+// ── Failure path: KNEF wiring produces unhealthy when a dependency fails ──────
+//
+// HealthCheckService.check() throws ServiceUnavailableException when any
+// indicator fails. These tests verify that HealthController does NOT suppress
+// that exception — it propagates to NestJS which returns HTTP 503.
+
+describe('HealthController — readiness failure paths', () => {
+  it('8: database failure — HealthCheckService throws → readiness propagates ServiceUnavailableException', async () => {
+    const healthSvc = makeHealthService();
+    // Simulate @nestjs/terminus throwing when DB indicator fails
+    healthSvc.check.mockRejectedValueOnce(
+      new ServiceUnavailableException({ status: 'error', info: {}, error: { database: { status: 'down' } } }),
+    );
+
+    const ctrl = new HealthController(healthSvc as never, makePrismaHealth() as never, makeRedisHealth() as never);
+    await expect(ctrl.readiness()).rejects.toThrow(ServiceUnavailableException);
+  });
+
+  it('9: Redis failure — HealthCheckService throws → readiness propagates ServiceUnavailableException', async () => {
+    const healthSvc = makeHealthService();
+    healthSvc.check.mockRejectedValueOnce(
+      new ServiceUnavailableException({ status: 'error', info: {}, error: { redis: { status: 'down' } } }),
+    );
+
+    const ctrl = new HealthController(healthSvc as never, makePrismaHealth() as never, makeRedisHealth() as never);
+    await expect(ctrl.readiness()).rejects.toThrow(ServiceUnavailableException);
   });
 });
