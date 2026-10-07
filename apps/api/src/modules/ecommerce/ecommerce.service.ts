@@ -279,6 +279,21 @@ export class EcommerceService {
       throw new BadRequestException('Order must have at least one item');
     }
 
+    // Idempotency check
+    if (dto.idempotencyKey) {
+      const existing = await this.prisma.salesOrder.findFirst({
+        where: { organizationId, idempotencyKey: dto.idempotencyKey },
+      });
+      if (existing) {
+        return publicResponse({
+          orderId: existing.id,
+          reference: existing.reference,
+          totalAmount: existing.totalAmount.toString(),
+          status: existing.status,
+        });
+      }
+    }
+
     // Find or create customer by phone
     let customer = await this.prisma.customer.findFirst({
       where: { organizationId, phone: dto.customerPhone },
@@ -310,7 +325,7 @@ export class EcommerceService {
     if (!location) throw new NotFoundException('Location not found');
 
     // Validate & price items
-    let totalAmount = new Prisma.Decimal(0);
+    let subtotal = new Prisma.Decimal(0);
     const itemsData: Array<{
       id: string;
       productId: string;
@@ -329,6 +344,23 @@ export class EcommerceService {
       });
       if (!product) throw new NotFoundException(`Product ${item.productId} not found`);
 
+      // Stock validation
+      if (product.trackInventory) {
+        const inv = await this.prisma.inventoryLevel.findFirst({
+          where: {
+            productId: item.productId,
+            variantId: item.variantId ?? null,
+            locationId: dto.locationId,
+          },
+        });
+        const available = inv ? inv.quantity - inv.reserved : 0;
+        if (available < item.quantity) {
+          throw new BadRequestException(
+            `Insufficient stock for ${product.name}: requested ${item.quantity}, available ${available}`,
+          );
+        }
+      }
+
       let unitPrice = product.sellingPrice;
       let costPrice = product.costPrice;
 
@@ -342,7 +374,7 @@ export class EcommerceService {
       }
 
       const lineTotal = unitPrice.mul(item.quantity);
-      totalAmount = totalAmount.add(lineTotal);
+      subtotal = subtotal.add(lineTotal);
 
       itemsData.push({
         id: createId(),
@@ -356,6 +388,13 @@ export class EcommerceService {
         totalPrice: lineTotal.toString(),
       });
     }
+
+    // Parse delivery fee
+    const deliveryFee = dto.deliveryFee
+      ? new Prisma.Decimal(dto.deliveryFee)
+      : new Prisma.Decimal(0);
+
+    const totalAmount = subtotal.add(deliveryFee);
 
     const reference = generateReference('WEB');
 
@@ -377,12 +416,34 @@ export class EcommerceService {
         status: OrderStatus.CONFIRMED,
         channel: 'ONLINE',
         currency: 'NGN',
-        subtotal: totalAmount.toString(),
+        subtotal: subtotal.toString(),
         discountAmount: '0',
         taxAmount: '0',
         totalAmount: totalAmount.toString(),
         notes: dto.notes,
+        deliveryFee: deliveryFee.toString(),
+        deliveryAddress: dto.deliveryAddress,
+        deliveryCity: dto.deliveryCity,
+        deliveryState: dto.deliveryState,
+        deliveryPhone: dto.deliveryPhone,
+        idempotencyKey: dto.idempotencyKey,
+        customerAccountId: dto.customerAccountId,
         items: { create: itemsData },
+      },
+    });
+
+    // Create a PENDING payment record
+    await this.prisma.payment.create({
+      data: {
+        id: createId(),
+        organizationId,
+        reference: generateReference('PAY'),
+        orderId: order.id,
+        customerId: customer.id,
+        amount: totalAmount,
+        currency: 'NGN',
+        method: dto.paymentMethod as 'CASH' | 'BANK_TRANSFER' | 'OTHER',
+        status: 'PENDING',
       },
     });
 

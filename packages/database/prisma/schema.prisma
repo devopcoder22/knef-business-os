@@ -919,6 +919,7 @@ model Customer {
   customerNotes   CustomerNote[]
   tagAssignments  CustomerTagAssignment[]
   tasks           Task[]
+  customerAccount CustomerAccount?
 
   @@unique([organizationId, code])
   @@unique([organizationId, phone])
@@ -998,37 +999,88 @@ model CustomerSegmentMember {
   @@index([customerId])
 }
 
-model SalesOrder {
-  id             String        @id @default(cuid())
-  organizationId String
-  reference      String
-  customerId     String?
-  locationId     String
-  userId         String
-  status         OrderStatus   @default(DRAFT)
-  channel        SalesChannel  @default(IN_STORE)
-  currency       String        @default("NGN")
-  subtotal       Decimal       @db.Decimal(15, 2) @default(0)
-  discountAmount Decimal       @db.Decimal(15, 2) @default(0)
-  taxAmount      Decimal       @db.Decimal(15, 2) @default(0)
-  totalAmount    Decimal       @db.Decimal(15, 2) @default(0)
-  paidAmount     Decimal       @db.Decimal(15, 2) @default(0)
-  notes          String?
-  internalNotes  String?
-  posSessionId   String?
-  completedAt    DateTime?
-  cancelledAt    DateTime?
-  cancelReason   String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+model CustomerAccount {
+  id                   String    @id @default(cuid())
+  organizationId       String
+  customerId           String?   @unique
+  email                String
+  firstName            String
+  lastName             String
+  phone                String?
+  passwordHash         String
+  isVerified           Boolean   @default(false)
+  emailVerifyToken     String?
+  emailVerifyExpires   DateTime?
+  resetPasswordToken   String?
+  resetPasswordExpires DateTime?
+  lastLoginAt          DateTime?
+  isActive             Boolean   @default(true)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
-  customer   Customer?       @relation(fields: [customerId], references: [id])
-  location   Location        @relation(fields: [locationId], references: [id])
-  user       User            @relation(fields: [userId], references: [id])
-  items      SalesOrderItem[]
-  invoices   Invoice[]
-  payments   Payment[]
-  posSession POSSession?     @relation(fields: [posSessionId], references: [id])
+  customer      Customer?                    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  refreshTokens CustomerAccountRefreshToken[]
+  salesOrders   SalesOrder[]
+
+  @@unique([organizationId, email])
+  @@index([organizationId])
+  @@index([email])
+}
+
+model CustomerAccountRefreshToken {
+  id                String   @id @default(cuid())
+  customerAccountId String
+  tokenHash         String   @unique
+  expiresAt         DateTime
+  ipAddress         String?
+  userAgent         String?
+  createdAt         DateTime @default(now())
+
+  customerAccount CustomerAccount @relation(fields: [customerAccountId], references: [id], onDelete: Cascade)
+
+  @@index([customerAccountId])
+  @@index([tokenHash])
+}
+
+model SalesOrder {
+  id               String        @id @default(cuid())
+  organizationId   String
+  reference        String
+  customerId       String?
+  locationId       String
+  userId           String
+  status           OrderStatus   @default(DRAFT)
+  channel          SalesChannel  @default(IN_STORE)
+  currency         String        @default("NGN")
+  subtotal         Decimal       @db.Decimal(15, 2) @default(0)
+  discountAmount   Decimal       @db.Decimal(15, 2) @default(0)
+  taxAmount        Decimal       @db.Decimal(15, 2) @default(0)
+  totalAmount      Decimal       @db.Decimal(15, 2) @default(0)
+  paidAmount       Decimal       @db.Decimal(15, 2) @default(0)
+  notes            String?
+  internalNotes    String?
+  posSessionId     String?
+  completedAt      DateTime?
+  cancelledAt      DateTime?
+  cancelReason     String?
+  deliveryFee      Decimal       @db.Decimal(15, 2) @default(0)
+  deliveryAddress  String?
+  deliveryCity     String?
+  deliveryState    String?
+  deliveryPhone    String?
+  idempotencyKey   String?
+  customerAccountId String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  customer        Customer?        @relation(fields: [customerId], references: [id])
+  location        Location         @relation(fields: [locationId], references: [id])
+  user            User             @relation(fields: [userId], references: [id])
+  items           SalesOrderItem[]
+  invoices        Invoice[]
+  payments        Payment[]
+  posSession      POSSession?      @relation(fields: [posSessionId], references: [id])
+  customerAccount CustomerAccount? @relation(fields: [customerAccountId], references: [id])
 
   @@unique([organizationId, reference])
   @@index([organizationId])
@@ -1037,6 +1089,7 @@ model SalesOrder {
   @@index([userId])
   @@index([status])
   @@index([createdAt])
+  @@index([customerAccountId])
 }
 
 enum OrderStatus {
