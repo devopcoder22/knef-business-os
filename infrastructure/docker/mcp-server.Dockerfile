@@ -14,7 +14,6 @@ RUN corepack enable && corepack prepare pnpm@9.1.4 --activate
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/apps/mcp-server/node_modules ./apps/mcp-server/node_modules
 
 COPY . .
 

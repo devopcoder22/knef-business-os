@@ -15,9 +15,6 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
-COPY --from=deps /app/packages/types/node_modules ./packages/types/node_modules
-COPY --from=deps /app/packages/constants/node_modules ./packages/constants/node_modules
 COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1

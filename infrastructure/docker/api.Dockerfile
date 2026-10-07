@@ -19,11 +19,6 @@ RUN corepack enable && corepack prepare pnpm@9.1.4 --activate
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/apps/api/node_modules ./apps/api/node_modules
-COPY --from=deps /app/packages/constants/node_modules ./packages/constants/node_modules
-COPY --from=deps /app/packages/utils/node_modules ./packages/utils/node_modules
-COPY --from=deps /app/packages/types/node_modules ./packages/types/node_modules
-COPY --from=deps /app/packages/database/node_modules ./packages/database/node_modules
 
 COPY . .
 
@@ -60,16 +55,13 @@ ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nestjs
 
-# Copy built app
+# Copy built app and hoisted node_modules (shamefully-hoist puts everything here)
 COPY --from=builder --chown=nestjs:nodejs /app/apps/api/dist ./dist
 COPY --from=builder --chown=nestjs:nodejs /app/node_modules ./node_modules
-COPY --from=builder --chown=nestjs:nodejs /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=builder --chown=nestjs:nodejs /app/packages ./packages
 
 # Copy Prisma schema for migrations
 COPY --from=builder --chown=nestjs:nodejs /app/packages/database/prisma ./packages/database/prisma
-COPY --from=builder --chown=nestjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder --chown=nestjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
 
 RUN mkdir -p /app/uploads /app/backups && chown -R nestjs:nodejs /app/uploads /app/backups
 
