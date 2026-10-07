@@ -3,7 +3,7 @@
 -- and adds externalAgentId + requestId to AIAction for traceability.
 
 -- ExternalAgent: identity record for external AI agents/applications
-CREATE TABLE "ExternalAgent" (
+CREATE TABLE IF NOT EXISTS "ExternalAgent" (
     "id"                 TEXT NOT NULL,
     "organizationId"     TEXT NOT NULL,
     "name"               TEXT NOT NULL,
@@ -23,21 +23,21 @@ CREATE TABLE "ExternalAgent" (
     CONSTRAINT "ExternalAgent_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "ExternalAgent_organizationId_name_key" ON "ExternalAgent"("organizationId", "name");
-CREATE INDEX "ExternalAgent_organizationId_idx" ON "ExternalAgent"("organizationId");
-CREATE INDEX "ExternalAgent_apiKeyId_idx" ON "ExternalAgent"("apiKeyId");
+CREATE UNIQUE INDEX IF NOT EXISTS "ExternalAgent_organizationId_name_key" ON "ExternalAgent"("organizationId", "name");
+CREATE INDEX IF NOT EXISTS "ExternalAgent_organizationId_idx" ON "ExternalAgent"("organizationId");
+CREATE INDEX IF NOT EXISTS "ExternalAgent_apiKeyId_idx" ON "ExternalAgent"("apiKeyId");
 
 -- Enhance AITool with risk level and external exposure
 ALTER TABLE "AITool"
-    ADD COLUMN "riskLevel"        TEXT NOT NULL DEFAULT 'LOW',
-    ADD COLUMN "externalExposure" TEXT NOT NULL DEFAULT 'NOT_EXPOSED';
+    ADD COLUMN IF NOT EXISTS "riskLevel"        TEXT NOT NULL DEFAULT 'LOW',
+    ADD COLUMN IF NOT EXISTS "externalExposure" TEXT NOT NULL DEFAULT 'NOT_EXPOSED';
 
-CREATE INDEX "AITool_externalExposure_idx" ON "AITool"("externalExposure");
+CREATE INDEX IF NOT EXISTS "AITool_externalExposure_idx" ON "AITool"("externalExposure");
 
 -- Add traceability fields to AIAction
 ALTER TABLE "AIAction"
-    ADD COLUMN "externalAgentId" TEXT,
-    ADD COLUMN "requestId"       TEXT;
+    ADD COLUMN IF NOT EXISTS "externalAgentId" TEXT,
+    ADD COLUMN IF NOT EXISTS "requestId"       TEXT;
 
-CREATE INDEX "AIAction_externalAgentId_idx" ON "AIAction"("externalAgentId");
-CREATE INDEX "AIAction_requestId_idx" ON "AIAction"("requestId");
+CREATE INDEX IF NOT EXISTS "AIAction_externalAgentId_idx" ON "AIAction"("externalAgentId");
+CREATE INDEX IF NOT EXISTS "AIAction_requestId_idx" ON "AIAction"("requestId");

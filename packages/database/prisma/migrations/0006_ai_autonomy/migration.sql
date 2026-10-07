@@ -1,8 +1,11 @@
 -- CreateEnum
-CREATE TYPE "AutonomyLevel" AS ENUM ('ADVISORY', 'DRAFT', 'APPROVAL_REQUIRED', 'LIMITED_AUTONOMY', 'SCHEDULED_AUTONOMY');
+DO $$ BEGIN
+  CREATE TYPE "AutonomyLevel" AS ENUM ('ADVISORY', 'DRAFT', 'APPROVAL_REQUIRED', 'LIMITED_AUTONOMY', 'SCHEDULED_AUTONOMY');
+EXCEPTION WHEN duplicate_object THEN null;
+END; $$;
 
 -- CreateTable
-CREATE TABLE "AiAutonomyPolicy" (
+CREATE TABLE IF NOT EXISTS "AiAutonomyPolicy" (
     "id"             TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
     "scope"          TEXT NOT NULL,
@@ -18,8 +21,8 @@ CREATE TABLE "AiAutonomyPolicy" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "AiAutonomyPolicy_organizationId_scope_scopeId_key" ON "AiAutonomyPolicy"("organizationId", "scope", "scopeId");
-CREATE INDEX "AiAutonomyPolicy_organizationId_idx" ON "AiAutonomyPolicy"("organizationId");
+CREATE UNIQUE INDEX IF NOT EXISTS "AiAutonomyPolicy_organizationId_scope_scopeId_key" ON "AiAutonomyPolicy"("organizationId", "scope", "scopeId");
+CREATE INDEX IF NOT EXISTS "AiAutonomyPolicy_organizationId_idx" ON "AiAutonomyPolicy"("organizationId");
 
 -- AlterTable AIAction
 ALTER TABLE "AIAction"

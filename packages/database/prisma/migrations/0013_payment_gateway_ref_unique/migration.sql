@@ -17,5 +17,5 @@
 --   GROUP BY "organizationId", "gatewayRef"
 --   HAVING COUNT(*) > 1;
 
-CREATE UNIQUE INDEX "Payment_organizationId_gatewayRef_key"
+CREATE UNIQUE INDEX IF NOT EXISTS "Payment_organizationId_gatewayRef_key"
   ON "Payment"("organizationId", "gatewayRef");

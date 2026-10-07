@@ -1,11 +1,17 @@
 -- CreateEnum
-CREATE TYPE "PlanType" AS ENUM ('PERSONAL', 'BUSINESS', 'PROJECT', 'CAMPAIGN', 'OPERATIONAL', 'STRATEGIC');
+DO $$ BEGIN
+  CREATE TYPE "PlanType" AS ENUM ('PERSONAL', 'BUSINESS', 'PROJECT', 'CAMPAIGN', 'OPERATIONAL', 'STRATEGIC');
+EXCEPTION WHEN duplicate_object THEN null;
+END; $$;
 
 -- CreateEnum
-CREATE TYPE "PlanStatus" AS ENUM ('DRAFT', 'REVIEW', 'APPROVED', 'ACTIVE', 'PAUSED', 'COMPLETED', 'CANCELLED');
+DO $$ BEGIN
+  CREATE TYPE "PlanStatus" AS ENUM ('DRAFT', 'REVIEW', 'APPROVED', 'ACTIVE', 'PAUSED', 'COMPLETED', 'CANCELLED');
+EXCEPTION WHEN duplicate_object THEN null;
+END; $$;
 
 -- CreateTable: Plan
-CREATE TABLE "Plan" (
+CREATE TABLE IF NOT EXISTS "Plan" (
     "id"             TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
     "ownerId"        TEXT,
@@ -29,7 +35,7 @@ CREATE TABLE "Plan" (
 );
 
 -- CreateTable: PlanStep
-CREATE TABLE "PlanStep" (
+CREATE TABLE IF NOT EXISTS "PlanStep" (
     "id"          TEXT NOT NULL,
     "planId"      TEXT NOT NULL,
     "title"       TEXT NOT NULL,
@@ -49,7 +55,7 @@ CREATE TABLE "PlanStep" (
 );
 
 -- CreateTable: PlanTaskLink
-CREATE TABLE "PlanTaskLink" (
+CREATE TABLE IF NOT EXISTS "PlanTaskLink" (
     "id"           TEXT NOT NULL,
     "planId"       TEXT NOT NULL,
     "stepId"       TEXT,
@@ -62,7 +68,7 @@ CREATE TABLE "PlanTaskLink" (
 );
 
 -- CreateTable: PlanTemplate
-CREATE TABLE "PlanTemplate" (
+CREATE TABLE IF NOT EXISTS "PlanTemplate" (
     "id"             TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
     "name"           TEXT NOT NULL,
@@ -77,24 +83,36 @@ CREATE TABLE "PlanTemplate" (
 );
 
 -- CreateIndex
-CREATE INDEX "Plan_organizationId_idx" ON "Plan"("organizationId");
-CREATE INDEX "Plan_status_idx" ON "Plan"("status");
-CREATE INDEX "Plan_ownerId_idx" ON "Plan"("ownerId");
-CREATE INDEX "PlanStep_planId_idx" ON "PlanStep"("planId");
-CREATE INDEX "PlanTaskLink_planId_idx" ON "PlanTaskLink"("planId");
-CREATE INDEX "PlanTaskLink_taskId_idx" ON "PlanTaskLink"("taskId");
-CREATE UNIQUE INDEX "PlanTemplate_organizationId_name_key" ON "PlanTemplate"("organizationId", "name");
-CREATE INDEX "PlanTemplate_organizationId_idx" ON "PlanTemplate"("organizationId");
+CREATE INDEX IF NOT EXISTS "Plan_organizationId_idx" ON "Plan"("organizationId");
+CREATE INDEX IF NOT EXISTS "Plan_status_idx" ON "Plan"("status");
+CREATE INDEX IF NOT EXISTS "Plan_ownerId_idx" ON "Plan"("ownerId");
+CREATE INDEX IF NOT EXISTS "PlanStep_planId_idx" ON "PlanStep"("planId");
+CREATE INDEX IF NOT EXISTS "PlanTaskLink_planId_idx" ON "PlanTaskLink"("planId");
+CREATE INDEX IF NOT EXISTS "PlanTaskLink_taskId_idx" ON "PlanTaskLink"("taskId");
+CREATE UNIQUE INDEX IF NOT EXISTS "PlanTemplate_organizationId_name_key" ON "PlanTemplate"("organizationId", "name");
+CREATE INDEX IF NOT EXISTS "PlanTemplate_organizationId_idx" ON "PlanTemplate"("organizationId");
 
 -- AddForeignKey
-ALTER TABLE "PlanStep" ADD CONSTRAINT "PlanStep_planId_fkey"
-    FOREIGN KEY ("planId") REFERENCES "Plan"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "PlanStep" ADD CONSTRAINT "PlanStep_planId_fkey"
+      FOREIGN KEY ("planId") REFERENCES "Plan"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN null;
+END; $$;
 
-ALTER TABLE "PlanTaskLink" ADD CONSTRAINT "PlanTaskLink_planId_fkey"
-    FOREIGN KEY ("planId") REFERENCES "Plan"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "PlanTaskLink" ADD CONSTRAINT "PlanTaskLink_planId_fkey"
+      FOREIGN KEY ("planId") REFERENCES "Plan"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN null;
+END; $$;
 
-ALTER TABLE "PlanTaskLink" ADD CONSTRAINT "PlanTaskLink_stepId_fkey"
-    FOREIGN KEY ("stepId") REFERENCES "PlanStep"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "PlanTaskLink" ADD CONSTRAINT "PlanTaskLink_stepId_fkey"
+      FOREIGN KEY ("stepId") REFERENCES "PlanStep"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN null;
+END; $$;
 
-ALTER TABLE "Plan" ADD CONSTRAINT "Plan_templateId_fkey"
-    FOREIGN KEY ("templateId") REFERENCES "PlanTemplate"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "Plan" ADD CONSTRAINT "Plan_templateId_fkey"
+      FOREIGN KEY ("templateId") REFERENCES "PlanTemplate"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN null;
+END; $$;

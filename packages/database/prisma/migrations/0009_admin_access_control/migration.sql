@@ -1,8 +1,8 @@
 -- Add isActive to Role (default true so existing roles remain active)
-ALTER TABLE "Role" ADD COLUMN "isActive" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "Role" ADD COLUMN IF NOT EXISTS "isActive" BOOLEAN NOT NULL DEFAULT true;
 
 -- CreateTable
-CREATE TABLE "UserFeatureFlag" (
+CREATE TABLE IF NOT EXISTS "UserFeatureFlag" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "featureKey" TEXT NOT NULL,
@@ -15,10 +15,13 @@ CREATE TABLE "UserFeatureFlag" (
 );
 
 -- CreateIndex
-CREATE INDEX "UserFeatureFlag_userId_idx" ON "UserFeatureFlag"("userId");
+CREATE INDEX IF NOT EXISTS "UserFeatureFlag_userId_idx" ON "UserFeatureFlag"("userId");
 
 -- CreateUniqueIndex
-CREATE UNIQUE INDEX "UserFeatureFlag_userId_featureKey_key" ON "UserFeatureFlag"("userId", "featureKey");
+CREATE UNIQUE INDEX IF NOT EXISTS "UserFeatureFlag_userId_featureKey_key" ON "UserFeatureFlag"("userId", "featureKey");
 
 -- AddForeignKey
-ALTER TABLE "UserFeatureFlag" ADD CONSTRAINT "UserFeatureFlag_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "UserFeatureFlag" ADD CONSTRAINT "UserFeatureFlag_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN null;
+END; $$;
