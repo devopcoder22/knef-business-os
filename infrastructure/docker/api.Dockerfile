@@ -70,4 +70,4 @@ USER nestjs
 EXPOSE 4000
 
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "dist/main.js"]
+CMD ["node", "dist/apps/api/src/main.js"]

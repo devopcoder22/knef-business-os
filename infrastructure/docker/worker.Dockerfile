@@ -50,4 +50,4 @@ RUN mkdir -p /app/uploads /app/backups && \
 USER worker
 
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "dist/main.js"]
+CMD ["node", "dist/apps/worker/src/main.js"]
