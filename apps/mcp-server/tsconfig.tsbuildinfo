@@ -1,1 +1,1 @@
-{"root":["./src/index.ts","./src/knef-client.ts"],"version":"5.9.3"}
+{"root":["./src/index.ts","./src/knef-client.spec.ts","./src/knef-client.ts"],"version":"5.9.3"}
