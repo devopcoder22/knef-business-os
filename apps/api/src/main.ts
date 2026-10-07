@@ -3,6 +3,7 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { json, urlencoded } from 'express';
 import helmet from 'helmet';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const cookieParser = require('cookie-parser');
@@ -14,9 +15,15 @@ import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
 
+  // Disable built-in body parser so we can set explicit size limits
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bodyParser: false,
     logger: ['error', 'warn', 'log', 'debug'],
   });
+
+  // Explicit body size limits — prevents request-body DoS
+  app.use(json({ limit: '10mb' }));
+  app.use(urlencoded({ extended: true, limit: '10mb' }));
 
   const configService = app.get(ConfigService);
   const port = configService.get<number>('API_PORT', 4000);

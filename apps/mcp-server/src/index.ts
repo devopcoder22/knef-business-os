@@ -32,13 +32,14 @@ function buildMcpServer(client: KnefApiClient, tools: KnefTool[]): McpServer {
   for (const tool of tools) {
     const schema = buildZodSchema(tool);
 
-    server.tool(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (server.tool as (...a: any[]) => void)(
       tool.name,
       tool.description,
       schema,
-      async (args) => {
+      async (args: Record<string, unknown>) => {
         try {
-          const result = await client.executeTool(tool.name, args as Record<string, unknown>);
+          const result = await client.executeTool(tool.name, args);
 
           if (result.outcome === 'BLOCKED') {
             return {

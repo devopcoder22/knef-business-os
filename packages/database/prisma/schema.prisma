@@ -711,6 +711,7 @@ model PurchaseOrder {
   @@unique([organizationId, reference])
   @@index([organizationId])
   @@index([supplierId])
+  @@index([locationId])
   @@index([status])
 }
 
@@ -1032,6 +1033,7 @@ model SalesOrder {
   @@index([organizationId])
   @@index([customerId])
   @@index([locationId])
+  @@index([userId])
   @@index([status])
   @@index([createdAt])
 }
@@ -1108,6 +1110,7 @@ model Invoice {
   @@unique([organizationId, reference])
   @@index([organizationId])
   @@index([customerId])
+  @@index([orderId])
   @@index([status])
 }
 
@@ -1176,6 +1179,7 @@ model Payment {
   @@unique([organizationId, gatewayRef])
   @@index([organizationId])
   @@index([orderId])
+  @@index([invoiceId])
   @@index([customerId])
   @@index([status])
 }
@@ -1282,6 +1286,8 @@ model BankTransaction {
   @@index([organizationId])
   @@index([bankAccountId])
   @@index([date])
+  @@index([reconciled])
+  @@index([bankAccountId, date])
 }
 
 enum TransactionType {
