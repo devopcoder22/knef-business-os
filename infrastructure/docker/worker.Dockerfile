@@ -3,7 +3,7 @@ FROM node:20-alpine AS deps
 RUN corepack enable && corepack prepare pnpm@9.1.4 --activate
 WORKDIR /app
 
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
+COPY .npmrc* package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
 COPY apps/worker/package.json ./apps/worker/package.json
 COPY packages/database/package.json ./packages/database/package.json
 COPY packages/constants/package.json ./packages/constants/package.json

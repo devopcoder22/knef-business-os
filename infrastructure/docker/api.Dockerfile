@@ -3,8 +3,8 @@ FROM node:20-alpine AS deps
 RUN corepack enable && corepack prepare pnpm@9.1.4 --activate
 WORKDIR /app
 
-# Copy workspace manifests
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
+# Copy workspace manifests (include .npmrc so shamefully-hoist is active during install)
+COPY .npmrc* package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
 COPY apps/api/package.json ./apps/api/package.json
 COPY packages/database/package.json ./packages/database/package.json
 COPY packages/constants/package.json ./packages/constants/package.json

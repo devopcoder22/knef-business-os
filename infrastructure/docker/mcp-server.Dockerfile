@@ -3,7 +3,7 @@ FROM node:20-alpine AS deps
 RUN corepack enable && corepack prepare pnpm@9.1.4 --activate
 WORKDIR /app
 
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
+COPY .npmrc* package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
 COPY apps/mcp-server/package.json ./apps/mcp-server/
 
 RUN pnpm install --frozen-lockfile --prod=false
@@ -15,7 +15,8 @@ WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
 
-COPY . .
+COPY .npmrc* package.json pnpm-workspace.yaml ./
+COPY apps/mcp-server ./apps/mcp-server
 
 RUN pnpm --filter @knef/mcp-server build
 
