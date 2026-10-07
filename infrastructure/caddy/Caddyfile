@@ -1,7 +1,9 @@
 # KNEF Business OS — Caddy reverse proxy configuration
 # Replace yourdomain.com with your actual domain
+# Replace store.yourdomain.com with your storefront domain
 
-:80 {
+# Admin/staff Next.js + API — served from yourdomain.com
+yourdomain.com {
     # API routes
     handle /api/* {
         reverse_proxy api:4000 {
@@ -16,7 +18,7 @@
         reverse_proxy api:4000
     }
 
-    # Everything else goes to Next.js
+    # Everything else goes to the staff Next.js app
     handle {
         reverse_proxy web:3000 {
             header_up X-Real-IP {remote_host}
@@ -27,17 +29,73 @@
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
         X-Content-Type-Options "nosniff"
-        X-Frame-Options "DENY"
+        X-Frame-Options "SAMEORIGIN"
         Referrer-Policy "strict-origin-when-cross-origin"
         -Server
     }
 
     # Logging
     log {
-        output file /var/log/caddy/access.log {
+        output file /var/log/caddy/admin-access.log {
             roll_size 100mb
             roll_keep 10
         }
         format json
+    }
+}
+
+# Customer storefront — served from store.yourdomain.com
+store.yourdomain.com {
+    # BFF route handlers (server actions, proxied to api internally)
+    handle /api/* {
+        reverse_proxy storefront:3001 {
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # All other storefront pages
+    handle {
+        reverse_proxy storefront:3001 {
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # Security headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # Restrict storefront from embedding the admin app
+        Content-Security-Policy "frame-ancestors 'none'"
+        -Server
+    }
+
+    # Logging
+    log {
+        output file /var/log/caddy/storefront-access.log {
+            roll_size 100mb
+            roll_keep 10
+        }
+        format json
+    }
+}
+
+# Fallback: plain HTTP for local / IP-only access
+:80 {
+    handle /api/* {
+        reverse_proxy api:4000
+    }
+
+    handle /health {
+        reverse_proxy api:4000
+    }
+
+    handle {
+        reverse_proxy web:3000
     }
 }

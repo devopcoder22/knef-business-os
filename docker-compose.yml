@@ -15,6 +15,7 @@ services:
     depends_on:
       - web
       - api
+      - storefront
     restart: unless-stopped
 
   web:
@@ -54,6 +55,32 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  storefront:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/storefront.Dockerfile
+    environment:
+      - NODE_ENV=production
+      - STOREFRONT_BACKEND_URL=http://api:4000
+      - STOREFRONT_INTERNAL_URL=http://api:4000
+      - STOREFRONT_API_KEY=${STOREFRONT_API_KEY}
+      - STOREFRONT_ORG_ID=${STOREFRONT_ORG_ID}
+      - STOREFRONT_ORG_LOCATION_ID=${STOREFRONT_ORG_LOCATION_ID}
+      - JWT_SECRET=${JWT_SECRET}
+    networks:
+      - public
+      - internal
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   worker:
     build:
