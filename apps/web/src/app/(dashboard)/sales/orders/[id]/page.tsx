@@ -72,12 +72,13 @@ export default function SalesOrderDetailPage() {
   const [payAmount, setPayAmount] = useState('');
   const [payMethod, setPayMethod] = useState('CASH');
   const [payRef, setPayRef] = useState('');
+  const [invoiceError, setInvoiceError] = useState('');
 
   const { data: order, isLoading } = useQuery<SalesOrder>({
     queryKey: ['sales-order', id],
     queryFn: async () => {
       const res = await api().get<SalesOrder>(`/sales-orders/${id}`);
-      return res.data;
+      return (res.data as any).data as SalesOrder;
     },
   });
 
@@ -107,9 +108,13 @@ export default function SalesOrderDetailPage() {
         orderId: id,
         customerId: order?.customer?.id,
       });
-      return (res.data as { id: string }).id;
+      return (res.data as any).data.id as string;
     },
     onSuccess: (invId) => router.push(`/sales/invoices/${invId}`),
+    onError: (err: any) => {
+      const msg = err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to create invoice';
+      setInvoiceError(Array.isArray(msg) ? msg.join(', ') : msg);
+    },
   });
 
   const recordPaymentMutation = useMutation({
@@ -183,6 +188,13 @@ export default function SalesOrderDetailPage() {
           )}
         </div>
       </div>
+
+      {invoiceError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700 flex items-center justify-between">
+          <span>{invoiceError}</span>
+          <button onClick={() => setInvoiceError('')} className="text-red-400 hover:text-red-600 ml-4">&times;</button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Items */}

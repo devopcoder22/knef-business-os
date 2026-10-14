@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { ArrowLeft, Download, CreditCard, CheckCircle, XCircle } from 'lucide-react';
+import { ArrowLeft, Download, CreditCard, CheckCircle, XCircle, FileText } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -70,12 +70,13 @@ export default function InvoiceDetailPage() {
   const [payMethod, setPayMethod] = useState('CASH');
   const [payRef, setPayRef] = useState('');
   const [payNotes, setPayNotes] = useState('');
+  const [paymentRecorded, setPaymentRecorded] = useState(false);
 
   const { data: invoice, isLoading } = useQuery<Invoice>({
     queryKey: ['invoice', id],
     queryFn: async () => {
       const res = await api().get<Invoice>(`/invoices/${id}`);
-      return res.data;
+      return (res.data as any).data as Invoice;
     },
   });
 
@@ -94,8 +95,44 @@ export default function InvoiceDetailPage() {
       setPayAmount('');
       setPayRef('');
       setPayNotes('');
+      setPaymentRecorded(true);
     },
   });
+
+  const downloadCsv = () => {
+    if (!invoice) return;
+    const rows = [
+      ['Invoice', invoice.reference],
+      ['Status', invoice.status],
+      ['Issued', new Date(invoice.issuedAt).toLocaleDateString()],
+      invoice.dueDate ? ['Due', new Date(invoice.dueDate).toLocaleDateString()] : [],
+      invoice.customer ? ['Customer', `${invoice.customer.firstName} ${invoice.customer.lastName}`] : [],
+      [],
+      ['Item', 'SKU', 'Qty', 'Unit Price', 'Discount', 'Total'],
+      ...invoice.items.map((item) => [
+        item.description,
+        item.product?.sku ?? '',
+        String(item.quantity),
+        item.unitPrice,
+        item.discount,
+        item.totalPrice,
+      ]),
+      [],
+      ['Subtotal', invoice.subtotal],
+      ['Discount', invoice.discountAmount],
+      ['Tax', invoice.taxAmount],
+      ['Total', invoice.totalAmount],
+      ['Paid', invoice.paidAmount],
+    ].filter((r) => r.length > 0);
+    const csv = rows.map((r) => r.map((v) => `"${v}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${invoice.reference}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const downloadPdf = async () => {
     try {
@@ -164,11 +201,18 @@ export default function InvoiceDetailPage() {
         </div>
         <div className="flex gap-2">
           <button
+            onClick={downloadCsv}
+            className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-700 hover:bg-gray-50"
+          >
+            <Download size={16} />
+            CSV
+          </button>
+          <button
             onClick={downloadPdf}
             className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-700 hover:bg-gray-50"
           >
             <Download size={16} />
-            Download PDF
+            PDF
           </button>
           {canRecordPayment && (
             <button
@@ -248,6 +292,23 @@ export default function InvoiceDetailPage() {
               <XCircle size={14} />
               Cancel
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Receipt generated banner */}
+      {paymentRecorded && (
+        <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <FileText size={18} className="text-green-600" />
+            <div>
+              <p className="text-sm font-medium text-green-800">Payment recorded. A receipt has been generated.</p>
+              <p className="text-xs text-green-600 mt-0.5">You can download or thermal-print it from the Receipts page.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <a href="/sales/receipts" className="text-sm text-green-700 font-medium hover:underline">View Receipts</a>
+            <button onClick={() => setPaymentRecorded(false)} className="text-green-400 hover:text-green-600">&times;</button>
           </div>
         </div>
       )}

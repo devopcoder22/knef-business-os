@@ -47,12 +47,16 @@ import {
   ShieldAlert,
   Activity,
   BrainCircuit,
+  Scale,
+  ShoppingBag,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/auth.store';
 import { PERMISSIONS } from '@knef/constants';
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/api';
 
 interface NavItem {
   label: string;
@@ -191,18 +195,22 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Tools', href: '/ai/tools', icon: ClipboardList, permission: PERMISSIONS.AI.TOOLS },
       { label: 'Approvals', href: '/ai/approvals', icon: CheckSquare, permission: PERMISSIONS.AI.APPROVALS },
       { label: 'Agents', href: '/ai/agents', icon: Bot, permission: PERMISSIONS.AI.AGENTS },
+      { label: 'AI Config', href: '/admin/ai', icon: Settings, adminOnly: true },
+      { label: 'AI Autonomy', href: '/settings/ai-autonomy', icon: BrainCircuit, adminOnly: true },
     ],
   },
   {
-    label: 'Channels',
+    label: 'Ecommerce',
     href: '/ecommerce',
     icon: Globe,
     permission: PERMISSIONS.ECOMMERCE.MANAGE,
     children: [
       { label: 'E-commerce', href: '/ecommerce', icon: Globe, permission: PERMISSIONS.ECOMMERCE.MANAGE },
-      { label: 'Integrations', href: '/integrations', icon: Plug, permission: PERMISSIONS.INTEGRATIONS.MANAGE },
+      { label: 'Storefront', href: '/admin/storefront', icon: ShoppingBag, adminOnly: true },
     ],
   },
+  { label: 'Integrations', href: '/admin/integrations', icon: Plug, adminOnly: true },
+  { label: 'Business Rules', href: '/admin/business-rules', icon: Scale, adminOnly: true },
   {
     label: 'Communications',
     href: '/communications',
@@ -344,6 +352,26 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     ['SUPER_ADMIN', 'MANAGING_DIRECTOR', 'GENERAL_MANAGER'].includes(r),
   );
 
+  const { data: orgData } = useQuery({
+    queryKey: ['organization'],
+    queryFn: async () => {
+      const res = await api().get('/organization');
+      return (res.data as any).data;
+    },
+    staleTime: 5 * 60 * 1000,
+    enabled: !!user,
+  });
+
+  const { data: userProfile } = useQuery({
+    queryKey: ['user-profile', user?.id],
+    queryFn: async () => {
+      const res = await api().get(`/users/${user!.id}`);
+      return (res.data as any).data;
+    },
+    staleTime: 5 * 60 * 1000,
+    enabled: !!user?.id,
+  });
+
   const isActive = (href: string) => {
     // Exact match for root module pages to avoid matching children as root active
     if (href === '/inventory') return pathname === '/inventory';
@@ -352,6 +380,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     if (href === '/purchasing') return pathname === '/purchasing';
     if (href === '/ecommerce') return pathname === '/ecommerce';
     if (href === '/ai') return pathname === '/ai';
+    if (href === '/admin/ai') return pathname === '/admin/ai' || pathname.startsWith('/admin/ai/');
     if (href === '/admin') return pathname === '/admin';
     if (href === '/settings') return pathname === '/settings';
     return pathname === href || pathname.startsWith(`${href}/`);
@@ -372,14 +401,25 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     >
       {/* Logo */}
       <div className={cn('flex items-center gap-3 p-4 border-b border-slate-700', collapsed && 'justify-center')}>
-        <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-amber-500 flex items-center justify-center">
-          <span className="text-white font-black text-lg">K</span>
-        </div>
-        {!collapsed && (
-          <div>
-            <p className="font-bold text-sm leading-tight">KNEF Gadgets</p>
-            <p className="text-xs text-slate-400">Business OS</p>
-          </div>
+        {orgData?.logoUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={orgData.logoUrl}
+            alt={orgData?.name ?? 'Logo'}
+            className={cn('object-contain', collapsed ? 'h-8 w-8' : 'h-10 w-auto max-w-[140px]')}
+          />
+        ) : (
+          <>
+            <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-amber-500 flex items-center justify-center">
+              <span className="text-white font-black text-lg">K</span>
+            </div>
+            {!collapsed && (
+              <div>
+                <p className="font-bold text-sm leading-tight">{orgData?.name ?? 'KNEF Gadgets'}</p>
+                <p className="text-xs text-slate-400">Business OS</p>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -419,10 +459,15 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
         {/* User info + logout */}
         <div className={cn('flex items-center gap-3 px-3 py-2 mt-2', collapsed && 'justify-center')}>
-          <div className="w-8 h-8 rounded-full bg-slate-600 flex items-center justify-center flex-shrink-0">
-            <span className="text-xs font-bold text-white uppercase">
-              {user?.firstName?.[0]}{user?.lastName?.[0]}
-            </span>
+          <div className="w-8 h-8 rounded-full bg-slate-600 flex items-center justify-center flex-shrink-0 overflow-hidden">
+            {userProfile?.avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={userProfile.avatarUrl} alt="avatar" className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-xs font-bold text-white uppercase">
+                {user?.firstName?.[0]}{user?.lastName?.[0]}
+              </span>
+            )}
           </div>
           {!collapsed && (
             <div className="flex-1 min-w-0">

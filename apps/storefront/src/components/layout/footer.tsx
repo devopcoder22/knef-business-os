@@ -1,21 +1,32 @@
-import Link from 'next/link';
-import { Zap, MapPin, Phone, Mail } from 'lucide-react';
+'use client';
 
-const STORE_NAME = process.env.NEXT_PUBLIC_STORE_NAME ?? 'KNEF Gadgets';
+import Link from 'next/link';
+import { MapPin, Phone, Mail } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { fetchStorefrontSettings } from '@/lib/api';
+
+const DEFAULT_STORE_NAME = process.env.NEXT_PUBLIC_STORE_NAME ?? 'KNEF Gadgets';
 const YEAR = new Date().getFullYear();
 
 export function Footer() {
+  const { data: settings = {} } = useQuery({
+    queryKey: ['storefront-settings'],
+    queryFn: fetchStorefrontSettings,
+    staleTime: 60_000,
+  });
+
+  const STORE_NAME = settings.storeName || DEFAULT_STORE_NAME;
+  const logoSrc = settings.logoUrl || '/logo.png';
+
   return (
     <footer className="bg-knef-primary text-white mt-16">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
           {/* Brand */}
           <div className="lg:col-span-2">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 rounded-lg bg-knef-secondary flex items-center justify-center">
-                <Zap size={16} className="text-knef-primary" />
-              </div>
-              <span className="font-bold text-lg">{STORE_NAME}</span>
+            <div className="mb-4">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={logoSrc} alt={STORE_NAME} className="h-24 w-auto object-contain brightness-0 invert" />
             </div>
             <p className="text-blue-200 text-sm leading-relaxed max-w-sm">
               Your trusted destination for smartphones, gadgets, and consumer
@@ -82,7 +93,7 @@ export function Footer() {
         </div>
 
         <div className="mt-10 pt-6 border-t border-blue-800 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-blue-300">
-          <p>&copy; {YEAR} KNEF Technology & IT Solutions. All rights reserved.</p>
+          <p>&copy; {YEAR} {STORE_NAME}. All rights reserved.</p>
           <p>Powered by KNEF Business OS</p>
         </div>
       </div>

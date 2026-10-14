@@ -47,22 +47,27 @@ export default function NewGoodsReceiptPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [serializedInputs, setSerializedInputs] = useState<Record<string, string[]>>({});
 
-  // Fetch approved/partially_received POs
+  // Fetch approved + partially received POs
   const { data: posData } = useQuery<{ data: PurchaseOrder[] }>({
     queryKey: ['pos-for-receipt'],
     queryFn: async () => {
-      const res = await api().get<{ data: PurchaseOrder[] }>(
-        '/purchase-orders?limit=100&status=APPROVED',
-      );
-      return res.data;
+      const [approvedRes, partialRes] = await Promise.all([
+        api().get('/purchase-orders?limit=100&status=APPROVED'),
+        api().get('/purchase-orders?limit=100&status=PARTIALLY_RECEIVED'),
+      ]);
+      const approved: PurchaseOrder[] = (approvedRes.data as any).data ?? [];
+      const partial: PurchaseOrder[] = (partialRes.data as any).data ?? [];
+      const all = [...approved, ...partial];
+      const seen = new Set<string>();
+      return { data: all.filter((po) => { if (seen.has(po.id)) return false; seen.add(po.id); return true; }) };
     },
   });
 
   const { data: selectedPO } = useQuery<PurchaseOrder>({
     queryKey: ['po-detail-for-receipt', purchaseOrderId],
     queryFn: async () => {
-      const res = await api().get<PurchaseOrder>(`/purchase-orders/${purchaseOrderId}`);
-      return res.data;
+      const res = await api().get<{ data: PurchaseOrder }>(`/purchase-orders/${purchaseOrderId}`);
+      return (res.data as any).data as PurchaseOrder;
     },
     enabled: !!purchaseOrderId,
   });
@@ -111,11 +116,11 @@ export default function NewGoodsReceiptPage() {
         notes: notes || undefined,
         items,
       });
-      return (res.data as { id: string }).id;
+      return (res.data as any).data.id as string;
     },
     onSuccess: () => router.push('/purchasing/receipts'),
-    onError: (err: { message?: string; response?: { data?: { message?: string | string[] } } }) => {
-      const msg = err?.response?.data?.message ?? err.message ?? 'Failed to create receipt';
+    onError: (err: any) => {
+      const msg = err?.response?.data?.error?.message ?? err?.response?.data?.message ?? err.message ?? 'Failed to create receipt';
       setErrors({ submit: Array.isArray(msg) ? msg.join(', ') : msg });
     },
   });

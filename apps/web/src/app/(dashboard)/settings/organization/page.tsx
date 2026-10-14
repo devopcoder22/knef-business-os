@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Copy, Check, Save, Loader2, Building2, MapPin } from 'lucide-react';
+import { Copy, Check, Save, Loader2, Building2, MapPin, Upload, ImageIcon } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/stores/auth.store';
 import { PERMISSIONS } from '@knef/constants';
@@ -71,11 +71,14 @@ export default function OrganizationPage() {
   const { hasPermission } = useAuthStore();
   const queryClient = useQueryClient();
   const canEdit = hasPermission(PERMISSIONS.SETTINGS.EDIT);
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   const [form, setForm] = useState({
     name: '', email: '', phone: '', address: '', city: '',
     state: '', country: '', website: '', taxId: '', currency: '', timezone: '',
   });
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
   const [saved, setSaved] = useState(false);
 
   const { data: orgData, isLoading: orgLoading } = useQuery<OrgResponse>({
@@ -110,8 +113,30 @@ export default function OrganizationPage() {
         currency: o.currency ?? '',
         timezone: o.timezone ?? '',
       });
+      setLogoUrl(o.logoUrl ?? null);
     }
   }, [orgData]);
+
+  const uploadLogo = async (file: File) => {
+    setUploadingLogo(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await api().post('/uploads/image', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const url = (res.data as any).data.url as string;
+      setLogoUrl(url);
+      // Save to org + storefront settings simultaneously
+      await Promise.all([
+        api().patch('/organization', { logoUrl: url }),
+        api().post('/settings/storefront', { settings: [{ key: 'storefront.logoUrl', value: url, label: 'Logo URL' }] }),
+      ]);
+      queryClient.invalidateQueries({ queryKey: ['organization'] });
+    } catch {
+      alert('Logo upload failed');
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -209,6 +234,42 @@ export default function OrganizationPage() {
             </button>
           )}
         </div>
+
+        {/* Logo upload */}
+        {canEdit && (
+          <div className="mb-6 pb-6 border-b border-gray-100">
+            <label className="block text-sm font-medium text-gray-700 mb-3">Organisation Logo</label>
+            <div className="flex items-center gap-5">
+              <div className="w-40 h-20 rounded-xl border-2 border-dashed border-gray-200 flex items-center justify-center bg-gray-50 overflow-hidden flex-shrink-0">
+                {logoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={logoUrl} alt="Logo" className="w-full h-full object-contain p-1" />
+                ) : (
+                  <ImageIcon size={28} className="text-gray-300" />
+                )}
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs text-gray-500">Displayed on the public storefront header and footer. Use a PNG with transparent background for best results.</p>
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadLogo(f); }}
+                />
+                <button
+                  type="button"
+                  onClick={() => logoInputRef.current?.click()}
+                  disabled={uploadingLogo}
+                  className="flex items-center gap-2 px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {uploadingLogo ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                  {uploadingLogo ? 'Uploading...' : logoUrl ? 'Change Logo' : 'Upload Logo'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {([

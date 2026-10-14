@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Search, Plus, Minus, Trash2, ShoppingCart, X, CheckCircle, Printer } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, ShoppingCart, X, CheckCircle, Printer, UserPlus } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -182,6 +182,99 @@ function ReceiptModal({ receipt, onClose }: { receipt: ReceiptData; onClose: () 
           <div className="text-center text-xs text-gray-400 pt-3 border-t border-dashed border-gray-300">
             Thank you for shopping at KNEF Gadgets!
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- Quick Add Customer Modal ----
+const COUNTRIES = ['Nigeria','Ghana','Kenya','South Africa','United Kingdom','United States','Canada','UAE','India','Other'];
+
+function QuickAddCustomerModal({
+  onCreated,
+  onClose,
+}: {
+  onCreated: (id: string, name: string) => void;
+  onClose: () => void;
+}) {
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [country, setCountry] = useState('Nigeria');
+  const [error, setError] = useState('');
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const res = await api().post('/customers', {
+        firstName,
+        lastName,
+        phone,
+        email: email || undefined,
+        country: country || undefined,
+        notes: companyName ? `Company: ${companyName}` : undefined,
+      });
+      return (res.data as any).data.id as string;
+    },
+    onSuccess: (id) => onCreated(id, `${firstName} ${lastName}`),
+    onError: (err: any) => {
+      const msg = err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to create customer';
+      setError(Array.isArray(msg) ? msg.join(', ') : msg);
+    },
+  });
+
+  const handleSubmit = () => {
+    if (!firstName.trim() || !lastName.trim() || !phone.trim()) {
+      setError('First name, last name and phone are required');
+      return;
+    }
+    setError('');
+    mutation.mutate();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl max-w-md w-full shadow-2xl p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-gray-900">New Customer</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="col-span-2">
+            <label className="block text-xs font-medium text-gray-700 mb-1">Company Name <span className="text-gray-400">(optional)</span></label>
+            <input type="text" value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="e.g. Acme Ltd." className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">First Name *</label>
+            <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Last Name *</label>
+            <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Phone *</label>
+            <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+2348..." className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Email</label>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div className="col-span-2">
+            <label className="block text-xs font-medium text-gray-700 mb-1">Country</label>
+            <select value={country} onChange={(e) => setCountry(e.target.value)} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+              {COUNTRIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+        </div>
+        {error && <p className="text-xs text-red-500">{error}</p>}
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
+          <button onClick={handleSubmit} disabled={mutation.isPending} className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+            {mutation.isPending ? 'Creating...' : 'Create Customer'}
+          </button>
         </div>
       </div>
     </div>
@@ -390,16 +483,25 @@ export default function POSPage() {
   // Payment state
   const [showPaymentScreen, setShowPaymentScreen] = useState(false);
   const [payments, setPayments] = useState<PaymentSplit[]>([{ method: 'CASH', amount: '' }]);
+  const [saleError, setSaleError] = useState<string | null>(null);
 
   // Receipt
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
 
+  // New customer modal
+  const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
+
   // --- Queries ---
-  const { data: sessionData, isLoading: sessionLoading } = useQuery<POSSession>({
+  const { data: sessionData, isLoading: sessionLoading } = useQuery<POSSession | null>({
     queryKey: ['pos-current-session'],
     queryFn: async () => {
-      const res = await api().get<{ data: POSSession }>('/pos/sessions/current');
-      return res.data.data;
+      try {
+        const res = await api().get<{ data: POSSession }>('/pos/sessions/current');
+        return res.data.data;
+      } catch (err: any) {
+        if (err?.response?.status === 404) return null;
+        throw err;
+      }
     },
     retry: false,
   });
@@ -500,8 +602,8 @@ export default function POSPage() {
       setScanError(null);
       setTimeout(() => setScanSuccess(null), 2000);
     },
-    onError: (err: { message?: string; response?: { data?: { message?: string } } }) => {
-      const msg = err?.response?.data?.message ?? err.message ?? 'Not found';
+    onError: (err: any) => {
+      const msg = err?.response?.data?.error?.message ?? err?.response?.data?.message ?? err.message ?? 'Not found';
       setScanError(msg);
       setTimeout(() => setScanError(null), 3000);
     },
@@ -570,9 +672,14 @@ export default function POSPage() {
       setCart([]);
       setPayments([{ method: 'CASH', amount: '' }]);
       setShowPaymentScreen(false);
+      setSaleError(null);
       setSelectedCustomerId(null);
       setSelectedCustomerName('');
       queryClient.invalidateQueries({ queryKey: ['pos-current-session'] });
+    },
+    onError: (err: any) => {
+      const msg = err?.response?.data?.error?.message ?? err?.response?.data?.message ?? err.message ?? 'Sale failed';
+      setSaleError(Array.isArray(msg) ? msg.join(', ') : msg);
     },
   });
 
@@ -766,6 +873,12 @@ export default function POSPage() {
           )}
         </div>
 
+        {saleError && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+            {saleError}
+          </div>
+        )}
+
         <button
           onClick={() => processSaleMutation.mutate()}
           disabled={totalPaid < cartTotal - 0.001 || processSaleMutation.isPending || cart.length === 0}
@@ -885,28 +998,37 @@ export default function POSPage() {
 
         {/* Customer Search */}
         <div className="px-3 py-2 border-b border-gray-100">
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Search customer (optional)..."
-              value={selectedCustomerName || customerSearch}
-              onChange={(e) => {
-                setCustomerSearch(e.target.value);
-                if (selectedCustomerId) {
-                  setSelectedCustomerId(null);
-                  setSelectedCustomerName('');
-                }
-              }}
-              className="w-full px-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-            {selectedCustomerId && (
-              <button
-                onClick={() => { setSelectedCustomerId(null); setSelectedCustomerName(''); setCustomerSearch(''); }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-              >
-                <X size={12} />
-              </button>
-            )}
+          <div className="flex gap-1.5">
+            <div className="relative flex-1">
+              <input
+                type="text"
+                placeholder="Search customer (optional)..."
+                value={selectedCustomerName || customerSearch}
+                onChange={(e) => {
+                  setCustomerSearch(e.target.value);
+                  if (selectedCustomerId) {
+                    setSelectedCustomerId(null);
+                    setSelectedCustomerName('');
+                  }
+                }}
+                className="w-full px-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              {selectedCustomerId && (
+                <button
+                  onClick={() => { setSelectedCustomerId(null); setSelectedCustomerName(''); setCustomerSearch(''); }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+            <button
+              onClick={() => setShowNewCustomerModal(true)}
+              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-200 flex-shrink-0"
+              title="Add new customer"
+            >
+              <UserPlus size={14} />
+            </button>
           </div>
           {customers.length > 0 && !selectedCustomerId && customerSearch.length >= 2 && (
             <div className="mt-1 border border-gray-200 rounded-lg overflow-hidden shadow-sm">
@@ -1061,6 +1183,18 @@ export default function POSPage() {
         <ReceiptModal
           receipt={receipt}
           onClose={() => setReceipt(null)}
+        />
+      )}
+
+      {showNewCustomerModal && (
+        <QuickAddCustomerModal
+          onCreated={(id, name) => {
+            setSelectedCustomerId(id);
+            setSelectedCustomerName(name);
+            setCustomerSearch('');
+            setShowNewCustomerModal(false);
+          }}
+          onClose={() => setShowNewCustomerModal(false)}
         />
       )}
     </div>

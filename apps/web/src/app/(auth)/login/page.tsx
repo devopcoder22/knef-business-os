@@ -57,9 +57,8 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-amber-500 mb-4 shadow-lg">
-            <span className="text-white font-black text-2xl">K</span>
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="KNEF Gadgets" className="h-24 w-auto object-contain mx-auto mb-4" />
           <h1 className="text-3xl font-bold text-white">KNEF Business OS</h1>
           <p className="text-blue-300 mt-1 text-sm">Gadgets & Electronics Management</p>
         </div>

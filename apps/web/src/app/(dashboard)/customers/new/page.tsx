@@ -18,10 +18,19 @@ export default function NewCustomerPage() {
   const [address, setAddress] = useState('');
   const [city, setCity] = useState('');
   const [state, setState] = useState('');
+  const [country, setCountry] = useState('Nigeria');
   const [dateOfBirth, setDateOfBirth] = useState('');
   const [gender, setGender] = useState('');
+  const [companyName, setCompanyName] = useState('');
   const [notes, setNotes] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const COUNTRIES = [
+    'Nigeria','Ghana','Kenya','South Africa','Tanzania','Uganda','Ethiopia','Rwanda',
+    'Senegal','Cameroon','Côte d\'Ivoire','Angola','Mozambique','Zambia','Zimbabwe',
+    'United Kingdom','United States','Canada','Australia','Germany','France','Italy',
+    'Spain','Netherlands','Belgium','Switzerland','UAE','Saudi Arabia','India','China',
+  ];
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -34,15 +43,16 @@ export default function NewCustomerPage() {
         address: address || undefined,
         city: city || undefined,
         state: state || undefined,
+        country: country || undefined,
         dateOfBirth: dateOfBirth || undefined,
         gender: gender || undefined,
-        notes: notes || undefined,
+        notes: companyName ? `Company: ${companyName}${notes ? '\n' + notes : ''}` : notes || undefined,
       });
-      return (res.data as { id: string }).id;
+      return (res.data as any).data.id as string;
     },
     onSuccess: (id) => router.push(`/customers/${id}`),
-    onError: (err: { response?: { data?: { message?: string | string[] } } }) => {
-      const msg = err?.response?.data?.message ?? 'Failed to create customer';
+    onError: (err: any) => {
+      const msg = err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to create customer';
       setErrors({ submit: Array.isArray(msg) ? msg.join(', ') : msg });
     },
   });
@@ -77,6 +87,16 @@ export default function NewCustomerPage() {
         <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
           <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Personal Info</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Company Name <span className="text-gray-400 text-xs">(optional)</span></label>
+              <input
+                type="text"
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                placeholder="e.g. Acme Ltd."
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 First Name <span className="text-red-500">*</span>
@@ -176,6 +196,18 @@ export default function NewCustomerPage() {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">State</label>
               <input type="text" value={state} onChange={(e) => setState(e.target.value)} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Country</label>
+              <select
+                value={country}
+                onChange={(e) => setCountry(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {COUNTRIES.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
             </div>
           </div>
         </div>

@@ -59,7 +59,7 @@ export default function SalesReceiptDetailPage() {
     queryKey: ['sales-receipt', id],
     queryFn: async () => {
       const res = await api().get<ReceiptDetail>(`/receipts/${id}`);
-      return res.data;
+      return (res.data as any).data as ReceiptDetail;
     },
   });
 

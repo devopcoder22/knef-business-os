@@ -3,9 +3,89 @@
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Save, Search, Trash2 } from 'lucide-react';
+import { ArrowLeft, Save, Search, Trash2, UserPlus, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+
+const QUICK_COUNTRIES = ['Nigeria','Ghana','Kenya','South Africa','United Kingdom','United States','Canada','UAE','India','Other'];
+
+function QuickAddCustomerModal({ onCreated, onClose }: { onCreated: (c: Customer) => void; onClose: () => void }) {
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [country, setCountry] = useState('Nigeria');
+  const [error, setError] = useState('');
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const res = await api().post('/customers', {
+        firstName, lastName, phone,
+        email: email || undefined,
+        country: country || undefined,
+        notes: companyName ? `Company: ${companyName}` : undefined,
+      });
+      return (res.data as any).data as Customer;
+    },
+    onSuccess: (c) => onCreated(c),
+    onError: (err: any) => {
+      const msg = err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to create customer';
+      setError(Array.isArray(msg) ? msg.join(', ') : msg);
+    },
+  });
+
+  const handleSubmit = () => {
+    if (!firstName.trim() || !lastName.trim() || !phone.trim()) { setError('First name, last name and phone are required'); return; }
+    setError(''); mutation.mutate();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl max-w-md w-full shadow-2xl p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-gray-900">New Customer</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="col-span-2">
+            <label className="block text-xs font-medium text-gray-700 mb-1">Company Name <span className="text-gray-400">(optional)</span></label>
+            <input type="text" value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="e.g. Acme Ltd." className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">First Name *</label>
+            <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Last Name *</label>
+            <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Phone *</label>
+            <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+2348..." className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Email</label>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div className="col-span-2">
+            <label className="block text-xs font-medium text-gray-700 mb-1">Country</label>
+            <select value={country} onChange={(e) => setCountry(e.target.value)} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+              {QUICK_COUNTRIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+        </div>
+        {error && <p className="text-xs text-red-500">{error}</p>}
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
+          <button onClick={handleSubmit} disabled={mutation.isPending} className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+            {mutation.isPending ? 'Creating...' : 'Create Customer'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface Customer { id: string; firstName: string; lastName: string; phone: string }
 interface Location { id: string; name: string; code: string }
@@ -30,6 +110,7 @@ export default function NewSalesOrderPage() {
 
   const [customerId, setCustomerId] = useState(preselectedCustomerId);
   const [customerSearch, setCustomerSearch] = useState('');
+  const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
   const [locationId, setLocationId] = useState('');
   const [channel, setChannel] = useState('IN_STORE');
   const [notes, setNotes] = useState('');
@@ -57,8 +138,8 @@ export default function NewSalesOrderPage() {
   const { data: selectedCustomer } = useQuery<Customer>({
     queryKey: ['customer-single', customerId],
     queryFn: async () => {
-      const res = await api().get<Customer>(`/customers/${customerId}`);
-      return res.data;
+      const res = await api().get<{ data: Customer }>(`/customers/${customerId}`);
+      return (res.data as any).data as Customer;
     },
     enabled: !!customerId && !customerSearch,
   });
@@ -120,11 +201,11 @@ export default function NewSalesOrderPage() {
           taxRate: '0',
         })),
       });
-      return (res.data as { id: string }).id;
+      return (res.data as any).data.id as string;
     },
     onSuccess: (id) => router.push(`/sales/orders/${id}`),
-    onError: (err: { response?: { data?: { message?: string | string[] } } }) => {
-      const msg = err?.response?.data?.message ?? 'Failed to create order';
+    onError: (err: any) => {
+      const msg = err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to create order';
       setErrors({ submit: Array.isArray(msg) ? msg.join(', ') : msg });
     },
   });
@@ -181,7 +262,19 @@ export default function NewSalesOrderPage() {
               </select>
             </div>
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Customer (optional)</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-sm font-medium text-gray-700">Customer (optional)</label>
+                {!customerId && (
+                  <button
+                    type="button"
+                    onClick={() => setShowNewCustomerModal(true)}
+                    className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
+                  >
+                    <UserPlus size={12} />
+                    New Customer
+                  </button>
+                )}
+              </div>
               <div className="relative">
                 {customerId && (selectedCustomer || preselectedCustomerId) ? (
                   <div className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg bg-blue-50">
@@ -392,6 +485,13 @@ export default function NewSalesOrderPage() {
           </button>
         </div>
       </div>
+
+      {showNewCustomerModal && (
+        <QuickAddCustomerModal
+          onCreated={(c) => { setCustomerId(c.id); setShowNewCustomerModal(false); }}
+          onClose={() => setShowNewCustomerModal(false)}
+        />
+      )}
     </div>
   );
 }

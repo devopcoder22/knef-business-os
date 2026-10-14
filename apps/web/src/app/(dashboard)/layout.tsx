@@ -7,6 +7,8 @@ import { Sidebar } from '@/components/layout/sidebar';
 import { NotificationBell } from '@/components/notifications/notification-bell';
 import { GlobalSearch } from '@/components/search/GlobalSearch';
 import { useAuthStore } from '@/stores/auth.store';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/api';
 
 export default function DashboardLayout({
   children,
@@ -18,6 +20,16 @@ export default function DashboardLayout({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+
+  const { data: userProfile } = useQuery({
+    queryKey: ['user-profile', user?.id],
+    queryFn: async () => {
+      const res = await api().get(`/users/${user!.id}`);
+      return (res.data as any).data;
+    },
+    staleTime: 5 * 60 * 1000,
+    enabled: !!user?.id,
+  });
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -105,10 +117,15 @@ export default function DashboardLayout({
 
             {/* User avatar */}
             <div className="flex items-center gap-2 px-2">
-              <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
-                <span className="text-xs font-bold text-white uppercase">
-                  {user.firstName?.[0]}{user.lastName?.[0]}
-                </span>
+              <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center overflow-hidden">
+                {userProfile?.avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={userProfile.avatarUrl} alt="avatar" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-xs font-bold text-white uppercase">
+                    {user.firstName?.[0]}{user.lastName?.[0]}
+                  </span>
+                )}
               </div>
               <div className="hidden sm:block">
                 <p className="text-sm font-medium text-gray-900">

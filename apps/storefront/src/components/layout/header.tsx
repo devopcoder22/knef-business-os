@@ -2,16 +2,26 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ShoppingCart, Search, Menu, X, Zap } from 'lucide-react';
+import { ShoppingCart, Search, Menu, X } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useCartStore } from '@/stores/cart.store';
+import { fetchStorefrontSettings } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
-const STORE_NAME = process.env.NEXT_PUBLIC_STORE_NAME ?? 'KNEF Gadgets';
+const DEFAULT_STORE_NAME = process.env.NEXT_PUBLIC_STORE_NAME ?? 'KNEF Gadgets';
 
 export function Header() {
   const router = useRouter();
   const totalItems = useCartStore((s) => s.totalItems());
+
+  const { data: settings = {} } = useQuery({
+    queryKey: ['storefront-settings'],
+    queryFn: fetchStorefrontSettings,
+    staleTime: 60_000,
+  });
+
+  const STORE_NAME = settings.storeName || DEFAULT_STORE_NAME;
   const [searchOpen, setSearchOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -42,13 +52,13 @@ export function Header() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-2 shrink-0">
-            <div className="w-8 h-8 rounded-lg bg-knef-primary flex items-center justify-center">
-              <Zap size={16} className="text-knef-secondary" />
-            </div>
-            <span className="font-bold text-knef-primary text-lg leading-tight">
-              {STORE_NAME}
-            </span>
+          <Link href="/" className="shrink-0">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={settings.logoUrl || '/logo.png'}
+              alt={STORE_NAME}
+              className="h-14 w-auto object-contain max-w-[220px]"
+            />
           </Link>
 
           {/* Desktop nav */}
