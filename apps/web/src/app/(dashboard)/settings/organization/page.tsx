@@ -249,7 +249,7 @@ export default function OrganizationPage() {
                 )}
               </div>
               <div className="space-y-2">
-                <p className="text-xs text-gray-500">Displayed on the public storefront header and footer. Use a PNG with transparent background for best results.</p>
+                <p className="text-xs text-gray-500">Displayed on the admin login page and sidebar. Use a PNG with transparent background for best results.</p>
                 <input
                   ref={logoInputRef}
                   type="file"
