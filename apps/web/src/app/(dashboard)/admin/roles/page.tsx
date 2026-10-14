@@ -35,7 +35,7 @@ interface NewRoleForm {
 const EMPTY_ROLE: NewRoleForm = { name: '', description: '', permissions: [] };
 
 export default function AdminRolesPage() {
-  const { hasPermission, hasRole } = useAuthStore();
+  const { hasPermission } = useAuthStore();
   const queryClient = useQueryClient();
   const [selectedRole, setSelectedRole] = useState<Role | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['PRODUCTS', 'SALES']));
@@ -44,7 +44,6 @@ export default function AdminRolesPage() {
   const [newRoleExpandedGroups, setNewRoleExpandedGroups] = useState<Set<string>>(new Set());
 
   const canManage = hasPermission(PERMISSIONS.ADMIN.MANAGE_ROLES);
-  const isSuperAdmin = hasRole('SUPER_ADMIN');
 
   const { data, isLoading } = useQuery<RolesResponse>({
     queryKey: ['roles'],
@@ -123,7 +122,7 @@ export default function AdminRolesPage() {
   const activePermissions = new Set(roleDetail?.permissions?.map((p) => p.permission) ?? []);
 
   const togglePermission = (permission: string) => {
-    if (!roleDetail || !canManage || (roleDetail.isSystem && !isSuperAdmin)) return;
+    if (!roleDetail || !canManage || roleDetail.isSystem) return;
     const newPerms = new Set(activePermissions);
     if (newPerms.has(permission)) {
       newPerms.delete(permission);
@@ -228,7 +227,7 @@ export default function AdminRolesPage() {
                       {role.isActive !== false ? 'Active' : 'Inactive'}
                     </span>
                   </div>
-                  {canManage && (!role.isSystem || isSuperAdmin) && (
+                  {canManage && !role.isSystem && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -259,7 +258,7 @@ export default function AdminRolesPage() {
                   Permissions: {selectedRole.name.replace(/_/g, ' ')}
                 </h3>
                 <div className="flex items-center gap-2">
-                  {selectedRole.isSystem && !isSuperAdmin && (
+                  {selectedRole.isSystem && (
                     <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
                       System role — read only
                     </span>
@@ -308,14 +307,14 @@ export default function AdminRolesPage() {
                           <label
                             key={value}
                             className={`flex items-center gap-3 px-2 py-1.5 rounded cursor-pointer ${
-                              canManage && (!selectedRole.isSystem || isSuperAdmin) ? 'hover:bg-gray-50' : ''
+                              canManage && !selectedRole.isSystem ? 'hover:bg-gray-50' : ''
                             }`}
                           >
                             <input
                               type="checkbox"
                               checked={activePermissions.has(value)}
                               onChange={() => togglePermission(value)}
-                              disabled={!canManage || (selectedRole.isSystem && !isSuperAdmin)}
+                              disabled={!canManage || selectedRole.isSystem}
                               className="w-4 h-4 rounded text-blue-600 border-gray-300 focus:ring-blue-500"
                             />
                             <div>
