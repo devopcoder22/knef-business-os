@@ -118,8 +118,8 @@ export default function EcommercePage() {
 
   const createKeyMutation = useMutation({
     mutationFn: async (data: { name: string; scopes: string[] }) => {
-      const res = await api().post<NewKeyResponse>('/ecommerce/api-keys', data);
-      return res.data;
+      const res = await api().post<{ data: NewKeyResponse }>('/ecommerce/api-keys', data);
+      return res.data.data;
     },
     onSuccess: (data) => {
       setRevealedKey(data);
