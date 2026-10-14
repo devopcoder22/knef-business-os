@@ -61,7 +61,7 @@ export default function InventoryPage() {
       const params = new URLSearchParams();
       if (locationId) params.set('locationId', locationId);
       const res = await api().get<DashboardSummary>(`/inventory/summary?${params}`);
-      return (res.data as any);
+      return (res.data as any).data;
     },
   });
 
@@ -71,7 +71,7 @@ export default function InventoryPage() {
       const params = new URLSearchParams();
       if (locationId) params.set('locationId', locationId);
       const res = await api().get<InventoryLevel[]>(`/inventory?${params}`);
-      return (res.data as any);
+      return (res.data as any).data;
     },
   });
 

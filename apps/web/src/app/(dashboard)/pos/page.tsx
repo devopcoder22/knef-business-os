@@ -398,8 +398,8 @@ export default function POSPage() {
   const { data: sessionData, isLoading: sessionLoading } = useQuery<POSSession>({
     queryKey: ['pos-current-session'],
     queryFn: async () => {
-      const res = await api().get<POSSession>('/pos/sessions/current');
-      return res.data;
+      const res = await api().get<{ data: POSSession }>('/pos/sessions/current');
+      return res.data.data;
     },
     retry: false,
   });
@@ -439,8 +439,8 @@ export default function POSPage() {
   // --- Lookup mutation (barcode/IMEI scan) ---
   const lookupMutation = useMutation({
     mutationFn: async (code: string) => {
-      const res = await api().get<LookupResult>(`/products/lookup?code=${encodeURIComponent(code)}`);
-      return res.data;
+      const res = await api().get<{ data: LookupResult }>(`/products/lookup?code=${encodeURIComponent(code)}`);
+      return res.data.data;
     },
     onSuccess: (data: LookupResult) => {
       const p = data.product;
@@ -550,7 +550,7 @@ export default function POSPage() {
   const processSaleMutation = useMutation({
     mutationFn: async () => {
       const validPayments = payments.filter((p) => parseFloat(p.amount) > 0);
-      const res = await api().post<{ receipt: ReceiptData }>(`/pos/sessions/${session!.id}/sale`, {
+      const res = await api().post<{ data: { receipt: ReceiptData } }>(`/pos/sessions/${session!.id}/sale`, {
         items: cart.map((item) => ({
           productId: item.productId,
           variantId: item.variantId,
@@ -563,7 +563,7 @@ export default function POSPage() {
         payments: validPayments.map((p) => ({ method: p.method, amount: p.amount })),
         customerId: selectedCustomerId,
       });
-      return res.data;
+      return res.data.data;
     },
     onSuccess: (data) => {
       setReceipt(data.receipt);

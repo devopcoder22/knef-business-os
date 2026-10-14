@@ -61,8 +61,8 @@ export default function AIAutonomyPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api().get<AutonomyPolicy[]>('/ai/autonomy/policies');
-      setPolicies(res.data);
+      const res = await api().get<{ data: AutonomyPolicy[] }>('/ai/autonomy/policies');
+      setPolicies(res.data.data);
     } catch {
       setError('Failed to load policies');
     } finally {

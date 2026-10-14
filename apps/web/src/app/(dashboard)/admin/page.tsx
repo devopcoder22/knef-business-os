@@ -88,8 +88,8 @@ export default function AdminOverviewPage() {
   const { data: overview, isLoading } = useQuery<OverviewData>({
     queryKey: ['admin-overview'],
     queryFn: async () => {
-      const res = await api().get<OverviewData>('/admin/overview');
-      return res.data;
+      const res = await api().get<{ data: OverviewData }>('/admin/overview');
+      return res.data.data;
     },
   });
 
@@ -119,13 +119,13 @@ export default function AdminOverviewPage() {
           <>
             <StatCard
               label="Total Users"
-              value={overview?.users.total ?? 0}
+              value={overview?.users?.total ?? 0}
               icon={Users}
               color="bg-blue-50 text-blue-600"
             />
             <StatCard
               label="Active Users"
-              value={overview?.users.active ?? 0}
+              value={overview?.users?.active ?? 0}
               icon={Users}
               color="bg-green-50 text-green-600"
             />

@@ -63,12 +63,12 @@ const QUICK_LINKS = [
 export default function AIHubPage() {
   const { data: providers = [], isLoading: loadingProviders } = useQuery<AIProvider[]>({
     queryKey: ['ai-providers'],
-    queryFn: () => api().get('/ai/providers').then((r) => r.data),
+    queryFn: () => api().get('/ai/providers').then((r) => r.data.data),
   });
 
   const { data: summary } = useQuery<UsageSummary>({
     queryKey: ['ai-usage-summary'],
-    queryFn: () => api().get('/ai/usage/summary').then((r) => r.data),
+    queryFn: () => api().get('/ai/usage/summary').then((r) => r.data.data),
   });
 
   return (

@@ -28,8 +28,8 @@ export default function ApiKeysPage() {
   const { data, isLoading } = useQuery<ApiKey[]>({
     queryKey: ['admin-api-keys'],
     queryFn: async () => {
-      const res = await api().get<ApiKey[]>('/admin/api-keys');
-      return res.data;
+      const res = await api().get<{ data: ApiKey[] }>('/admin/api-keys');
+      return res.data.data;
     },
   });
 

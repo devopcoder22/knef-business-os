@@ -61,8 +61,8 @@ function SecurityPageContent() {
   const { data, isLoading } = useQuery<SecurityEvent[]>({
     queryKey: ['security-events'],
     queryFn: async () => {
-      const res = await api().get<SecurityEvent[]>('/admin/security-events?limit=100');
-      return res.data;
+      const res = await api().get<{ data: SecurityEvent[] }>('/admin/security-events?limit=100');
+      return res.data.data;
     },
   });
 

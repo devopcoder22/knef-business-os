@@ -25,8 +25,8 @@ export default function TaxRatesPage() {
   const { data: taxRates = [], isLoading } = useQuery<TaxRate[]>({
     queryKey: ['tax-rates'],
     queryFn: async () => {
-      const res = await api().get<TaxRate[]>('/tax-rates');
-      return res.data;
+      const res = await api().get<{ data: TaxRate[] }>('/tax-rates');
+      return res.data.data;
     },
   });
 

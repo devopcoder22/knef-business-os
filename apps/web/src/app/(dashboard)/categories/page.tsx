@@ -94,7 +94,7 @@ export default function CategoriesPage() {
     queryKey: ['categories-tree'],
     queryFn: async () => {
       const res = await api().get<Category[]>('/categories');
-      return (res.data as any);
+      return (res.data as any).data;
     },
   });
 

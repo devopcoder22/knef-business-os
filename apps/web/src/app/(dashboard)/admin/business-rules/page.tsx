@@ -167,13 +167,13 @@ export default function BusinessRulesPage() {
 
   const { data: queueData, isLoading: queueLoading, isError: queueError } = useQuery<ApprovalQueue>({
     queryKey: ['business-rules-queue'],
-    queryFn: () => api().get('/business-rules/approvals/queue').then((r) => r.data),
+    queryFn: () => api().get('/business-rules/approvals/queue').then((r) => r.data.data),
     enabled: tab === 'queue',
   });
 
   const { data: historyData, isLoading: historyLoading, isError: historyError } = useQuery<ApprovalHistory>({
     queryKey: ['business-rules-history'],
-    queryFn: () => api().get('/business-rules/approvals/history').then((r) => r.data),
+    queryFn: () => api().get('/business-rules/approvals/history').then((r) => r.data.data),
     enabled: tab === 'history',
   });
 

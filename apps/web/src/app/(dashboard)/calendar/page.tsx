@@ -75,7 +75,7 @@ export default function CalendarPage() {
 
   const { data: connectionsData } = useQuery({
     queryKey: ['calendar-connections'],
-    queryFn: () => api().get('/calendar/connections').then((r) => r.data),
+    queryFn: () => api().get('/calendar/connections').then((r) => r.data.data),
   });
   const connections: CalendarConnection[] = connectionsData ?? [];
   const activeConnection = connections.find((c) => c.isActive);
