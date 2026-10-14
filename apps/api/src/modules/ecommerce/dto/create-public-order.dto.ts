@@ -8,7 +8,6 @@ import {
   Min,
   IsIn,
   MaxLength,
-  IsNumberString,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -80,6 +79,6 @@ export class CreatePublicOrderDto {
   customerAccountId?: string;
 
   @IsOptional()
-  @IsNumberString()
-  deliveryFee?: string;
+  @IsIn(['PICKUP', 'DELIVERY'])
+  deliveryMethod?: 'PICKUP' | 'DELIVERY';
 }

@@ -31,6 +31,22 @@ export class EcommerceService {
     private readonly inventoryService: InventoryService,
   ) {}
 
+  /**
+   * Server-authoritative delivery fee calculator.
+   *
+   * The public checkout DTO MUST NOT accept a client-supplied delivery fee —
+   * all monetary values on an order are computed on the server from trusted
+   * inputs (delivery method, address/zone, configured rates).
+   *
+   * Current pricing policy (no shipping engine configured yet):
+   *   - PICKUP            → 0
+   *   - DELIVERY          → 0  (returned as-is until Stage 25 adds courier/zone pricing)
+   *   - unspecified/other → 0
+   */
+  private calculateDeliveryFee(_deliveryMethod?: string | null): Prisma.Decimal {
+    return new Prisma.Decimal(0);
+  }
+
   // ── Public: Products ─────────────────────────────────────────
 
   async getPublicProducts(organizationId: string, query: PublicProductsQueryDto) {
@@ -389,10 +405,10 @@ export class EcommerceService {
       });
     }
 
-    // Parse delivery fee
-    const deliveryFee = dto.deliveryFee
-      ? new Prisma.Decimal(dto.deliveryFee)
-      : new Prisma.Decimal(0);
+    // Server-authoritative delivery fee — NEVER accept from client.
+    // Current behaviour: zero fee for all methods (no delivery pricing engine yet).
+    // When Stage 25 adds courier/zone pricing, extend this helper.
+    const deliveryFee = this.calculateDeliveryFee(dto.deliveryMethod);
 
     const totalAmount = subtotal.add(deliveryFee);
 

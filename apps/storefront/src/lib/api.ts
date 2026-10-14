@@ -77,11 +77,12 @@ export interface CheckoutPayload {
   deliveryCity?: string;
   deliveryState?: string;
   deliveryPhone?: string;
+  deliveryMethod?: 'PICKUP' | 'DELIVERY';
   paymentMethod: 'CASH' | 'BANK_TRANSFER';
   notes?: string;
   items: Array<{ productId: string; variantId?: string; quantity: number }>;
   idempotencyKey?: string;
-  deliveryFee?: string;
+  // NOTE: delivery fee is server-authoritative — never sent from the client.
   customerAccountId?: string;
 }
 

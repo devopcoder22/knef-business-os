@@ -26,7 +26,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const payload = { ...body, locationId };
+    // Server-authoritative monetary fields — strip anything the client sends
+    // that would influence pricing. The backend DTO also forbids these, but
+    // we strip at the BFF edge so a tampered client can't even forward them.
+    const {
+      deliveryFee: _ignoredDeliveryFee,
+      subtotal: _ignoredSubtotal,
+      totalAmount: _ignoredTotalAmount,
+      discountAmount: _ignoredDiscountAmount,
+      taxAmount: _ignoredTaxAmount,
+      ...sanitized
+    } = body;
+    void _ignoredDeliveryFee;
+    void _ignoredSubtotal;
+    void _ignoredTotalAmount;
+    void _ignoredDiscountAmount;
+    void _ignoredTaxAmount;
+
+    const payload = { ...sanitized, locationId };
 
     const res = await fetch(`${BACKEND}/api/v1/ecommerce/public/orders`, {
       method: 'POST',

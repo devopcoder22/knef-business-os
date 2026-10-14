@@ -44,14 +44,15 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
-# Next.js standalone output does not include public folder — copy separately
-COPY --from=builder /app/apps/storefront/public ./public 2>/dev/null || true
-
-RUN mkdir -p .next && chown nextjs:nodejs .next
-
-# Standalone output
+# Standalone output (brings apps/storefront/server.js and traced node_modules)
 COPY --from=builder --chown=nextjs:nodejs /app/apps/storefront/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/apps/storefront/.next/static ./apps/storefront/.next/static
+
+# Next.js standalone output does not include the public folder — copy it next to server.js
+# so the standalone server can serve /robots.txt and other static assets.
+COPY --from=builder --chown=nextjs:nodejs /app/apps/storefront/public ./apps/storefront/public
+
+RUN mkdir -p apps/storefront/.next && chown nextjs:nodejs apps/storefront/.next
 
 USER nextjs
 
