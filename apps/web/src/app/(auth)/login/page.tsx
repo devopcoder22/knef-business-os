@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
@@ -24,6 +24,14 @@ export default function LoginPage() {
   const { setAuth } = useAuthStore();
   const [showPassword, setShowPassword] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/branding')
+      .then((r) => r.json())
+      .then((d) => { if (d.logoUrl) setLogoUrl(d.logoUrl); })
+      .catch(() => {});
+  }, []);
 
   const {
     register,
@@ -58,7 +66,7 @@ export default function LoginPage() {
         {/* Logo */}
         <div className="text-center mb-8">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.png" alt="KNEF Gadgets" className="h-24 w-auto object-contain mx-auto mb-4" />
+          <img src={logoUrl ?? '/logo.png'} alt="KNEF Gadgets" className="h-24 w-auto object-contain mx-auto mb-4" />
           <h1 className="text-3xl font-bold text-white">KNEF Business OS</h1>
           <p className="text-blue-300 mt-1 text-sm">Gadgets & Electronics Management</p>
         </div>

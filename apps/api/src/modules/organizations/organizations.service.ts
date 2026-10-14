@@ -22,6 +22,13 @@ export class OrganizationsService {
     return org;
   }
 
+  async publicBranding() {
+    const org = await this.prisma.organization.findFirst({
+      select: { name: true, logoUrl: true },
+    });
+    return { name: org?.name ?? 'KNEF Business OS', logoUrl: org?.logoUrl ?? null };
+  }
+
   async update(organizationId: string, dto: UpdateOrganizationDto) {
     const org = await this.prisma.organization.findUnique({
       where: { id: organizationId },
