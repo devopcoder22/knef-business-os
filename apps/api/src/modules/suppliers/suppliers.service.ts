@@ -290,11 +290,15 @@ export class SuppliersService {
   // ── Helpers ───────────────────────────────────────────────────
 
   private async updateSearchVector(supplierId: string) {
-    await this.prisma.$executeRaw`
-      UPDATE suppliers SET search_vector = to_tsvector('english',
-        coalesce(name,'') || ' ' || coalesce(code,'') || ' ' ||
-        coalesce(email,'') || ' ' || coalesce(phone,'')
-      ) WHERE id = ${supplierId}
-    `;
+    try {
+      await this.prisma.$executeRaw`
+        UPDATE "Supplier" SET search_vector = to_tsvector('english',
+          coalesce(name,'') || ' ' || coalesce(code,'') || ' ' ||
+          coalesce(email,'') || ' ' || coalesce(phone,'')
+        ) WHERE id = ${supplierId}
+      `;
+    } catch {
+      // search_vector column is optional; silently skip if not present
+    }
   }
 }

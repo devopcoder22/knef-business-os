@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -12,6 +12,11 @@ import {
   Shield,
   Plus,
   Trash2,
+  Upload,
+  Edit2,
+  Save,
+  X,
+  Briefcase,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { api } from '@/lib/api';
@@ -33,6 +38,16 @@ interface PermissionOverride {
   granted: boolean;
 }
 
+interface Employee {
+  id: string;
+  employeeNumber: string;
+  jobTitle: string | null;
+  employmentType: string;
+  startDate: string;
+  department: { id: string; name: string } | null;
+  location: { id: string; name: string } | null;
+}
+
 interface UserDetail {
   id: string;
   email: string;
@@ -48,6 +63,7 @@ interface UserDetail {
   updatedAt: string;
   roles: UserRole[];
   permissionOverrides: PermissionOverride[];
+  employee: Employee | null;
 }
 
 interface RoleOption {
@@ -261,13 +277,19 @@ export default function UserDetailPage() {
   const [addRoleOpen, setAddRoleOpen] = useState(false);
   const [addRoleForm, setAddRoleForm] = useState({ roleId: '', locationId: '' });
 
+  // Edit profile state
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [profileForm, setProfileForm] = useState({ firstName: '', lastName: '', phone: '' });
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const avatarFileRef = useRef<HTMLInputElement>(null);
+
   // ── Queries ──
 
   const { data: user, isLoading: userLoading } = useQuery<UserDetail>({
     queryKey: ['user', id],
     queryFn: async () => {
-      const res = await api().get<UserDetail>(`/users/${id}`);
-      return res.data;
+      const res = await api().get(`/users/${id}`);
+      return (res.data as any).data as UserDetail;
     },
   });
 
@@ -327,6 +349,31 @@ export default function UserDetailPage() {
     mutationFn: async () => { await api().patch(`/users/${id}/deactivate`); },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['user', id] }),
   });
+
+  const updateProfileMutation = useMutation({
+    mutationFn: async (data: { firstName?: string; lastName?: string; phone?: string; avatarUrl?: string }) => {
+      await api().patch(`/users/${id}/profile`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['user', id] });
+      setEditingProfile(false);
+    },
+  });
+
+  const uploadAvatar = async (file: File) => {
+    setUploadingAvatar(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await api().post('/uploads/image', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const url = (res.data as any).data.url as string;
+      await updateProfileMutation.mutateAsync({ avatarUrl: url });
+    } catch {
+      alert('Avatar upload failed');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
 
   // ── Role mutations ──
 
@@ -437,47 +484,122 @@ export default function UserDetailPage() {
           {/* Profile card */}
           <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-6 space-y-5">
             <div className="flex items-start gap-5">
-              {user.avatarUrl ? (
-                <img
-                  src={user.avatarUrl}
-                  alt={initials}
-                  className="w-16 h-16 rounded-full object-cover"
-                />
-              ) : (
-                <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-xl">
-                  {initials}
-                </div>
-              )}
-              <div className="flex-1">
-                <div className="flex items-center gap-3 flex-wrap">
-                  <h2 className="text-lg font-semibold text-gray-900">
-                    {user.firstName} {user.lastName}
-                  </h2>
-                  <span
-                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                      user.isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                    }`}
-                  >
-                    {user.isActive ? <CheckCircle size={10} /> : <XCircle size={10} />}
-                    {user.isActive ? 'Active' : 'Inactive'}
-                  </span>
-                  {user.isEmailVerified && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
-                      <CheckCircle size={10} />
-                      Email Verified
-                    </span>
-                  )}
-                  {user.twoFactorEnabled && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
-                      <Shield size={10} />
-                      2FA
-                    </span>
-                  )}
-                </div>
-                <p className="text-sm text-gray-500 mt-1">{user.email}</p>
-                {user.phone && <p className="text-sm text-gray-500">{user.phone}</p>}
+              {/* Avatar with upload */}
+              <div className="relative group/avatar shrink-0">
+                {user.avatarUrl ? (
+                  <img src={user.avatarUrl} alt={initials} className="w-16 h-16 rounded-full object-cover" />
+                ) : (
+                  <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-xl">
+                    {initials}
+                  </div>
+                )}
+                {canManageUsers && (
+                  <>
+                    <button
+                      type="button"
+                      disabled={uploadingAvatar}
+                      onClick={() => avatarFileRef.current?.click()}
+                      className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover/avatar:opacity-100 flex items-center justify-center transition-opacity"
+                    >
+                      <Upload size={16} className="text-white" />
+                    </button>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      ref={avatarFileRef}
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadAvatar(f); e.target.value = ''; }}
+                    />
+                  </>
+                )}
               </div>
-              {canManageUsers && (
+
+              <div className="flex-1">
+                {editingProfile ? (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        value={profileForm.firstName}
+                        onChange={(e) => setProfileForm((f) => ({ ...f, firstName: e.target.value }))}
+                        placeholder="First name"
+                        className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <input
+                        type="text"
+                        value={profileForm.lastName}
+                        onChange={(e) => setProfileForm((f) => ({ ...f, lastName: e.target.value }))}
+                        placeholder="Last name"
+                        className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <input
+                      type="tel"
+                      value={profileForm.phone}
+                      onChange={(e) => setProfileForm((f) => ({ ...f, phone: e.target.value }))}
+                      placeholder="Phone number"
+                      className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => updateProfileMutation.mutate({ firstName: profileForm.firstName, lastName: profileForm.lastName, phone: profileForm.phone || undefined })}
+                        disabled={updateProfileMutation.isPending}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        <Save size={12} /> Save
+                      </button>
+                      <button
+                        onClick={() => setEditingProfile(false)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
+                      >
+                        <X size={12} /> Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <h2 className="text-lg font-semibold text-gray-900">
+                        {user.firstName} {user.lastName}
+                      </h2>
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                          user.isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                        }`}
+                      >
+                        {user.isActive ? <CheckCircle size={10} /> : <XCircle size={10} />}
+                        {user.isActive ? 'Active' : 'Inactive'}
+                      </span>
+                      {user.isEmailVerified && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+                          <CheckCircle size={10} />
+                          Email Verified
+                        </span>
+                      )}
+                      {user.twoFactorEnabled && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
+                          <Shield size={10} />
+                          2FA
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-500 mt-1">{user.email}</p>
+                    {user.phone && <p className="text-sm text-gray-500">{user.phone}</p>}
+                    {canManageUsers && (
+                      <button
+                        onClick={() => {
+                          setProfileForm({ firstName: user.firstName, lastName: user.lastName, phone: user.phone ?? '' });
+                          setEditingProfile(true);
+                        }}
+                        className="flex items-center gap-1 mt-2 text-xs text-blue-600 hover:underline"
+                      >
+                        <Edit2 size={11} /> Edit profile
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+              {canManageUsers && !editingProfile && (
                 <div>
                   {user.isActive ? (
                     <button
@@ -563,6 +685,53 @@ export default function UserDetailPage() {
                 </div>
               </dl>
             </div>
+
+            {/* Employee card */}
+            {user.employee ? (
+              <div className="bg-white rounded-xl border border-gray-200 p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Briefcase size={14} className="text-gray-500" />
+                  <h3 className="text-sm font-semibold text-gray-700">Employee Record</h3>
+                </div>
+                <dl className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <dt className="text-gray-500">Number</dt>
+                    <dd className="font-mono text-xs text-gray-700">{user.employee.employeeNumber}</dd>
+                  </div>
+                  {user.employee.jobTitle && (
+                    <div className="flex justify-between">
+                      <dt className="text-gray-500">Title</dt>
+                      <dd className="text-gray-700 text-xs">{user.employee.jobTitle}</dd>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <dt className="text-gray-500">Type</dt>
+                    <dd className="text-gray-700 text-xs">{user.employee.employmentType.replace(/_/g, ' ')}</dd>
+                  </div>
+                  {user.employee.department && (
+                    <div className="flex justify-between">
+                      <dt className="text-gray-500">Department</dt>
+                      <dd className="text-gray-700 text-xs">{user.employee.department.name}</dd>
+                    </div>
+                  )}
+                  {user.employee.location && (
+                    <div className="flex justify-between">
+                      <dt className="text-gray-500">Location</dt>
+                      <dd className="text-gray-700 text-xs">{user.employee.location.name}</dd>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <dt className="text-gray-500">Since</dt>
+                    <dd className="text-gray-700 text-xs">{format(new Date(user.employee.startDate), 'MMM d, yyyy')}</dd>
+                  </div>
+                </dl>
+              </div>
+            ) : (
+              <div className="bg-gray-50 rounded-xl border border-dashed border-gray-200 p-4 text-center">
+                <Briefcase size={20} className="mx-auto text-gray-300 mb-1" />
+                <p className="text-xs text-gray-400">No employee record linked</p>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -70,7 +70,7 @@ export default function TransfersPage() {
       setFormError('');
     },
     onError: (err: any) => {
-      setFormError(err?.response?.data?.message ?? 'Failed to create transfer');
+      setFormError(err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to create transfer');
     },
   });
 
@@ -82,7 +82,7 @@ export default function TransfersPage() {
       queryClient.invalidateQueries({ queryKey: ['stock-transfers'] });
     },
     onError: (err: any) => {
-      alert(err?.response?.data?.message ?? 'Action failed');
+      alert(err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Action failed');
     },
   });
 

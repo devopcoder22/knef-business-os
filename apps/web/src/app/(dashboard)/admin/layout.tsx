@@ -18,6 +18,7 @@ import {
   ShieldAlert,
   Activity,
   Scale,
+  ShoppingBag,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -45,6 +46,7 @@ const ADMIN_NAV: AdminNavItem[] = [
   { label: 'Integrations', href: '/admin/integrations', icon: Plug },
   { label: 'Business Rules', href: '/admin/business-rules', icon: Scale },
   { label: 'Approvals', href: '/admin/approvals', icon: CheckSquare },
+  { label: 'Storefront', href: '/admin/storefront', icon: ShoppingBag },
   { label: 'Audit Logs', href: '/admin/audit', icon: FileText },
   { label: 'Security', href: '/admin/security', icon: ShieldAlert },
   { label: 'System Health', href: '/admin/health', icon: Activity },

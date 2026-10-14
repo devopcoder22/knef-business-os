@@ -104,11 +104,49 @@ export class UsersService {
           },
         },
         permissionOverrides: true,
+        employee: {
+          select: {
+            id: true,
+            employeeNumber: true,
+            jobTitle: true,
+            employmentType: true,
+            startDate: true,
+            department: { select: { id: true, name: true } },
+            location: { select: { id: true, name: true } },
+          },
+        },
       },
     });
 
     if (!user) throw new NotFoundException('User not found');
     return user;
+  }
+
+  async updateUserAdmin(organizationId: string, userId: string, data: { firstName?: string; lastName?: string; phone?: string; avatarUrl?: string }, requestingUser: AuthUser) {
+    const user = await this.prisma.user.findFirst({ where: { id: userId, organizationId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(data.firstName !== undefined && { firstName: data.firstName }),
+        ...(data.lastName !== undefined && { lastName: data.lastName }),
+        ...(data.phone !== undefined && { phone: data.phone || null }),
+        ...(data.avatarUrl !== undefined && { avatarUrl: data.avatarUrl }),
+      },
+      select: { id: true, firstName: true, lastName: true, phone: true, avatarUrl: true, updatedAt: true },
+    });
+
+    await this.auditService.log({
+      organizationId,
+      userId: requestingUser.id,
+      action: 'USER_PROFILE_UPDATED',
+      entity: 'User',
+      entityId: userId,
+      newValues: data,
+    });
+
+    return updated;
   }
 
   async invite(organizationId: string, invitedBy: AuthUser, dto: InviteUserDto) {

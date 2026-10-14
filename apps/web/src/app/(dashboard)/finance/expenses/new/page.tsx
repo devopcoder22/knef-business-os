@@ -35,16 +35,16 @@ export default function NewExpensePage() {
   const { data: categories = [] } = useQuery<ExpenseCategory[]>({
     queryKey: ['expense-categories'],
     queryFn: async () => {
-      const res = await api().get<ExpenseCategory[]>('/expense-categories');
-      return res.data;
+      const res = await api().get<{ data: ExpenseCategory[] }>('/expense-categories');
+      return (res.data as any).data as ExpenseCategory[];
     },
   });
 
   const { data: bankAccounts = [] } = useQuery<BankAccount[]>({
     queryKey: ['bank-accounts'],
     queryFn: async () => {
-      const res = await api().get<BankAccount[]>('/bank-accounts');
-      return res.data;
+      const res = await api().get<{ data: BankAccount[] }>('/bank-accounts');
+      return (res.data as any).data as BankAccount[];
     },
   });
 
@@ -60,11 +60,11 @@ export default function NewExpensePage() {
         currency,
         notes: notes || undefined,
       });
-      return (res.data as { id: string }).id;
+      return (res.data as any).data.id as string;
     },
     onSuccess: () => router.push('/finance/expenses'),
-    onError: (err: { response?: { data?: { message?: string | string[] } } }) => {
-      const msg = err?.response?.data?.message ?? 'Failed to create expense';
+    onError: (err: any) => {
+      const msg = err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to create expense';
       setErrors({ submit: Array.isArray(msg) ? msg.join(', ') : msg });
     },
   });

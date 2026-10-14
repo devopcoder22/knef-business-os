@@ -88,16 +88,16 @@ export default function SupplierDetailPage() {
   const { data: supplier, isLoading } = useQuery<Supplier>({
     queryKey: ['supplier', id],
     queryFn: async () => {
-      const res = await api().get<Supplier>(`/suppliers/${id}`);
-      return res.data;
+      const res = await api().get<{ data: Supplier }>(`/suppliers/${id}`);
+      return (res.data as any).data as Supplier;
     },
   });
 
   const { data: history } = useQuery<PurchaseOrderRow[]>({
     queryKey: ['supplier-history', id],
     queryFn: async () => {
-      const res = await api().get<PurchaseOrderRow[]>(`/suppliers/${id}/purchase-history`);
-      return res.data;
+      const res = await api().get<{ data: PurchaseOrderRow[] }>(`/suppliers/${id}/purchase-history`);
+      return (res.data as any).data as PurchaseOrderRow[];
     },
     enabled: activeTab === 'Purchase History',
   });

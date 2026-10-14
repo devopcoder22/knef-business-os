@@ -53,6 +53,7 @@ import { BusinessIntelligenceModule } from './modules/business-intelligence/busi
 import { BusinessRulesModule } from './modules/business-rules/business-rules.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { StorefrontModule } from './modules/storefront/storefront.module';
+import { UploadsModule } from './modules/uploads/uploads.module';
 
 @Module({
   imports: [
@@ -128,6 +129,7 @@ import { StorefrontModule } from './modules/storefront/storefront.module';
     BusinessRulesModule,
     DashboardModule,
     StorefrontModule,
+    UploadsModule,
   ],
   providers: [
     // Rate limiting — must run before auth so unauthenticated bots are throttled

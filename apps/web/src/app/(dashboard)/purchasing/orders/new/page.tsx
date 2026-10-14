@@ -120,11 +120,11 @@ export default function NewPurchaseOrderPage() {
           discountRate: item.discountRate || '0',
         })),
       });
-      return (res.data as { id: string }).id;
+      return (res.data as any).data.id as string;
     },
     onSuccess: (id) => router.push(`/purchasing/orders/${id}`),
-    onError: (err: { response?: { data?: { message?: string | string[] } } }) => {
-      const msg = err?.response?.data?.message ?? 'Failed to create purchase order';
+    onError: (err: any) => {
+      const msg = err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to create purchase order';
       setErrors({ submit: Array.isArray(msg) ? msg.join(', ') : msg });
     },
   });

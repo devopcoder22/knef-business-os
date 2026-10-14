@@ -61,6 +61,9 @@ export class EcommerceService {
 
     if (query.categoryId) where.categoryId = query.categoryId;
     if (query.brandId) where.brandId = query.brandId;
+    if (query.inStock) {
+      where.inventoryLevels = { some: { quantity: { gt: 0 } } };
+    }
     if (query.search) {
       where.OR = [
         { name: { contains: query.search, mode: 'insensitive' } },

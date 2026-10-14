@@ -164,6 +164,18 @@ export class ProductsController {
     return this.productsService.addImage(user.organizationId, id, dto);
   }
 
+  @Patch(':id/images/:imageId')
+  @Permissions(PERMISSIONS.PRODUCTS.EDIT)
+  @ApiOperation({ summary: 'Update a product image (e.g. set as primary)' })
+  updateImage(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('imageId') imageId: string,
+    @Body() body: { isPrimary?: boolean; altText?: string },
+  ) {
+    return this.productsService.updateImage(user.organizationId, id, imageId, body);
+  }
+
   @Delete(':id/images/:imageId')
   @Permissions(PERMISSIONS.PRODUCTS.EDIT)
   @HttpCode(HttpStatus.OK)

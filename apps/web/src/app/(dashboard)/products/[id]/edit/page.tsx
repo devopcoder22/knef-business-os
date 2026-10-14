@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Save } from 'lucide-react';
+import { ArrowLeft, Save, Upload, Trash2, Star } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -11,6 +11,7 @@ const TABS = [
   { id: 'basic', label: 'Basic Info' },
   { id: 'pricing', label: 'Pricing' },
   { id: 'physical', label: 'Physical' },
+  { id: 'images', label: 'Images' },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
@@ -42,12 +43,15 @@ export default function EditProductPage() {
   const [weight, setWeight] = useState('');
   const [weightUnit, setWeightUnit] = useState('kg');
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [newImageUrl, setNewImageUrl] = useState('');
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const imageFileRef = useRef<HTMLInputElement>(null);
 
   const { data: product, isLoading } = useQuery({
     queryKey: ['product', productId],
     queryFn: async () => {
       const res = await api().get(`/products/${productId}`);
-      return (res.data as any);
+      return (res.data as any).data;
     },
   });
 
@@ -89,6 +93,52 @@ export default function EditProductPage() {
     }
   }, [product]);
 
+  const { data: imagesData, refetch: refetchImages } = useQuery({
+    queryKey: ['product-images', productId],
+    queryFn: async () => {
+      const res = await api().get(`/products/${productId}/images`);
+      return (res.data as any).data as { id: string; url: string; altText: string | null; isPrimary: boolean }[];
+    },
+  });
+  const images = imagesData ?? [];
+
+  const addImageMutation = useMutation({
+    mutationFn: async (url: string) => {
+      await api().post(`/products/${productId}/images`, { url, isPrimary: images.length === 0 });
+    },
+    onSuccess: () => { refetchImages(); setNewImageUrl(''); },
+  });
+
+  const deleteImageMutation = useMutation({
+    mutationFn: async (imageId: string) => {
+      await api().delete(`/products/${productId}/images/${imageId}`);
+    },
+    onSuccess: () => refetchImages(),
+  });
+
+  const setPrimaryMutation = useMutation({
+    mutationFn: async (imageId: string) => {
+      await api().patch(`/products/${productId}/images/${imageId}`, { isPrimary: true });
+    },
+    onSuccess: () => refetchImages(),
+  });
+
+  const uploadImageFile = async (file: File) => {
+    setUploadingImage(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await api().post('/uploads/image', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const url = (res.data as any).data.url as string;
+      await api().post(`/products/${productId}/images`, { url, isPrimary: images.length === 0 });
+      refetchImages();
+    } catch {
+      setErrors((prev) => ({ ...prev, submit: 'Image upload failed' }));
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
   const updateMutation = useMutation({
     mutationFn: async () => {
       await api().patch(`/products/${productId}`, {
@@ -116,7 +166,7 @@ export default function EditProductPage() {
       router.push(`/products/${productId}`);
     },
     onError: (err: any) => {
-      const msg = err?.response?.data?.message ?? 'Failed to update product';
+      const msg = err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to update product';
       setErrors({ submit: Array.isArray(msg) ? msg.join(', ') : msg });
     },
   });
@@ -387,6 +437,62 @@ export default function EditProductPage() {
                     />
                     <span className="text-sm font-medium text-gray-700">Serialized (IMEI tracked)</span>
                   </label>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'images' && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                  {images.map((img) => (
+                    <div key={img.id} className="relative group rounded-lg border border-gray-200 overflow-hidden bg-gray-50">
+                      <img src={img.url} alt={img.altText ?? ''} className="w-full h-28 object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                      {img.isPrimary && (
+                        <span className="absolute top-1 left-1 bg-blue-600 text-white text-xs px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                          <Star size={10} /> Primary
+                        </span>
+                      )}
+                      <div className="absolute top-1 right-1 hidden group-hover:flex gap-1">
+                        {!img.isPrimary && (
+                          <button type="button" onClick={() => setPrimaryMutation.mutate(img.id)} className="p-1 bg-white rounded shadow text-blue-600 hover:bg-blue-50" title="Set as primary">
+                            <Star size={12} />
+                          </button>
+                        )}
+                        <button type="button" onClick={() => deleteImageMutation.mutate(img.id)} className="p-1 bg-white rounded shadow text-red-500 hover:bg-red-50">
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2 pt-2 border-t border-gray-100">
+                  <input
+                    type="url"
+                    value={newImageUrl}
+                    onChange={(e) => setNewImageUrl(e.target.value)}
+                    placeholder="Paste image URL..."
+                    className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    type="button"
+                    disabled={!newImageUrl}
+                    onClick={() => { if (newImageUrl) addImageMutation.mutate(newImageUrl); }}
+                    className="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    Add URL
+                  </button>
+                  <input type="file" accept="image/*" className="hidden" ref={imageFileRef}
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImageFile(f); e.target.value = ''; }}
+                  />
+                  <button
+                    type="button"
+                    disabled={uploadingImage}
+                    onClick={() => imageFileRef.current?.click()}
+                    className="flex items-center gap-1 px-3 py-2 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    <Upload size={14} />
+                    {uploadingImage ? 'Uploading...' : 'Upload'}
+                  </button>
                 </div>
               </div>
             )}

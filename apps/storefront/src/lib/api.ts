@@ -161,3 +161,37 @@ export async function getMyOrder(token: string, reference: string) {
     headers: { Authorization: `Bearer ${token}` },
   });
 }
+
+export interface StorefrontSettings {
+  storeName?: string;
+  logoUrl?: string;
+  heroTitle?: string;
+  heroSubtitle?: string;
+  heroCtaText?: string;
+  heroBadgeText?: string;
+  featuredTitle?: string;
+  categoryTitle?: string;
+  ctaBannerTitle?: string;
+  ctaBannerText?: string;
+  announcementEnabled?: boolean;
+  announcementText?: string;
+  announcementColor?: string;
+}
+
+export async function fetchStorefrontSettings(): Promise<StorefrontSettings> {
+  try {
+    const res: { data: Array<{ key: string; value: string }> } = await apiFetch('/api/storefront-settings');
+    const settings: StorefrontSettings = {};
+    for (const item of res.data ?? []) {
+      const shortKey = item.key.replace('storefront.', '') as keyof StorefrontSettings;
+      if (shortKey === 'announcementEnabled') {
+        (settings as any)[shortKey] = item.value === 'true';
+      } else {
+        (settings as any)[shortKey] = item.value;
+      }
+    }
+    return settings;
+  } catch {
+    return {};
+  }
+}

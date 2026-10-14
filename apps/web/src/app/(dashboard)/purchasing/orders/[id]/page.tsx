@@ -80,8 +80,8 @@ export default function PurchaseOrderDetailPage() {
   const { data: order, isLoading } = useQuery<PurchaseOrder>({
     queryKey: ['purchase-order', id],
     queryFn: async () => {
-      const res = await api().get<PurchaseOrder>(`/purchase-orders/${id}`);
-      return res.data;
+      const res = await api().get(`/purchase-orders/${id}`);
+      return (res.data as any).data as PurchaseOrder;
     },
   });
 

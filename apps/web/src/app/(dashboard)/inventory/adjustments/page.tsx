@@ -98,7 +98,7 @@ export default function AdjustmentsPage() {
       setFormError('');
     },
     onError: (err: any) => {
-      setFormError(err?.response?.data?.message ?? 'Failed to create adjustment');
+      setFormError(err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to create adjustment');
     },
   });
 
@@ -110,7 +110,7 @@ export default function AdjustmentsPage() {
       queryClient.invalidateQueries({ queryKey: ['stock-adjustments'] });
     },
     onError: (err: any) => {
-      alert(err?.response?.data?.message ?? 'Failed to approve');
+      alert(err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to approve');
     },
   });
 

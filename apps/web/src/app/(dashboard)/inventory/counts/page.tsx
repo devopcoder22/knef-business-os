@@ -70,7 +70,7 @@ export default function StockCountsPage() {
       setFormError('');
     },
     onError: (err: any) => {
-      setFormError(err?.response?.data?.message ?? 'Failed to start count');
+      setFormError(err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to start count');
     },
   });
 
@@ -82,7 +82,7 @@ export default function StockCountsPage() {
       queryClient.invalidateQueries({ queryKey: ['stock-counts'] });
     },
     onError: (err: any) => {
-      alert(err?.response?.data?.message ?? 'Failed to approve');
+      alert(err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to approve');
     },
   });
 

@@ -429,7 +429,7 @@ export default function BusinessRulesPage() {
 
           {updateMutation.isError && (
             <div className="mx-6 mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-              {(updateMutation.error as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to save rules. Please try again.'}
+              {(updateMutation.error as { response?: { data?: { error?: { message?: string }; message?: string } } })?.response?.data?.error?.message ?? (updateMutation.error as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to save rules. Please try again.'}
             </div>
           )}
         </div>

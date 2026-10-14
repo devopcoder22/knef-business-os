@@ -50,6 +50,7 @@ async function bootstrap(): Promise<void> {
         },
       },
       crossOriginEmbedderPolicy: false, // needed for some API clients
+      crossOriginResourcePolicy: { policy: 'cross-origin' }, // allow /uploads/* to load from other origins
     }),
   );
 
@@ -125,6 +126,15 @@ async function bootstrap(): Promise<void> {
     });
     logger.log(`Swagger UI: http://localhost:${port}/api/docs`);
   }
+
+  // Serve uploaded files at /uploads/*
+  const uploadDir = configService.get<string>('UPLOAD_DIR', '/app/uploads');
+  app.useStaticAssets(uploadDir, {
+    prefix: '/uploads',
+    setHeaders: (res: import('express').Response) => {
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    },
+  });
 
   // Graceful shutdown — allow in-flight requests to complete before exit
   app.enableShutdownHooks();

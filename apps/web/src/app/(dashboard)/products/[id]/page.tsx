@@ -48,7 +48,7 @@ export default function ProductDetailPage() {
     queryKey: ['product', productId],
     queryFn: async () => {
       const res = await api().get(`/products/${productId}`);
-      return (res.data as any);
+      return (res.data as any).data;
     },
   });
 
@@ -56,7 +56,7 @@ export default function ProductDetailPage() {
     queryKey: ['product-movements', productId],
     queryFn: async () => {
       const res = await api().get(`/inventory/${productId}/movements?limit=20`);
-      return (res.data as any);
+      return (res.data as any).data;
     },
     enabled: activeTab === 'activity',
   });

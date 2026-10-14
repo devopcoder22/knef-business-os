@@ -149,6 +149,7 @@ export default function ProductDetailPage() {
                 alt={product.name}
                 fill
                 priority
+                unoptimized
                 sizes="(max-width: 1024px) 100vw, 50vw"
                 className="object-contain p-6"
               />
@@ -178,6 +179,7 @@ export default function ProductDetailPage() {
                     alt={`${product.name} image ${idx + 1}`}
                     width={64}
                     height={64}
+                    unoptimized
                     className="object-contain w-full h-full"
                   />
                 </button>

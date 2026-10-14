@@ -488,6 +488,23 @@ export class ProductsService {
     });
   }
 
+  async updateImage(
+    organizationId: string,
+    productId: string,
+    imageId: string,
+    dto: { isPrimary?: boolean; altText?: string },
+  ) {
+    const product = await this.prisma.product.findFirst({ where: { id: productId, organizationId } });
+    if (!product) throw new NotFoundException('Product not found');
+    if (dto.isPrimary) {
+      await this.prisma.productImage.updateMany({ where: { productId }, data: { isPrimary: false } });
+    }
+    return this.prisma.productImage.update({
+      where: { id: imageId },
+      data: { ...(dto.isPrimary !== undefined && { isPrimary: dto.isPrimary }), ...(dto.altText !== undefined && { altText: dto.altText }) },
+    });
+  }
+
   async reorderImages(
     organizationId: string,
     productId: string,
@@ -640,13 +657,17 @@ export class ProductsService {
   }
 
   private async updateSearchVector(productId: string) {
-    await this.prisma.$executeRaw`
-      UPDATE products SET search_vector = to_tsvector('english',
-        coalesce(name,'') || ' ' || coalesce(sku,'') || ' ' ||
-        coalesce(barcode,'') || ' ' || coalesce(gtin,'') || ' ' ||
-        coalesce(description,'')
-      ) WHERE id = ${productId}
-    `;
+    try {
+      await this.prisma.$executeRaw`
+        UPDATE "Product" SET search_vector = to_tsvector('english',
+          coalesce(name,'') || ' ' || coalesce(sku,'') || ' ' ||
+          coalesce(barcode,'') || ' ' || coalesce(gtin,'') || ' ' ||
+          coalesce(description,'')
+        ) WHERE id = ${productId}
+      `;
+    } catch {
+      // search_vector column is optional; silently skip if not present
+    }
   }
 
   private async generateUniqueSlug(

@@ -90,7 +90,7 @@ export default function SerializedUnitsPage() {
       setFormError('');
     },
     onError: (err: any) => {
-      setFormError(err?.response?.data?.message ?? 'Failed to register unit');
+      setFormError(err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to register unit');
     },
   });
 

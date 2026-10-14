@@ -876,11 +876,15 @@ export class CustomersService {
   }
 
   private async updateSearchVector(customerId: string) {
-    await this.prisma.$executeRaw`
-      UPDATE customers SET search_vector = to_tsvector('english',
-        coalesce(first_name,'') || ' ' || coalesce(last_name,'') || ' ' ||
-        coalesce(phone,'') || ' ' || coalesce(email,'') || ' ' || coalesce(code,'')
-      ) WHERE id = ${customerId}
-    `;
+    try {
+      await this.prisma.$executeRaw`
+        UPDATE "Customer" SET search_vector = to_tsvector('english',
+          coalesce(first_name,'') || ' ' || coalesce(last_name,'') || ' ' ||
+          coalesce(phone,'') || ' ' || coalesce(email,'') || ' ' || coalesce(code,'')
+        ) WHERE id = ${customerId}
+      `;
+    } catch {
+      // search_vector column is optional; silently skip if not present
+    }
   }
 }

@@ -59,6 +59,17 @@ export class UsersController {
     return this.usersService.invite(user.organizationId, user, dto);
   }
 
+  @Patch(':id/profile')
+  @Permissions(PERMISSIONS.ADMIN.MANAGE_USERS)
+  @ApiOperation({ summary: 'Update a user profile (admin)' })
+  updateUser(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: { firstName?: string; lastName?: string; phone?: string; avatarUrl?: string },
+  ) {
+    return this.usersService.updateUserAdmin(user.organizationId, id, body, user);
+  }
+
   @Patch(':id/activate')
   @Permissions(PERMISSIONS.ADMIN.MANAGE_USERS)
   @HttpCode(HttpStatus.OK)

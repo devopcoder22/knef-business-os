@@ -12,6 +12,7 @@ import {
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiSecurity } from '@nestjs/swagger';
 import { Request } from 'express';
 import { EcommerceService } from './ecommerce.service';
+import { SettingsService } from '../settings/settings.service';
 import { ApiKeyGuard } from '../../common/guards/api-key.guard';
 import { ApiKeyScopeGuard } from '../../common/guards/api-key-scope.guard';
 import { RequireApiScope } from '../../common/decorators/require-api-scope.decorator';
@@ -20,7 +21,7 @@ import { Permissions } from '../../common/decorators/permissions.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { PERMISSIONS } from '@knef/constants';
 import type { AuthUser } from '@knef/types';
-import type { PublicProductsQueryDto } from './dto/public-products-query.dto';
+import { PublicProductsQueryDto } from './dto/public-products-query.dto';
 import { CreatePublicOrderDto } from './dto/create-public-order.dto';
 import { CreateApiKeyDto } from './dto/create-api-key.dto';
 import type { ListEcommerceOrdersDto } from './dto/list-ecommerce-orders.dto';
@@ -38,7 +39,10 @@ interface ApiKeyRequest extends Request {
 @UseGuards(ApiKeyGuard, ApiKeyScopeGuard)
 @Controller('ecommerce/public')
 export class EcommercePublicController {
-  constructor(private readonly ecommerceService: EcommerceService) {}
+  constructor(
+    private readonly ecommerceService: EcommerceService,
+    private readonly settingsService: SettingsService,
+  ) {}
 
   @Get('products')
   @RequireApiScope('products:read')
@@ -114,6 +118,13 @@ export class EcommercePublicController {
     @Query('locationId') locationId?: string,
   ) {
     return this.ecommerceService.getPublicInventory(req.organizationId, productIds, locationId);
+  }
+
+  @Get('settings')
+  @RequireApiScope('products:read')
+  @ApiOperation({ summary: 'Get public storefront settings' })
+  getStorefrontSettings(@Req() req: ApiKeyRequest) {
+    return this.settingsService.findByGroup(req.organizationId, 'storefront');
   }
 }
 
