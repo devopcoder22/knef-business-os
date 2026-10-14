@@ -220,7 +220,16 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 const BOTTOM_ITEMS: NavItem[] = [
-  { label: 'Settings', href: '/settings', icon: Settings, permission: PERMISSIONS.SETTINGS.VIEW },
+  {
+    label: 'Settings',
+    href: '/settings',
+    icon: Settings,
+    permission: PERMISSIONS.SETTINGS.VIEW,
+    children: [
+      { label: 'Business Settings', href: '/settings', icon: Settings, permission: PERMISSIONS.SETTINGS.VIEW },
+      { label: 'Organization', href: '/settings/organization', icon: Building2, permission: PERMISSIONS.SETTINGS.VIEW },
+    ],
+  },
   {
     label: 'Admin',
     href: '/admin',
@@ -344,6 +353,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     if (href === '/ecommerce') return pathname === '/ecommerce';
     if (href === '/ai') return pathname === '/ai';
     if (href === '/admin') return pathname === '/admin';
+    if (href === '/settings') return pathname === '/settings';
     return pathname === href || pathname.startsWith(`${href}/`);
   };
 
