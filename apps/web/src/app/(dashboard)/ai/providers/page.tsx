@@ -87,7 +87,7 @@ export default function AIProvidersPage() {
 
   const { data: providers = [], isLoading } = useQuery<AIProvider[]>({
     queryKey: ['ai-providers'],
-    queryFn: () => api().get('/ai/providers').then((r) => r.data),
+    queryFn: () => api().get('/ai/providers').then((r) => r.data.data),
   });
 
   const createProvider = useMutation({

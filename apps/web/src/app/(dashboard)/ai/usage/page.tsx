@@ -60,7 +60,7 @@ export default function AIUsagePage() {
 
   const { data: summary, isLoading: loadingSummary } = useQuery<UsageSummary>({
     queryKey: ['ai-usage-summary'],
-    queryFn: () => api().get('/ai/usage/summary').then((r) => r.data),
+    queryFn: () => api().get('/ai/usage/summary').then((r) => r.data.data),
   });
 
   const { data: logsData } = useQuery<{ data: UsageLog[] }>({
@@ -70,7 +70,7 @@ export default function AIUsagePage() {
 
   const { data: budgets = [] } = useQuery<Budget[]>({
     queryKey: ['ai-budgets'],
-    queryFn: () => api().get('/ai/usage/budgets').then((r) => r.data),
+    queryFn: () => api().get('/ai/usage/budgets').then((r) => r.data.data),
   });
 
   const createBudget = useMutation({
