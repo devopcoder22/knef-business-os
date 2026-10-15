@@ -48,13 +48,14 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
-COPY --from=builder /app/apps/web/public ./public
+RUN mkdir -p apps/web && chown nextjs:nodejs apps/web
 
-RUN mkdir .next && chown nextjs:nodejs .next
-
-# Standalone output
+# Standalone output (must come before public so chown applies)
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
+
+# Public assets — must be at apps/web/public/ because server.js does process.chdir(__dirname)
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
 
 USER nextjs
 

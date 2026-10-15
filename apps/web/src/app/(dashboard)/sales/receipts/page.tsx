@@ -86,9 +86,13 @@ export default function SalesReceiptsPage() {
                         </Link>
                       </td>
                       <td className="px-4 py-3">
-                        <Link href={`/sales/invoices/${receipt.invoiceId}`} className="font-mono text-xs text-blue-600 hover:underline">
-                          {receipt.invoice.reference}
-                        </Link>
+                        {receipt.invoice ? (
+                          <Link href={`/sales/invoices/${receipt.invoiceId}`} className="font-mono text-xs text-blue-600 hover:underline">
+                            {receipt.invoice.reference}
+                          </Link>
+                        ) : (
+                          <span className="text-gray-400 text-xs">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-gray-600">
                         {METHOD_LABELS[receipt.method] ?? receipt.method}

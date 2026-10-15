@@ -34,6 +34,7 @@ services:
     image: knef-business-os-web:latest
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:4000/api/v1
+      - INTERNAL_API_URL=http://api:4000/api/v1
     ports:
       - "3002:3000"
 
