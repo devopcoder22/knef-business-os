@@ -61,6 +61,7 @@ export default function EmailProvidersPage() {
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState<FormState>(defaultForm);
   const [testResult, setTestResult] = useState<{ id: string; success: boolean; message?: string; error?: string } | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const { data: providers = [], isLoading } = useQuery<EmailProvider[]>({
     queryKey: ['email-providers'],
@@ -94,6 +95,10 @@ export default function EmailProvidersPage() {
       qc.invalidateQueries({ queryKey: ['email-providers'] });
       setShowModal(false);
       setForm(defaultForm);
+      setSaveError(null);
+    },
+    onError: (err: any) => {
+      setSaveError(err?.response?.data?.message ?? err?.message ?? 'Failed to save provider');
     },
   });
 
@@ -123,7 +128,7 @@ export default function EmailProvidersPage() {
           <p className="text-sm text-gray-500 mt-1">Configure SMTP, SendGrid or Mailgun.</p>
         </div>
         <button
-          onClick={() => setShowModal(true)}
+          onClick={() => { setShowModal(true); setSaveError(null); }}
           className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
         >
           <Plus size={16} />
@@ -322,9 +327,13 @@ export default function EmailProvidersPage() {
               </div>
             </div>
 
-            <div className="flex gap-3 mt-6">
+            {saveError && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{saveError}</div>
+            )}
+
+            <div className="flex gap-3 mt-4">
               <button
-                onClick={() => { setShowModal(false); setForm(defaultForm); }}
+                onClick={() => { setShowModal(false); setForm(defaultForm); setSaveError(null); }}
                 className="flex-1 px-4 py-2 border border-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-50"
               >
                 Cancel
