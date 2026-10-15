@@ -112,10 +112,13 @@ export default function TelegramPage() {
 
   const testMutation = useMutation({
     mutationFn: async () => {
-      const res = await api().post<{ data: { success: boolean; message: string } }>('/telegram/config/test');
-      return res.data.data ?? res.data;
+      const res = await api().post('/telegram/config/test');
+      return ((res.data as any).data ?? res.data) as { success: boolean; message: string };
     },
-    onSuccess: (data) => setTestResult(data as { success: boolean; message: string }),
+    onSuccess: (data) => setTestResult(data),
+    onError: (err: any) => {
+      setTestResult({ success: false, message: err?.response?.data?.message ?? err?.message ?? 'Request failed' });
+    },
   });
 
   const generateCodeMutation = useMutation({

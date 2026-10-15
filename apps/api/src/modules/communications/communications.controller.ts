@@ -500,12 +500,8 @@ export class TelegramController {
   @Permissions(PERMISSIONS.COMMUNICATIONS.TELEGRAM)
   @ApiOperation({ summary: 'Send test Telegram message' })
   @HttpCode(HttpStatus.OK)
-  async testConfig(@CurrentUser() user: AuthUser) {
-    const success = await this.telegramService.sendMessage(
-      user.organizationId,
-      '<b>KNEF Business OS</b> — Test message. Telegram is configured correctly!',
-    );
-    return { success, message: success ? 'Test message sent' : 'Failed to send test message' };
+  testConfig(@CurrentUser() user: AuthUser) {
+    return this.telegramService.testMessage(user.organizationId);
   }
 
   @Post('generate-link-code')
