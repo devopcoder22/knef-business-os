@@ -34,6 +34,7 @@ export default function NewPurchaseOrderPage() {
   const [expectedDate, setExpectedDate] = useState('');
   const [notes, setNotes] = useState('');
   const [shippingCost, setShippingCost] = useState('0');
+  const [clearingCost, setClearingCost] = useState('0');
   const [discountAmount, setDiscountAmount] = useState('0');
   const [items, setItems] = useState<LineItem[]>([]);
   const [productSearch, setProductSearch] = useState('');
@@ -98,7 +99,7 @@ export default function NewPurchaseOrderPage() {
     return sum + cost * qty;
   }, 0);
 
-  const total = subtotal + parseFloat(shippingCost || '0') - parseFloat(discountAmount || '0');
+  const total = subtotal + parseFloat(shippingCost || '0') + parseFloat(clearingCost || '0') - parseFloat(discountAmount || '0');
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -109,6 +110,7 @@ export default function NewPurchaseOrderPage() {
         expectedDate: expectedDate || undefined,
         notes: notes || undefined,
         shippingCost,
+        clearingCost,
         discountAmount,
         items: items.map((item) => ({
           productId: item.productId,
@@ -364,6 +366,19 @@ export default function NewPurchaseOrderPage() {
                   {subtotal.toLocaleString('en-NG', { style: 'currency', currency: 'NGN' })}
                 </strong>
               </span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center gap-4">
+                <label className="text-gray-600">Clearing Cost</label>
+                <input
+                  type="number"
+                  value={clearingCost}
+                  onChange={(e) => setClearingCost(e.target.value)}
+                  min="0"
+                  step="0.01"
+                  className="w-32 px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
             </div>
             <div className="flex items-center justify-between text-sm">
               <div className="flex items-center gap-4">

@@ -180,11 +180,18 @@ export default function NewGoodsReceiptPage() {
             <option value="">Select an approved purchase order...</option>
             {posData?.data?.map((po) => (
               <option key={po.id} value={po.id}>
-                {po.reference} — {po.supplier.name}
+                {po.reference} — {po.supplier.name} ({po.status.replace(/_/g, ' ')})
               </option>
             ))}
           </select>
           {errors.po && <p className="text-xs text-red-500 mt-1">{errors.po}</p>}
+          {posData && posData.data.length === 0 && (
+            <p className="text-xs text-amber-600 mt-1">
+              No approved purchase orders found. Go to{' '}
+              <a href="/purchasing/orders" className="underline font-medium">Purchase Orders</a>,
+              submit and approve a PO first, then return here to receive goods.
+            </p>
+          )}
         </div>
 
         {selectedPO && receiptItems.length > 0 && (

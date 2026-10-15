@@ -152,8 +152,9 @@ export class PurchasingService {
     });
 
     const shippingCost = new Prisma.Decimal(dto.shippingCost ?? '0');
+    const clearingCost = new Prisma.Decimal(dto.clearingCost ?? '0');
     const discountAmount = new Prisma.Decimal(dto.discountAmount ?? '0');
-    const totalAmount = subtotal.add(shippingCost).sub(discountAmount);
+    const totalAmount = subtotal.add(shippingCost).add(clearingCost).sub(discountAmount);
 
     const po = await this.prisma.purchaseOrder.create({
       data: {
@@ -167,6 +168,7 @@ export class PurchasingService {
         subtotal: subtotal.toString(),
         taxAmount: '0',
         shippingCost: shippingCost.toString(),
+        clearingCost: clearingCost.toString(),
         discountAmount: discountAmount.toString(),
         totalAmount: totalAmount.toString(),
         expectedDate: dto.expectedDate ? new Date(dto.expectedDate) : undefined,
@@ -214,6 +216,7 @@ export class PurchasingService {
         internalNotes: dto.internalNotes,
         expectedDate: dto.expectedDate ? new Date(dto.expectedDate) : undefined,
         shippingCost: dto.shippingCost,
+        clearingCost: dto.clearingCost,
         discountAmount: dto.discountAmount,
       },
     });

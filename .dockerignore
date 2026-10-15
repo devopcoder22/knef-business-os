@@ -5,6 +5,9 @@ node_modules
 dist
 build
 coverage
+**/.next
+**/.turbo
+**/.cache
 .next
 .turbo
 .cache

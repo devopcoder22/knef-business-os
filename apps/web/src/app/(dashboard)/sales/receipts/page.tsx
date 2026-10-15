@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { Receipt } from 'lucide-react';
+import { Receipt, Printer, Download } from 'lucide-react';
 import { api } from '@/lib/api';
 
 interface SalesReceipt {
@@ -66,6 +66,7 @@ export default function SalesReceiptsPage() {
                 <th className="text-left px-4 py-3 font-medium text-gray-700">Method</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-700">Amount</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-700">Issued</th>
+                <th className="px-4 py-3" />
               </tr>
             </thead>
             <tbody>
@@ -98,11 +99,20 @@ export default function SalesReceiptsPage() {
                       <td className="px-4 py-3 text-right text-gray-500 text-xs">
                         {new Date(receipt.issuedAt).toLocaleDateString()}
                       </td>
+                      <td className="px-4 py-3 text-right">
+                        <Link
+                          href={`/sales/receipts/${receipt.id}`}
+                          title="Print / Download"
+                          className="inline-flex p-1.5 text-gray-400 hover:text-blue-600 rounded transition-colors"
+                        >
+                          <Printer size={14} />
+                        </Link>
+                      </td>
                     </tr>
                   ))}
               {!isLoading && receipts.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-12 text-center text-gray-400">
+                  <td colSpan={6} className="px-4 py-12 text-center text-gray-400">
                     <Receipt size={32} className="mx-auto mb-2 opacity-50" />
                     <p>No receipts found</p>
                   </td>

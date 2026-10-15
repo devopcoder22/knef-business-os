@@ -1,0 +1,50 @@
+# Local UAT overrides — pre-built images, isolated knef_uat DB, host port offsets
+# Usage: docker compose -f docker-compose.yml -f docker-compose.local.yml --project-name knef-uat up -d
+
+services:
+  caddy:
+    profiles: ["caddy"]   # disabled — access services directly by port
+
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: knef_uat
+      POSTGRES_USER: knef
+      POSTGRES_PASSWORD: uat_local_password
+    ports:
+      - "5433:5432"
+
+  redis:
+    ports:
+      - "6380:6379"
+
+  api:
+    image: knef-business-os-api:latest
+    env_file:
+      - apps/api/.env.uat
+    ports:
+      - "4000:4000"
+
+  worker:
+    image: knef-business-os-worker:latest
+    env_file:
+      - apps/api/.env.uat
+
+  web:
+    image: knef-business-os-web:latest
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:4000/api/v1
+    ports:
+      - "3002:3000"
+
+  storefront:
+    image: knef-business-os-storefront:latest
+    env_file:
+      - apps/storefront/.env.uat
+    ports:
+      - "3001:3001"
+
+  mcp-server:
+    image: knef-business-os-mcp-server:latest
+    env_file:
+      - apps/api/.env.uat

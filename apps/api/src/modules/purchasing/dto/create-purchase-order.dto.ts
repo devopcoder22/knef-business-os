@@ -92,6 +92,11 @@ export class CreatePurchaseOrderDto {
   @ApiPropertyOptional({ default: '0' })
   @IsOptional()
   @IsString()
+  clearingCost?: string;
+
+  @ApiPropertyOptional({ default: '0' })
+  @IsOptional()
+  @IsString()
   discountAmount?: string;
 
   @ApiProperty({ type: [PurchaseOrderItemDto] })

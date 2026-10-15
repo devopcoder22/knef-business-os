@@ -43,6 +43,7 @@ interface PurchaseOrder {
   subtotal: string;
   taxAmount: string;
   shippingCost: string;
+  clearingCost: string;
   discountAmount: string;
   totalAmount: string;
   paidAmount: string;
@@ -243,6 +244,12 @@ export default function PurchaseOrderDetailPage() {
                 <div className="flex justify-between">
                   <span className="text-gray-500">Shipping</span>
                   <span>{Number(order.shippingCost).toLocaleString('en-NG', { style: 'currency', currency: 'NGN' })}</span>
+                </div>
+              )}
+              {parseFloat(order.clearingCost) > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Clearing</span>
+                  <span>{Number(order.clearingCost).toLocaleString('en-NG', { style: 'currency', currency: 'NGN' })}</span>
                 </div>
               )}
               {parseFloat(order.discountAmount) > 0 && (
