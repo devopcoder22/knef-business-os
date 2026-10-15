@@ -120,7 +120,10 @@ export default function CustomerDetailPage() {
 
   const { data: customer, isLoading } = useQuery<Customer>({
     queryKey: ['customer', id],
-    queryFn: async () => (await api().get<Customer>(`/customers/${id}`)).data,
+    queryFn: async () => {
+      const res = await api().get<Customer>(`/customers/${id}`);
+      return (res.data as any).data as Customer;
+    },
   });
 
   const { data: metrics } = useQuery<Metrics>({

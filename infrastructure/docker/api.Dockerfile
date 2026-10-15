@@ -48,8 +48,11 @@ CMD ["pnpm", "--filter", "@knef/api", "dev"]
 
 # ─── Stage 4: Production Runner ───────────────────────────────────────────────
 FROM node:20-alpine AS runner
-RUN apk add --no-cache dumb-init openssl
+RUN apk add --no-cache dumb-init openssl \
+    chromium nss freetype harfbuzz ca-certificates ttf-freefont fontconfig
 WORKDIR /app
+
+ENV CHROMIUM_PATH=/usr/bin/chromium-browser
 
 ENV NODE_ENV=production
 

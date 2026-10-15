@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { Receipt, Printer, Download } from 'lucide-react';
+import { Receipt, Printer } from 'lucide-react';
 import { api } from '@/lib/api';
 
 interface SalesReceipt {

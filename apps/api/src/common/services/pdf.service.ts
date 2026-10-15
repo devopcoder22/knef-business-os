@@ -2,6 +2,13 @@ import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
 import { fmtDateNG } from '../utils/references';
 
+interface BankDetails {
+  bankName: string;
+  accountName: string;
+  accountNumber: string;
+  currency: string;
+}
+
 interface OrgBranding {
   name: string;
   address: string | null;
@@ -76,6 +83,48 @@ export class PdfService {
     return fmtDateNG(val);
   }
 
+  private async getBankDetails(organizationId: string): Promise<BankDetails | null> {
+    const bank = await this.prisma.bankAccount.findFirst({
+      where: { organizationId, isActive: true },
+      orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+      select: { bankName: true, accountName: true, accountNumber: true, currency: true },
+    });
+    if (!bank) return null;
+    return {
+      bankName: bank.bankName,
+      accountName: bank.accountName,
+      accountNumber: bank.accountNumber,
+      currency: bank.currency,
+    };
+  }
+
+  private amountInWords(amount: number, currency = 'NGN'): string {
+    const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
+      'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+    const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+    const toWords = (n: number): string => {
+      if (n === 0) return '';
+      if (n < 20) return ones[n] + ' ';
+      if (n < 100) return tens[Math.floor(n / 10)] + (n % 10 ? ' ' + ones[n % 10] : '') + ' ';
+      if (n < 1000) return ones[Math.floor(n / 100)] + ' Hundred ' + toWords(n % 100);
+      if (n < 1_000_000) return toWords(Math.floor(n / 1000)) + 'Thousand ' + toWords(n % 1000);
+      if (n < 1_000_000_000) return toWords(Math.floor(n / 1_000_000)) + 'Million ' + toWords(n % 1_000_000);
+      return toWords(Math.floor(n / 1_000_000_000)) + 'Billion ' + toWords(n % 1_000_000_000);
+    };
+
+    const intPart = Math.floor(Math.abs(amount));
+    const decPart = Math.round((Math.abs(amount) - intPart) * 100);
+    const currencyName = currency === 'NGN' ? 'Naira' : currency === 'USD' ? 'Dollars' : currency;
+    const centName = currency === 'NGN' ? 'Kobo' : currency === 'USD' ? 'Cents' : 'Cents';
+
+    let words = toWords(intPart).trim() || 'Zero';
+    words += ` ${currencyName}`;
+    if (decPart > 0) words += `, ${toWords(decPart).trim()} ${centName}`;
+    words += ' Only';
+    return words;
+  }
+
   private logoHtml(org: OrgBranding): string {
     if (org.logoUrl && /^https?:\/\//.test(org.logoUrl)) {
       return `<img src="${this.esc(org.logoUrl)}" alt="${this.esc(org.name)}" style="max-height:48px;max-width:140px;object-fit:contain;" onerror="this.style.display='none'"/>`;
@@ -119,9 +168,10 @@ export class PdfService {
   }
 
   private async renderPdf(html: string): Promise<Buffer> {
+    let browser: { close: () => Promise<void> } | null = null;
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
-      const puppeteer = require('puppeteer') as {
+      const puppeteer = require('puppeteer-core') as {
         launch: (opts: Record<string, unknown>) => Promise<{
           newPage: () => Promise<{
             setContent: (h: string, o: Record<string, unknown>) => Promise<void>;
@@ -130,33 +180,52 @@ export class PdfService {
           close: () => Promise<void>;
         }>;
       };
-      const browser = await puppeteer.launch({
+      const executablePath =
+        process.env['CHROMIUM_PATH'] ??
+        '/usr/bin/chromium-browser';
+      browser = await puppeteer.launch({
         headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        executablePath,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--no-first-run',
+          '--no-zygote',
+          '--single-process',
+        ],
       });
-      const page = await browser.newPage();
+      const page = await (browser as any).newPage();
       await page.setContent(html, { waitUntil: 'networkidle0' });
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
-        margin: { top: '20mm', right: '20mm', bottom: '20mm', left: '20mm' },
+        margin: { top: '15mm', right: '15mm', bottom: '15mm', left: '15mm' },
       });
-      await browser.close();
       return Buffer.from(pdf);
-    } catch {
-      throw new InternalServerErrorException('PDF generation failed: puppeteer is unavailable');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new InternalServerErrorException(`PDF generation failed: ${msg}`);
+    } finally {
+      if (browser) await browser.close().catch(() => {});
     }
   }
 
   // ── Invoice ───────────────────────────────────────────────────
 
-  private buildInvoiceHtml(invoice: Record<string, unknown>, org: OrgBranding): string {
+  private buildInvoiceHtml(
+    invoice: Record<string, unknown>,
+    org: OrgBranding,
+    bank: BankDetails | null,
+  ): string {
     const customer = (invoice['customer'] as Record<string, string> | null) ?? null;
     const items = (invoice['items'] as Array<Record<string, unknown>>) ?? [];
     const payments = (invoice['payments'] as Array<Record<string, unknown>>) ?? [];
+    const order = (invoice['order'] as Record<string, unknown> | null) ?? null;
     const cur = org.currency;
 
-    const statusBadgeClass: Record<string, string> = {
+    const statusBadgeStyle: Record<string, string> = {
       PAID: 'background:#dcfce7;color:#16a34a;',
       UNPAID: 'background:#fef2f2;color:#dc2626;',
       PARTIAL: 'background:#fefce8;color:#ca8a04;',
@@ -165,100 +234,190 @@ export class PdfService {
       CANCELLED: 'background:#f1f5f9;color:#94a3b8;',
     };
     const status = String(invoice['status'] ?? 'UNPAID').toUpperCase();
-    const badgeStyle = statusBadgeClass[status] ?? 'background:#f1f5f9;color:#64748b;';
+    const badgeStyle = statusBadgeStyle[status] ?? 'background:#f1f5f9;color:#64748b;';
 
-    const itemRows = items.map(item => `
+    const total = parseFloat(String(invoice['totalAmount'] ?? '0'));
+    const paid = parseFloat(String(invoice['paidAmount'] ?? '0'));
+    const subtotal = parseFloat(String(invoice['subtotal'] ?? '0'));
+    const taxAmount = parseFloat(String(invoice['taxAmount'] ?? '0'));
+    const discountAmount = parseFloat(String(invoice['discountAmount'] ?? '0'));
+    const balance = total - paid;
+    const amountWords = this.amountInWords(total, cur);
+
+    const itemRows = items.map((item, idx) => {
+      const product = (item['product'] as Record<string, unknown> | null) ?? null;
+      const spec = product ? String(product['sku'] ?? '') : '';
+      const discount = parseFloat(String(item['discountRate'] ?? '0'));
+      const tax = parseFloat(String(item['taxRate'] ?? '0'));
+      return `
       <tr>
-        <td>${this.esc(item['description'] ?? item['productId'] ?? 'Item')}</td>
-        <td class="text-center">${this.esc(item['quantity'] ?? 1)}</td>
-        <td class="text-right">${this.fmt(item['unitPrice'], cur)}</td>
-        ${parseFloat(String(item['discountRate'] ?? '0')) > 0 ? `<td class="text-right">${this.esc(item['discountRate'])}%</td>` : '<td class="text-right">—</td>'}
-        ${parseFloat(String(item['taxRate'] ?? '0')) > 0 ? `<td class="text-right">${this.esc(item['taxRate'])}%</td>` : '<td class="text-right">—</td>'}
-        <td class="text-right">${this.fmt(item['totalPrice'], cur)}</td>
-      </tr>`).join('');
+        <td class="text-center" style="width:36px;">${idx + 1}</td>
+        <td>
+          <div style="font-weight:600;font-size:12px;">${this.esc(item['description'] ?? product?.['name'] ?? 'Item')}</div>
+          ${spec ? `<div style="color:#64748b;font-size:10px;font-family:monospace;">${this.esc(spec)}</div>` : ''}
+        </td>
+        <td class="text-center" style="width:48px;">${this.esc(item['quantity'] ?? 1)}</td>
+        <td class="text-right" style="width:110px;">${this.fmt(item['unitPrice'], cur)}</td>
+        <td class="text-right" style="width:80px;">${discount > 0 ? discount.toFixed(1) + '%' : '—'}</td>
+        <td class="text-right" style="width:100px;font-weight:600;">${this.fmt(item['totalPrice'], cur)}</td>
+      </tr>`;
+    }).join('');
 
     const paymentRows = payments.map(p => `
       <tr>
         <td>${this.esc(p['method'] ?? '')}</td>
         <td>${this.fmtDate(p['receivedAt'] ?? p['createdAt'])}</td>
         <td class="text-right">${this.fmt(p['amount'], cur)}</td>
-        <td>${this.esc(p['reference'] ?? '')}</td>
+        <td style="color:#64748b;">${this.esc(p['reference'] ?? '')}</td>
       </tr>`).join('');
 
-    const total = parseFloat(String(invoice['totalAmount'] ?? '0'));
-    const paid = parseFloat(String(invoice['paidAmount'] ?? '0'));
-    const balance = total - paid;
+    const addr = [org.address, org.city, org.state, org.country].filter(Boolean).join(', ');
 
     return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"/>
-<style>${this.baseStyles()}</style>
+<style>
+${this.baseStyles()}
+.inv-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:20px; border-bottom:3px solid #1e40af; padding-bottom:16px; }
+.inv-meta { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px; }
+.meta-box { background:#f8fafc; border-radius:6px; padding:10px 14px; }
+.meta-box .label { font-size:9px; text-transform:uppercase; letter-spacing:.06em; color:#94a3b8; margin-bottom:4px; }
+.meta-box .value { font-size:12px; font-weight:600; color:#1e293b; }
+.meta-box .sub { font-size:11px; color:#64748b; margin-top:2px; }
+.items-table thead tr { background:#1e40af; color:#fff; }
+.items-table thead th { padding:8px 10px; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+.items-table tbody tr:nth-child(even) { background:#f8fafc; }
+.items-table tbody td { padding:7px 10px; font-size:12px; border-bottom:1px solid #e2e8f0; vertical-align:middle; }
+.totals-section { display:flex; justify-content:flex-end; margin-top:8px; }
+.totals-table { width:260px; }
+.totals-table td { padding:4px 0; font-size:12px; }
+.totals-table .grand-total td { font-size:15px; font-weight:800; color:#1e40af; border-top:2px solid #1e40af; padding-top:8px; }
+.amount-words { background:#eff6ff; border-left:3px solid #1e40af; padding:8px 12px; border-radius:0 4px 4px 0; margin-top:12px; font-size:11px; color:#1e40af; font-style:italic; }
+.bottom-section { display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:20px; }
+.bank-box { background:#f0fdf4; border:1px solid #bbf7d0; border-radius:6px; padding:12px 14px; }
+.bank-box .bk-title { font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:#15803d; font-weight:700; margin-bottom:6px; }
+.bank-box .bk-row { display:flex; justify-content:space-between; font-size:11px; margin-bottom:3px; }
+.terms-box { background:#fefce8; border:1px solid #fef08a; border-radius:6px; padding:12px 14px; }
+.terms-box .t-title { font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:#854d0e; font-weight:700; margin-bottom:6px; }
+.sig-section { display:grid; grid-template-columns:1fr 1fr; gap:40px; margin-top:24px; }
+.sig-line { border-top:1px solid #cbd5e1; padding-top:6px; font-size:10px; color:#64748b; text-align:center; }
+</style>
 </head><body>
-<div class="header">
-  ${this.orgHeaderHtml(org)}
+
+<!-- HEADER -->
+<div class="inv-header">
+  <div style="display:flex;align-items:flex-start;gap:14px;">
+    ${org.logoUrl && /^https?:\/\//.test(org.logoUrl) ? `<img src="${this.esc(org.logoUrl)}" alt="${this.esc(org.name)}" style="max-height:56px;max-width:120px;object-fit:contain;" onerror="this.style.display='none'"/>` : ''}
+    <div>
+      <div style="font-size:22px;font-weight:900;color:#1e40af;letter-spacing:-0.5px;">${this.esc(org.name)}</div>
+      ${addr ? `<div style="color:#64748b;font-size:10px;margin-top:2px;">${this.esc(addr)}</div>` : ''}
+      ${org.phone ? `<div style="color:#64748b;font-size:10px;">Tel: ${this.esc(org.phone)}</div>` : ''}
+      ${org.email ? `<div style="color:#64748b;font-size:10px;">Email: ${this.esc(org.email)}</div>` : ''}
+      ${org.taxId ? `<div style="color:#64748b;font-size:10px;">TIN: ${this.esc(org.taxId)}</div>` : ''}
+    </div>
+  </div>
   <div style="text-align:right;">
-    <div class="doc-title">INVOICE</div>
-    <div class="doc-ref">${this.esc(invoice['reference'] ?? '')}</div>
-    <div style="margin-top:6px;"><span class="badge" style="${badgeStyle}">${this.esc(status)}</span></div>
+    <div style="font-size:28px;font-weight:900;color:#1e40af;letter-spacing:1px;">INVOICE</div>
+    <div style="font-size:14px;font-weight:600;color:#475569;margin-top:2px;">${this.esc(String(invoice['reference'] ?? ''))}</div>
+    <div style="margin-top:6px;"><span class="badge" style="${badgeStyle}font-size:11px;padding:4px 12px;">${this.esc(status)}</span></div>
   </div>
 </div>
 
-<div class="info-grid">
-  <div>
-    <p class="section-title">Bill To</p>
+<!-- META GRID -->
+<div class="inv-meta">
+  <div class="meta-box">
+    <div class="label">Bill To</div>
     ${customer
-      ? `<p style="font-weight:600;">${this.esc(customer['firstName'] ?? '')} ${this.esc(customer['lastName'] ?? '')}</p>
-         <p style="color:#64748b;">${this.esc(customer['phone'] ?? '')}</p>
-         <p style="color:#64748b;">${this.esc(customer['email'] ?? '')}</p>`
-      : '<p style="color:#94a3b8;">Walk-in customer</p>'}
+      ? `<div class="value">${this.esc(customer['firstName'] ?? '')} ${this.esc(customer['lastName'] ?? '')}</div>
+         ${customer['phone'] ? `<div class="sub">Tel: ${this.esc(customer['phone'])}</div>` : ''}
+         ${customer['email'] ? `<div class="sub">Email: ${this.esc(customer['email'])}</div>` : ''}`
+      : `<div class="value">Walk-in Customer</div>`}
   </div>
-  <div style="text-align:right;">
-    <p class="section-title">Invoice Details</p>
-    <p><strong>Date:</strong> ${this.fmtDate(invoice['issuedAt'] ?? invoice['createdAt'])}</p>
-    ${invoice['dueDate'] ? `<p><strong>Due:</strong> ${this.fmtDate(invoice['dueDate'])}</p>` : ''}
-    ${invoice['order'] ? `<p><strong>Order:</strong> ${this.esc((invoice['order'] as Record<string, unknown>)['reference'] ?? '')}</p>` : ''}
-    <p><strong>Currency:</strong> ${this.esc(cur)}</p>
+  <div class="meta-box">
+    <div class="label">Invoice Details</div>
+    <table style="width:100%;font-size:11px;"><tbody>
+      <tr><td style="color:#64748b;padding:1px 0;">Invoice No.</td><td style="font-weight:600;text-align:right;">${this.esc(String(invoice['reference'] ?? ''))}</td></tr>
+      <tr><td style="color:#64748b;padding:1px 0;">Invoice Date</td><td style="font-weight:600;text-align:right;">${this.fmtDate(invoice['issuedAt'] ?? invoice['createdAt'])}</td></tr>
+      ${invoice['dueDate'] ? `<tr><td style="color:#64748b;padding:1px 0;">Due Date</td><td style="font-weight:600;text-align:right;">${this.fmtDate(invoice['dueDate'])}</td></tr>` : ''}
+      ${order ? `<tr><td style="color:#64748b;padding:1px 0;">Sales Order</td><td style="font-weight:600;text-align:right;">${this.esc(String(order['reference'] ?? ''))}</td></tr>` : ''}
+      <tr><td style="color:#64748b;padding:1px 0;">Currency</td><td style="font-weight:600;text-align:right;">${this.esc(cur)}</td></tr>
+    </tbody></table>
   </div>
 </div>
 
-<table>
+<!-- ITEMS TABLE -->
+<table class="items-table" style="width:100%;border-collapse:collapse;margin-top:4px;">
   <thead>
     <tr>
-      <th>Description</th>
-      <th class="text-center">Qty</th>
-      <th class="text-right">Unit Price</th>
-      <th class="text-right">Discount</th>
-      <th class="text-right">Tax</th>
-      <th class="text-right">Total</th>
+      <th class="text-center" style="width:36px;">S/N</th>
+      <th>Item / Description</th>
+      <th class="text-center" style="width:48px;">Qty</th>
+      <th class="text-right" style="width:110px;">Unit Price</th>
+      <th class="text-right" style="width:80px;">Discount</th>
+      <th class="text-right" style="width:100px;">Total</th>
     </tr>
   </thead>
-  <tbody>${itemRows}</tbody>
-  <tfoot>
-    <tr><td colspan="5" class="text-right" style="color:#64748b;">Subtotal</td><td class="text-right">${this.fmt(invoice['subtotal'], cur)}</td></tr>
-    ${parseFloat(String(invoice['discountAmount'] ?? '0')) > 0 ? `<tr><td colspan="5" class="text-right" style="color:#64748b;">Discount</td><td class="text-right" style="color:#dc2626;">-${this.fmt(invoice['discountAmount'], cur)}</td></tr>` : ''}
-    ${parseFloat(String(invoice['taxAmount'] ?? '0')) > 0 ? `<tr><td colspan="5" class="text-right" style="color:#64748b;">Tax</td><td class="text-right">${this.fmt(invoice['taxAmount'], cur)}</td></tr>` : ''}
-    <tr class="total-row" style="border-top:2px solid #1e40af;">
-      <td colspan="5" class="text-right">Total</td>
-      <td class="text-right" style="color:#1e40af;">${this.fmt(invoice['totalAmount'], cur)}</td>
-    </tr>
-    <tr><td colspan="5" class="text-right" style="color:#64748b;">Amount Paid</td><td class="text-right" style="color:#16a34a;">${this.fmt(invoice['paidAmount'], cur)}</td></tr>
-    <tr style="font-weight:600;"><td colspan="5" class="text-right">Balance Due</td><td class="text-right" style="color:${balance <= 0 ? '#16a34a' : '#dc2626'};">${this.fmt(balance, cur)}</td></tr>
-  </tfoot>
+  <tbody>${itemRows || `<tr><td colspan="6" style="padding:16px;text-align:center;color:#94a3b8;">No items</td></tr>`}</tbody>
 </table>
 
+<!-- TOTALS -->
+<div class="totals-section">
+  <table class="totals-table">
+    <tbody>
+      <tr><td style="color:#64748b;">Subtotal</td><td class="text-right">${this.fmt(subtotal, cur)}</td></tr>
+      ${discountAmount > 0 ? `<tr><td style="color:#64748b;">Discount</td><td class="text-right" style="color:#dc2626;">-${this.fmt(discountAmount, cur)}</td></tr>` : ''}
+      <tr><td style="color:#64748b;">VAT / Tax</td><td class="text-right">${taxAmount > 0 ? this.fmt(taxAmount, cur) : '—'}</td></tr>
+    </tbody>
+    <tfoot>
+      <tr class="grand-total"><td>Grand Total</td><td class="text-right">${this.fmt(total, cur)}</td></tr>
+    </tfoot>
+  </table>
+</div>
+
+<!-- AMOUNT IN WORDS -->
+<div class="amount-words">
+  <strong>Amount in Words:</strong> ${this.esc(amountWords)}
+</div>
+
+<!-- BANK DETAILS + PAYMENT TERMS -->
+<div class="bottom-section">
+  ${bank ? `
+  <div class="bank-box">
+    <div class="bk-title">Payment / Bank Details</div>
+    <div class="bk-row"><span style="color:#166534;">Bank Name</span><span style="font-weight:600;">${this.esc(bank.bankName)}</span></div>
+    <div class="bk-row"><span style="color:#166534;">Account Name</span><span style="font-weight:600;">${this.esc(bank.accountName)}</span></div>
+    <div class="bk-row"><span style="color:#166534;">Account Number</span><span style="font-weight:700;font-family:monospace;font-size:13px;">${this.esc(bank.accountNumber)}</span></div>
+    ${bank.currency !== cur ? `<div class="bk-row"><span style="color:#166534;">Currency</span><span>${this.esc(bank.currency)}</span></div>` : ''}
+  </div>` : '<div></div>'}
+  <div class="terms-box">
+    <div class="t-title">Payment Terms &amp; Notes</div>
+    <div style="font-size:11px;color:#713f12;line-height:1.5;">
+      ${invoice['terms'] ? this.esc(String(invoice['terms'])) : 'Payment is due by the date specified above.'}
+    </div>
+    ${invoice['notes'] ? `<div style="font-size:10px;color:#64748b;margin-top:6px;border-top:1px solid #fef08a;padding-top:6px;">${this.esc(String(invoice['notes']))}</div>` : ''}
+  </div>
+</div>
+
 ${payments.length > 0 ? `
-<hr class="divider"/>
+<hr class="divider" style="margin:16px 0;"/>
 <p class="section-title">Payment History</p>
 <table>
   <thead><tr><th>Method</th><th>Date</th><th class="text-right">Amount</th><th>Reference</th></tr></thead>
   <tbody>${paymentRows}</tbody>
-</table>` : ''}
+</table>
+<div style="margin-top:6px;font-size:11px;display:flex;justify-content:flex-end;gap:24px;">
+  <span style="color:#64748b;">Amount Paid: <strong style="color:#16a34a;">${this.fmt(paid, cur)}</strong></span>
+  <span style="color:#64748b;">Balance Due: <strong style="color:${balance <= 0.001 ? '#16a34a' : '#dc2626'};">${this.fmt(balance, cur)}</strong></span>
+</div>` : ''}
 
-${invoice['notes'] ? `<hr class="divider"/><p class="section-title">Notes</p><p style="color:#64748b;">${this.esc(invoice['notes'])}</p>` : ''}
-${invoice['terms'] ? `<hr class="divider"/><p class="section-title">Terms &amp; Conditions</p><p style="color:#64748b;">${this.esc(invoice['terms'])}</p>` : ''}
+<!-- SIGNATURE LINE -->
+<div class="sig-section">
+  <div class="sig-line">Authorised Signature &amp; Company Stamp</div>
+  <div class="sig-line">Customer Signature &amp; Date</div>
+</div>
 
 <div class="footer">
-  <p>Thank you for your business! | ${this.esc(org.name)}</p>
-  ${org.email ? `<p>${this.esc(org.email)}</p>` : ''}
+  <p>Thank you for your business! | ${this.esc(org.name)}${org.email ? ' | ' + this.esc(org.email) : ''}${org.phone ? ' | ' + this.esc(org.phone) : ''}</p>
+  <p style="margin-top:3px;font-size:9px;">This is a computer-generated document. No signature required unless specified.</p>
 </div>
 </body></html>`;
   }
@@ -348,6 +507,7 @@ ${invoice['terms'] ? `<hr class="divider"/><p class="section-title">Terms &amp; 
     <tr><td colspan="6" class="text-right" style="color:#64748b;">Subtotal</td><td class="text-right">${this.fmt(po['subtotal'], cur)}</td></tr>
     ${parseFloat(String(po['taxAmount'] ?? '0')) > 0 ? `<tr><td colspan="6" class="text-right" style="color:#64748b;">Tax</td><td class="text-right">${this.fmt(po['taxAmount'], cur)}</td></tr>` : ''}
     ${parseFloat(String(po['shippingCost'] ?? '0')) > 0 ? `<tr><td colspan="6" class="text-right" style="color:#64748b;">Shipping</td><td class="text-right">${this.fmt(po['shippingCost'], cur)}</td></tr>` : ''}
+    ${parseFloat(String(po['clearingCost'] ?? '0')) > 0 ? `<tr><td colspan="6" class="text-right" style="color:#64748b;">Clearing</td><td class="text-right">${this.fmt(po['clearingCost'], cur)}</td></tr>` : ''}
     ${parseFloat(String(po['discountAmount'] ?? '0')) > 0 ? `<tr><td colspan="6" class="text-right" style="color:#64748b;">Discount</td><td class="text-right" style="color:#dc2626;">-${this.fmt(po['discountAmount'], cur)}</td></tr>` : ''}
     <tr class="total-row" style="border-top:2px solid #1e40af;">
       <td colspan="6" class="text-right">Total</td>
@@ -714,7 +874,8 @@ ${refunds.length > 0 ? `
     const org = organizationId
       ? await this.getOrg(organizationId)
       : { name: 'Business', address: null, city: null, state: null, country: 'Nigeria', phone: null, email: null, taxId: null, logoUrl: null, currency: 'NGN' };
-    const html = this.buildInvoiceHtml(invoice, org);
+    const bank = organizationId ? await this.getBankDetails(organizationId) : null;
+    const html = this.buildInvoiceHtml(invoice, org, bank);
     return this.renderPdf(html);
   }
 
