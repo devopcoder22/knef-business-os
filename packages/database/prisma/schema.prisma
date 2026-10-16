@@ -27,6 +27,7 @@ model Organization {
   state       String?
   country     String   @default("Nigeria")
   logoUrl     String?
+  faviconUrl  String?
   website     String?
   currency    String   @default("NGN")
   timezone    String   @default("Africa/Lagos")

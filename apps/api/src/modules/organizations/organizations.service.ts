@@ -24,9 +24,9 @@ export class OrganizationsService {
 
   async publicBranding() {
     const org = await this.prisma.organization.findFirst({
-      select: { name: true, logoUrl: true },
+      select: { name: true, logoUrl: true, faviconUrl: true },
     });
-    return { name: org?.name ?? 'KNEF Business OS', logoUrl: org?.logoUrl ?? null };
+    return { name: org?.name ?? 'KNEF Business OS', logoUrl: org?.logoUrl ?? null, faviconUrl: org?.faviconUrl ?? null };
   }
 
   async update(organizationId: string, dto: UpdateOrganizationDto) {

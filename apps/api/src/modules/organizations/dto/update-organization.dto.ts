@@ -52,6 +52,11 @@ export class UpdateOrganizationDto {
 
   @ApiProperty({ required: false })
   @IsOptional()
+  @IsString()
+  faviconUrl?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
   @IsUrl()
   website?: string;
 

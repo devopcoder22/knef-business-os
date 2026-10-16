@@ -17,6 +17,7 @@ interface Organization {
   state: string | null;
   country: string | null;
   logoUrl: string | null;
+  faviconUrl: string | null;
   website: string | null;
   taxId: string | null;
   currency: string | null;
@@ -72,13 +73,16 @@ export default function OrganizationPage() {
   const queryClient = useQueryClient();
   const canEdit = hasPermission(PERMISSIONS.SETTINGS.EDIT);
   const logoInputRef = useRef<HTMLInputElement>(null);
+  const faviconInputRef = useRef<HTMLInputElement>(null);
 
   const [form, setForm] = useState({
     name: '', email: '', phone: '', address: '', city: '',
     state: '', country: '', website: '', taxId: '', currency: '', timezone: '',
   });
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [faviconUrl, setFaviconUrl] = useState<string | null>(null);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [uploadingFavicon, setUploadingFavicon] = useState(false);
   const [saved, setSaved] = useState(false);
 
   const { data: orgData, isLoading: orgLoading } = useQuery<OrgResponse>({
@@ -114,6 +118,7 @@ export default function OrganizationPage() {
         timezone: o.timezone ?? '',
       });
       setLogoUrl(o.logoUrl ?? null);
+      setFaviconUrl(o.faviconUrl ?? null);
     }
   }, [orgData]);
 
@@ -135,6 +140,23 @@ export default function OrganizationPage() {
       alert('Logo upload failed');
     } finally {
       setUploadingLogo(false);
+    }
+  };
+
+  const uploadFavicon = async (file: File) => {
+    setUploadingFavicon(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await api().post('/uploads/image', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const url = (res.data as any).data.url as string;
+      setFaviconUrl(url);
+      await api().patch('/organization', { faviconUrl: url });
+      queryClient.invalidateQueries({ queryKey: ['organization'] });
+    } catch {
+      alert('Favicon upload failed');
+    } finally {
+      setUploadingFavicon(false);
     }
   };
 
@@ -265,6 +287,40 @@ export default function OrganizationPage() {
                 >
                   {uploadingLogo ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
                   {uploadingLogo ? 'Uploading...' : logoUrl ? 'Change Logo' : 'Upload Logo'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Favicon upload */}
+          <div className="mb-6 pb-6 border-b border-gray-100">
+            <label className="block text-sm font-medium text-gray-700 mb-3">Favicon</label>
+            <div className="flex items-center gap-5">
+              <div className="w-16 h-16 rounded-xl border-2 border-dashed border-gray-200 flex items-center justify-center bg-gray-50 overflow-hidden flex-shrink-0">
+                {faviconUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={faviconUrl} alt="Favicon" className="w-10 h-10 object-contain" />
+                ) : (
+                  <ImageIcon size={20} className="text-gray-300" />
+                )}
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs text-gray-500">Shown in browser tabs for both the admin panel and storefront. Use a square PNG or ICO, ideally 32×32 or 64×64px.</p>
+                <input
+                  ref={faviconInputRef}
+                  type="file"
+                  accept="image/png,image/x-icon,image/svg+xml,image/jpeg"
+                  className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadFavicon(f); }}
+                />
+                <button
+                  type="button"
+                  onClick={() => faviconInputRef.current?.click()}
+                  disabled={uploadingFavicon}
+                  className="flex items-center gap-2 px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {uploadingFavicon ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                  {uploadingFavicon ? 'Uploading...' : faviconUrl ? 'Change Favicon' : 'Upload Favicon'}
                 </button>
               </div>
             </div>
