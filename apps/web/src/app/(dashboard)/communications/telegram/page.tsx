@@ -117,7 +117,7 @@ export default function TelegramPage() {
     },
     onSuccess: (data) => setTestResult(data),
     onError: (err: any) => {
-      setTestResult({ success: false, message: err?.response?.data?.message ?? err?.message ?? 'Request failed' });
+      setTestResult({ success: false, message: err?.response?.data?.error?.message ?? err?.response?.data?.message ?? err?.message ?? 'Request failed' });
     },
   });
 

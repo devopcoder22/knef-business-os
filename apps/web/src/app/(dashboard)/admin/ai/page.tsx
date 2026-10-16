@@ -99,7 +99,7 @@ export default function AdminAIPage() {
       setAddError(null);
     },
     onError: (err: any) => {
-      setAddError(err?.response?.data?.message ?? err?.message ?? 'Failed to add provider');
+      setAddError(err?.response?.data?.error?.message ?? err?.response?.data?.message ?? err?.message ?? 'Failed to add provider');
     },
   });
 

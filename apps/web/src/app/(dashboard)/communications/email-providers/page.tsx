@@ -98,7 +98,7 @@ export default function EmailProvidersPage() {
       setSaveError(null);
     },
     onError: (err: any) => {
-      setSaveError(err?.response?.data?.message ?? err?.message ?? 'Failed to save provider');
+      setSaveError(err?.response?.data?.error?.message ?? err?.response?.data?.message ?? err?.message ?? 'Failed to save provider');
     },
   });
 
