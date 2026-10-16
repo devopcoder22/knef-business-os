@@ -56,6 +56,11 @@ knefos.knefgadgets.com {
         reverse_proxy api:4000
     }
 
+    # Uploaded files served by API
+    handle /uploads/* {
+        reverse_proxy api:4000
+    }
+
     # Everything else goes to the staff Next.js app
     handle {
         reverse_proxy web:3000 {
@@ -89,6 +94,10 @@ knefos.knefgadgets.com {
     }
 
     handle /health {
+        reverse_proxy api:4000
+    }
+
+    handle /uploads/* {
         reverse_proxy api:4000
     }
 

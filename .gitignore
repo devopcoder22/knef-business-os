@@ -27,8 +27,9 @@ Thumbs.db
 # Docker
 docker-compose.override.yml
 
-# Uploads and backups (exclude from repo)
+# Uploads and backups (exclude from repo, but allow source module)
 uploads/
+!apps/api/src/modules/uploads/
 backups/
 
 # Prisma
