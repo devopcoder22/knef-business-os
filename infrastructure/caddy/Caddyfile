@@ -99,3 +99,14 @@ store.yourdomain.com {
         reverse_proxy web:3000
     }
 }
+
+# Storefront: IP-based access on port 8080
+:8080 {
+    handle /api/* {
+        reverse_proxy storefront:3001
+    }
+
+    handle {
+        reverse_proxy storefront:3001
+    }
+}
