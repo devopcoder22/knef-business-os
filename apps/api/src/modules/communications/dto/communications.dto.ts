@@ -17,8 +17,8 @@ export class CreateEmailProviderDto {
   @IsString()
   name!: string;
 
-  @IsEnum(['smtp', 'sendgrid', 'mailgun'])
-  type!: 'smtp' | 'sendgrid' | 'mailgun';
+  @IsEnum(['smtp', 'sendgrid', 'mailgun', 'brevo'])
+  type!: 'smtp' | 'sendgrid' | 'mailgun' | 'brevo';
 
   @IsOptional()
   @IsString()

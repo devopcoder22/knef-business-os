@@ -56,6 +56,8 @@ export class EmailService {
         return await this.sendViaSendgrid(provider, encryptionKey, toAddresses, fromAddress, params);
       } else if (provider.type === 'mailgun') {
         return await this.sendViaMailgun(provider, encryptionKey, toAddresses, fromAddress, params);
+      } else if (provider.type === 'brevo') {
+        return await this.sendViaBrevo(provider, encryptionKey, toAddresses, fromAddress, params);
       }
 
       return { success: false, error: `Unsupported provider type: ${provider.type}` };
@@ -140,6 +142,49 @@ export class EmailService {
 
       const messageId = response.headers.get('X-Message-Id') ?? `sg-${Date.now()}`;
       return { success: true, messageId };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { success: false, error: message };
+    }
+  }
+
+  private async sendViaBrevo(
+    provider: { apiKeyEncrypted: string | null; fromEmail: string; fromName: string },
+    encryptionKey: string,
+    to: string[],
+    _from: string,
+    params: SendEmailParams,
+  ): Promise<SendEmailResult> {
+    try {
+      if (!provider.apiKeyEncrypted) {
+        return { success: false, error: 'Brevo API key not configured' };
+      }
+      const apiKey = decrypt(provider.apiKeyEncrypted, encryptionKey);
+
+      const body = {
+        sender: { name: provider.fromName, email: provider.fromEmail },
+        to: to.map((email) => ({ email })),
+        subject: params.subject,
+        htmlContent: params.html,
+        ...(params.text ? { textContent: params.text } : {}),
+      };
+
+      const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'api-key': apiKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        return { success: false, error: `Brevo error ${response.status}: ${errorText}` };
+      }
+
+      const data = (await response.json()) as { messageId?: string };
+      return { success: true, messageId: data.messageId ?? `brevo-${Date.now()}` };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       return { success: false, error: message };
