@@ -659,14 +659,14 @@ export class ProductsService {
   private async updateSearchVector(productId: string) {
     try {
       await this.prisma.$executeRaw`
-        UPDATE "Product" SET search_vector = to_tsvector('english',
+        UPDATE "Product" SET "searchVector" = to_tsvector('english',
           coalesce(name,'') || ' ' || coalesce(sku,'') || ' ' ||
           coalesce(barcode,'') || ' ' || coalesce(gtin,'') || ' ' ||
           coalesce(description,'')
         ) WHERE id = ${productId}
       `;
     } catch {
-      // search_vector column is optional; silently skip if not present
+      // silently skip if searchVector column is not present
     }
   }
 
