@@ -257,8 +257,9 @@ export default function OrganizationPage() {
           )}
         </div>
 
-        {/* Logo upload */}
+        {/* Logo + Favicon upload */}
         {canEdit && (
+          <>
           <div className="mb-6 pb-6 border-b border-gray-100">
             <label className="block text-sm font-medium text-gray-700 mb-3">Organisation Logo</label>
             <div className="flex items-center gap-5">
@@ -325,6 +326,7 @@ export default function OrganizationPage() {
               </div>
             </div>
           </div>
+          </>
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">

@@ -10,7 +10,9 @@ const STORE_NAME = process.env.NEXT_PUBLIC_STORE_NAME ?? 'KNEF Gadgets';
 
 async function getBranding() {
   try {
-    const res = await fetch(`${BACKEND}/api/v1/organization/branding`, { next: { revalidate: 300 } });
+    const res = await fetch(`${BACKEND}/api/v1/organization/branding`, {
+      next: { revalidate: 300 },
+    });
     if (!res.ok) return null;
     const json = await res.json();
     return json.data ?? json;
@@ -19,34 +21,41 @@ async function getBranding() {
   }
 }
 
-export async function generateMetadata(): Promise<Metadata> {
-  const branding = await getBranding();
-  return {
-    title: {
-      default: `${STORE_NAME} — Smartphones & Electronics`,
-      template: `%s | ${STORE_NAME}`,
-    },
-    description:
-      'Shop the latest smartphones, gadgets, and consumer electronics at KNEF Gadgets, Lagos Nigeria. Genuine products, competitive prices, fast delivery.',
-    openGraph: {
-      type: 'website',
-      siteName: STORE_NAME,
-    },
-    icons: {
-      icon: branding?.faviconUrl || '/favicon.ico',
-      shortcut: branding?.faviconUrl || '/favicon-32x32.png',
-      apple: branding?.faviconUrl || '/apple-touch-icon.png',
-    },
-  };
-}
+export const metadata: Metadata = {
+  title: {
+    default: `${STORE_NAME} — Smartphones & Electronics`,
+    template: `%s | ${STORE_NAME}`,
+  },
+  description:
+    'Shop the latest smartphones, gadgets, and consumer electronics at KNEF Gadgets, Lagos Nigeria. Genuine products, competitive prices, fast delivery.',
+  openGraph: { type: 'website', siteName: STORE_NAME },
+};
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const branding = await getBranding();
+  const faviconHref = branding?.faviconUrl || null;
+
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        {faviconHref ? (
+          <>
+            <link rel="icon" href={faviconHref} />
+            <link rel="apple-touch-icon" href={faviconHref} />
+          </>
+        ) : (
+          <>
+            <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+            <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+            <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+            <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+          </>
+        )}
+      </head>
       <body className="font-sans antialiased bg-gray-50 min-h-screen flex flex-col">
         <Providers>
           <Header />
