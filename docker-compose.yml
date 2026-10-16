@@ -23,8 +23,9 @@ services:
       context: .
       dockerfile: infrastructure/docker/web.Dockerfile
     environment:
-      - NEXT_PUBLIC_API_URL=https://yourdomain.com/api/v1
+      - NEXT_PUBLIC_API_URL=/api/v1
       - NODE_ENV=production
+      - INTERNAL_API_URL=http://api:4000/api/v1
     networks:
       - public
     depends_on:
