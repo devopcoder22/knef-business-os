@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  ConflictException,
 } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
 import { createHash, randomBytes } from 'crypto';
@@ -85,24 +86,32 @@ export class CommunicationsService {
       });
     }
 
-    const provider = await this.prisma.emailProvider.create({
-      data: {
-        id: createId(),
-        organizationId,
-        name: dto.name,
-        type: dto.type,
-        host: dto.host ?? null,
-        port: dto.port ?? null,
-        secure: dto.secure ?? false,
-        username: dto.username ?? null,
-        passwordEncrypted,
-        apiKeyEncrypted,
-        fromEmail: dto.fromEmail,
-        fromName: dto.fromName,
-        isDefault: dto.isDefault ?? false,
-        isActive: true,
-      },
-    });
+    let provider: Awaited<ReturnType<typeof this.prisma.emailProvider.create>>;
+    try {
+      provider = await this.prisma.emailProvider.create({
+        data: {
+          id: createId(),
+          organizationId,
+          name: dto.name,
+          type: dto.type,
+          host: dto.host ?? null,
+          port: dto.port ?? null,
+          secure: dto.secure ?? false,
+          username: dto.username ?? null,
+          passwordEncrypted,
+          apiKeyEncrypted,
+          fromEmail: dto.fromEmail,
+          fromName: dto.fromName,
+          isDefault: dto.isDefault ?? false,
+          isActive: true,
+        },
+      });
+    } catch (err: any) {
+      if (err?.code === 'P2002') {
+        throw new ConflictException(`An email provider named "${dto.name}" already exists. Use a different name.`);
+      }
+      throw err;
+    }
 
     return {
       id: provider.id,
