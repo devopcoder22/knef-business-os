@@ -108,8 +108,8 @@ export class EmailProvidersController {
   @Permissions(PERMISSIONS.COMMUNICATIONS.EMAIL_PROVIDERS)
   @ApiOperation({ summary: 'Test email provider' })
   @HttpCode(HttpStatus.OK)
-  test(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.commsService.testEmailProvider(user.organizationId, id, user.email);
+  test(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: { email?: string }) {
+    return this.commsService.testEmailProvider(user.organizationId, id, body?.email ?? user.email);
   }
 }
 
