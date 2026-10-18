@@ -7,6 +7,7 @@ import {
 import { createId } from '@paralleldrive/cuid2';
 import { randomBytes, createHash } from 'crypto';
 import { OrderStatus, Prisma, ProductStatus } from '@prisma/client';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../common/services/prisma.service';
 import { InventoryService } from '../inventory/inventory.service';
 import type { PublicProductsQueryDto } from './dto/public-products-query.dto';
@@ -29,6 +30,7 @@ export class EcommerceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly inventoryService: InventoryService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   /**
@@ -464,6 +466,16 @@ export class EcommerceService {
         method: dto.paymentMethod as 'CASH' | 'BANK_TRANSFER' | 'OTHER',
         status: 'PENDING',
       },
+    });
+
+    this.eventEmitter.emit('storefront.order.created', {
+      organizationId,
+      orderId: order.id,
+      reference: order.reference,
+      customerName: dto.customerName,
+      customerEmail: dto.customerEmail ?? null,
+      customerPhone: dto.customerPhone,
+      totalAmount: totalAmount.toString(),
     });
 
     return publicResponse({

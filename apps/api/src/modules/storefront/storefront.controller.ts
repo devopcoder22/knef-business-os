@@ -15,6 +15,7 @@ import { CurrentCustomer } from './decorators/current-customer.decorator';
 import { CustomerRegisterDto } from './dto/customer-register.dto';
 import { CustomerLoginDto } from './dto/customer-login.dto';
 import { CustomerRefreshDto } from './dto/customer-refresh.dto';
+import { PostOrderRegisterDto } from './dto/post-order-register.dto';
 import type { CustomerAccountContext } from './guards/customer-jwt.guard';
 
 // Derive orgId from a fixed env var or from request host
@@ -70,5 +71,12 @@ export class StorefrontAuthController {
     @Body() dto: CustomerRefreshDto,
   ) {
     return this.authService.logout(customer.id, dto.refreshToken);
+  }
+
+  @Post('post-order-register')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Register an account after placing a guest order' })
+  postOrderRegister(@Body() dto: PostOrderRegisterDto) {
+    return this.authService.postOrderRegister(getOrgId(), dto);
   }
 }

@@ -191,6 +191,57 @@ export class EmailService {
     }
   }
 
+  async sendSms(organizationId: string, to: string, message: string): Promise<SendEmailResult> {
+    try {
+      const provider = await this.prisma.emailProvider.findFirst({
+        where: { organizationId, isDefault: true, isActive: true, type: 'brevo' },
+      });
+
+      if (!provider) {
+        return { success: false, error: 'SMS not configured' };
+      }
+
+      if (!provider.apiKeyEncrypted) {
+        return { success: false, error: 'SMS not configured' };
+      }
+
+      const encryptionKey = this.config.get<string>('ENCRYPTION_KEY')!;
+      const apiKey = decrypt(provider.apiKeyEncrypted, encryptionKey);
+
+      // Normalize Nigerian phone number: 0XXXXXXXXXX (11 digits) → +234XXXXXXXXXX
+      let recipient = to;
+      if (/^0\d{10}$/.test(to)) {
+        recipient = `+234${to.slice(1)}`;
+      }
+
+      const body = {
+        sender: 'KNEF',
+        recipient,
+        content: message,
+      };
+
+      const response = await fetch('https://api.brevo.com/v3/transactionalSMS/sms', {
+        method: 'POST',
+        headers: {
+          'api-key': apiKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        return { success: false, error: `Brevo SMS error ${response.status}: ${errorText}` };
+      }
+
+      const data = (await response.json()) as { messageId?: string; reference?: string };
+      return { success: true, messageId: data.reference ?? `brevo-sms-${Date.now()}` };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { success: false, error: message };
+    }
+  }
+
   private async sendViaMailgun(
     provider: { host: string | null; apiKeyEncrypted: string | null },
     encryptionKey: string,

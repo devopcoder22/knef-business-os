@@ -202,3 +202,34 @@ export async function fetchStorefrontSettings(): Promise<StorefrontSettings> {
     return {};
   }
 }
+
+// ─── OTP verification ─────────────────────────────────────────────────────────
+
+export async function requestEmailOtp(email: string): Promise<{ message: string }> {
+  return apiFetch('/api/storefront/otp/email', { method: 'POST', body: JSON.stringify({ email }) });
+}
+
+export async function verifyEmailOtp(email: string, code: string): Promise<{ verified: boolean }> {
+  return apiFetch('/api/storefront/otp/email/verify', { method: 'POST', body: JSON.stringify({ email, code }) });
+}
+
+export async function requestSmsOtp(phone: string): Promise<{ message: string }> {
+  return apiFetch('/api/storefront/otp/sms', { method: 'POST', body: JSON.stringify({ phone }) });
+}
+
+export async function verifySmsOtp(phone: string, code: string): Promise<{ verified: boolean }> {
+  return apiFetch('/api/storefront/otp/sms/verify', { method: 'POST', body: JSON.stringify({ phone, code }) });
+}
+
+// ─── Post-order account creation ──────────────────────────────────────────────
+
+export async function postOrderRegister(body: {
+  orderReference: string;
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+  phone?: string;
+}): Promise<AuthResult> {
+  return apiFetch('/api/auth/post-order-register', { method: 'POST', body: JSON.stringify(body) });
+}

@@ -4,12 +4,17 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { StorefrontAuthController } from './storefront.controller';
 import { StorefrontOrdersController } from './storefront-orders.controller';
 import { StorefrontAuthService } from './storefront-auth.service';
+import { StorefrontOtpService } from './storefront-otp.service';
+import { StorefrontOtpController } from './storefront-otp.controller';
+import { StorefrontNotificationListener } from './storefront-notification.listener';
 import { CustomerJwtGuard } from './guards/customer-jwt.guard';
 import { CommonModule } from '../../common/services/common.module';
+import { CommunicationsModule } from '../communications/communications.module';
 
 @Module({
   imports: [
     CommonModule,
+    CommunicationsModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -19,7 +24,12 @@ import { CommonModule } from '../../common/services/common.module';
       }),
     }),
   ],
-  controllers: [StorefrontAuthController, StorefrontOrdersController],
-  providers: [StorefrontAuthService, CustomerJwtGuard],
+  controllers: [StorefrontAuthController, StorefrontOrdersController, StorefrontOtpController],
+  providers: [
+    StorefrontAuthService,
+    StorefrontOtpService,
+    StorefrontNotificationListener,
+    CustomerJwtGuard,
+  ],
 })
 export class StorefrontModule {}

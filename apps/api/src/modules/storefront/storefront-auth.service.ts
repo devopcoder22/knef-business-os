@@ -3,6 +3,7 @@ import {
   ConflictException,
   UnauthorizedException,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -176,6 +177,77 @@ export class StorefrontAuthService {
     });
     if (!account) throw new NotFoundException('Account not found');
     return account;
+  }
+
+  async postOrderRegister(
+    organizationId: string,
+    dto: {
+      orderReference: string;
+      email: string;
+      password: string;
+      firstName: string;
+      lastName: string;
+      phone?: string;
+    },
+  ) {
+    // 1. Find order by reference
+    const order = await this.prisma.salesOrder.findFirst({
+      where: { organizationId, reference: dto.orderReference },
+      include: { customer: true },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+
+    // 2. Verify email matches the order customer
+    if (!order.customer?.email || order.customer.email.toLowerCase() !== dto.email.toLowerCase()) {
+      throw new BadRequestException('Email does not match order');
+    }
+
+    // 3. Check no existing CustomerAccount with same email
+    const existing = await this.prisma.customerAccount.findFirst({
+      where: { organizationId, email: dto.email.toLowerCase().trim() },
+    });
+    if (existing) throw new ConflictException('Email already registered');
+
+    // 4. Hash password and create account
+    const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
+
+    const account = await this.prisma.customerAccount.create({
+      data: {
+        id: createId(),
+        organizationId,
+        email: dto.email.toLowerCase().trim(),
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        phone: dto.phone,
+        passwordHash,
+        customerId: order.customerId ?? undefined,
+      },
+    });
+
+    // 5. Link order to the new account
+    await this.prisma.salesOrder.update({
+      where: { id: order.id },
+      data: { customerAccountId: account.id },
+    });
+
+    // 6. If order has existing customerId, link to account (already set above in create, but ensure)
+    if (order.customerId) {
+      await this.prisma.customerAccount.update({
+        where: { id: account.id },
+        data: { customerId: order.customerId },
+      });
+    }
+
+    const tokens = await this.generateTokenPair(account.id, organizationId, account.email);
+    return {
+      ...tokens,
+      customer: {
+        id: account.id,
+        email: account.email,
+        firstName: account.firstName,
+        lastName: account.lastName,
+      },
+    };
   }
 
   async logout(accountId: string, rawRefreshToken: string) {
