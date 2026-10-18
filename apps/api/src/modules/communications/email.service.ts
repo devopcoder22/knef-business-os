@@ -214,10 +214,10 @@ export class EmailService {
       const body = {
         api_key: apiKey,
         to: recipient,
-        from: 'KNEF',
+        from: 'N-Alert',
         sms: message,
         type: 'plain',
-        channel: 'dnd',
+        channel: 'generic',
       };
 
       this.logger.log(`SMS: sending to ${recipient} via Termii`);
