@@ -282,6 +282,8 @@ export default function UserDetailPage() {
   const [profileForm, setProfileForm] = useState({ firstName: '', lastName: '', phone: '' });
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const avatarFileRef = useRef<HTMLInputElement>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [resetMsg, setResetMsg] = useState<string | null>(null);
 
   // ── Queries ──
 
@@ -395,6 +397,16 @@ export default function UserDetailPage() {
     },
   });
 
+  const sendPasswordResetMutation = useMutation({
+    mutationFn: async () => { await api().post(`/users/${id}/send-password-reset`); },
+    onSuccess: () => { setResetMsg('Password reset email sent successfully.'); setTimeout(() => setResetMsg(null), 4000); },
+  });
+
+  const deleteUserMutation = useMutation({
+    mutationFn: async () => { await api().delete(`/users/${id}`); },
+    onSuccess: () => router.replace('/admin/users'),
+  });
+
   // ── Feature flag mutation ──
 
   const flagMutation = useMutation({
@@ -481,6 +493,11 @@ export default function UserDetailPage() {
       {/* ── OVERVIEW TAB ── */}
       {activeTab === 'overview' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {resetMsg && (
+            <div className="lg:col-span-3 px-4 py-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
+              {resetMsg}
+            </div>
+          )}
           {/* Profile card */}
           <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-6 space-y-5">
             <div className="flex items-start gap-5">
@@ -600,12 +617,12 @@ export default function UserDetailPage() {
                 )}
               </div>
               {canManageUsers && !editingProfile && (
-                <div>
+                <div className="flex flex-col gap-2 items-end">
                   {user.isActive ? (
                     <button
                       onClick={() => deactivateMutation.mutate()}
                       disabled={deactivateMutation.isPending}
-                      className="text-sm text-red-600 hover:text-red-700 font-medium px-3 py-1.5 rounded-lg border border-red-200 hover:bg-red-50"
+                      className="text-sm text-red-600 hover:text-red-700 font-medium px-3 py-1.5 rounded-lg border border-red-200 hover:bg-red-50 whitespace-nowrap"
                     >
                       Deactivate
                     </button>
@@ -613,10 +630,41 @@ export default function UserDetailPage() {
                     <button
                       onClick={() => activateMutation.mutate()}
                       disabled={activateMutation.isPending}
-                      className="text-sm text-green-600 hover:text-green-700 font-medium px-3 py-1.5 rounded-lg border border-green-200 hover:bg-green-50"
+                      className="text-sm text-green-600 hover:text-green-700 font-medium px-3 py-1.5 rounded-lg border border-green-200 hover:bg-green-50 whitespace-nowrap"
                     >
                       Activate
                     </button>
+                  )}
+                  <button
+                    onClick={() => sendPasswordResetMutation.mutate()}
+                    disabled={sendPasswordResetMutation.isPending}
+                    className="text-sm text-blue-600 hover:text-blue-700 font-medium px-3 py-1.5 rounded-lg border border-blue-200 hover:bg-blue-50 whitespace-nowrap"
+                  >
+                    {sendPasswordResetMutation.isPending ? 'Sending…' : 'Send Reset Link'}
+                  </button>
+                  {!deleteConfirm ? (
+                    <button
+                      onClick={() => setDeleteConfirm(true)}
+                      className="text-sm text-red-600 hover:text-red-700 font-medium px-3 py-1.5 rounded-lg border border-red-200 hover:bg-red-50 whitespace-nowrap"
+                    >
+                      Delete User
+                    </button>
+                  ) : (
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => deleteUserMutation.mutate()}
+                        disabled={deleteUserMutation.isPending}
+                        className="text-sm text-white bg-red-600 hover:bg-red-700 font-medium px-3 py-1.5 rounded-lg whitespace-nowrap"
+                      >
+                        Confirm Delete
+                      </button>
+                      <button
+                        onClick={() => setDeleteConfirm(false)}
+                        className="text-sm text-gray-600 border border-gray-200 hover:bg-gray-50 font-medium px-3 py-1.5 rounded-lg"
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   )}
                 </div>
               )}

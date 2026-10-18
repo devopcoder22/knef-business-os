@@ -10,6 +10,7 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -24,7 +25,10 @@ import { ListUsersDto } from './dto/list-users.dto';
 @ApiBearerAuth('JWT')
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly config: ConfigService,
+  ) {}
 
   @Get()
   @Permissions(PERMISSIONS.ADMIN.MANAGE_USERS)
@@ -111,5 +115,22 @@ export class UsersController {
     @Param('userRoleId') userRoleId: string,
   ) {
     return this.usersService.removeRole(user.organizationId, userId, userRoleId);
+  }
+
+  @Post(':id/send-password-reset')
+  @Permissions(PERMISSIONS.ADMIN.MANAGE_USERS)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Send password reset email to user (admin)' })
+  sendPasswordReset(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const appUrl = this.config.get<string>('APP_URL', 'http://localhost:3000');
+    return this.usersService.sendPasswordReset(user.organizationId, id, appUrl, user);
+  }
+
+  @Delete(':id')
+  @Permissions(PERMISSIONS.ADMIN.MANAGE_USERS)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Delete user permanently (super admin)' })
+  deleteUser(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.usersService.deleteUser(user.organizationId, id, user);
   }
 }

@@ -5,10 +5,13 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
+import { randomBytes } from 'crypto';
+import { createHash } from 'crypto';
 import { createId } from '@paralleldrive/cuid2';
 import { PrismaService } from '../../common/services/prisma.service';
 import { RedisService } from '../../common/services/redis.service';
 import { AuditService } from '../audit/audit.service';
+import { EmailService } from '../communications/email.service';
 import type { AuthUser } from '@knef/types';
 import type { InviteUserDto } from './dto/invite-user.dto';
 import type { UpdateProfileDto } from './dto/update-profile.dto';
@@ -22,6 +25,7 @@ export class UsersService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly auditService: AuditService,
+    private readonly emailService: EmailService,
   ) {}
 
   async findAll(organizationId: string, dto: ListUsersDto) {
@@ -338,5 +342,81 @@ export class UsersService {
     });
 
     return { message: 'Role removed successfully' };
+  }
+
+  async sendPasswordReset(organizationId: string, userId: string, appUrl: string, requestingUser: AuthUser) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, organizationId },
+      select: { id: true, email: true, firstName: true, isActive: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const token = randomBytes(32).toString('hex');
+    const hashed = createHash('sha256').update(token).digest('hex');
+    const expires = new Date(Date.now() + 60 * 60 * 1000);
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { resetPasswordToken: hashed, resetPasswordExpires: expires },
+    });
+
+    const resetUrl = `${appUrl}/reset-password?token=${token}`;
+    const firstName = user.firstName ?? 'there';
+    const expiryMin = 60;
+    const html = `
+      <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
+        <h2>Password Reset</h2>
+        <p>Hi ${firstName},</p>
+        <p>An admin has requested a password reset for your account. Click below to set a new password (expires in ${expiryMin} minutes):</p>
+        <p><a href="${resetUrl}" style="background:#2563eb;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block">Reset Password</a></p>
+        <p style="color:#666;font-size:13px">If you didn't expect this, you can safely ignore this email.</p>
+      </div>`;
+
+    await this.emailService.sendEmail({
+      organizationId,
+      to: user.email,
+      subject: 'Reset your KNEF Business OS password',
+      html,
+      text: `Reset your password: ${resetUrl} (expires in ${expiryMin} minutes)`,
+    });
+
+    await this.auditService.log({
+      organizationId,
+      userId: requestingUser.id,
+      action: 'USER_PASSWORD_RESET_SENT',
+      entity: 'User',
+      entityId: userId,
+    });
+
+    return { message: 'Password reset email sent' };
+  }
+
+  async deleteUser(organizationId: string, userId: string, requestingUser: AuthUser) {
+    if (userId === requestingUser.id) {
+      throw new ForbiddenException('You cannot delete your own account');
+    }
+
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, organizationId },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    // Invalidate all sessions first
+    await this.prisma.refreshToken.deleteMany({ where: { userId } });
+    await this.redis.del(`perms:${userId}`);
+
+    // Hard delete
+    await this.prisma.user.delete({ where: { id: userId } });
+
+    await this.auditService.log({
+      organizationId,
+      userId: requestingUser.id,
+      action: 'USER_DELETED',
+      entity: 'User',
+      entityId: userId,
+      oldValues: { email: user.email },
+    });
+
+    return { message: 'User deleted successfully' };
   }
 }
