@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../common/services/prisma.service';
 import { decrypt } from '@knef/utils';
@@ -24,6 +24,8 @@ export interface SendEmailResult {
 
 @Injectable()
 export class EmailService {
+  private readonly logger = new Logger(EmailService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<AppConfig>,
@@ -193,32 +195,35 @@ export class EmailService {
 
   async sendSms(organizationId: string, to: string, message: string): Promise<SendEmailResult> {
     try {
+      // Use any active Brevo provider — not restricted to default, since default may be SMTP
       const provider = await this.prisma.emailProvider.findFirst({
-        where: { organizationId, isDefault: true, isActive: true, type: 'brevo' },
+        where: { organizationId, isActive: true, type: 'brevo' },
       });
 
-      if (!provider) {
-        return { success: false, error: 'SMS not configured' };
-      }
-
-      if (!provider.apiKeyEncrypted) {
-        return { success: false, error: 'SMS not configured' };
+      if (!provider || !provider.apiKeyEncrypted) {
+        this.logger.warn(`SMS: no active Brevo provider for org ${organizationId}`);
+        return { success: false, error: 'SMS not configured — add a Brevo provider in Communications settings' };
       }
 
       const encryptionKey = this.config.get<string>('ENCRYPTION_KEY')!;
       const apiKey = decrypt(provider.apiKeyEncrypted, encryptionKey);
 
-      // Normalize Nigerian phone number: 0XXXXXXXXXX (11 digits) → +234XXXXXXXXXX
-      let recipient = to;
-      if (/^0\d{10}$/.test(to)) {
-        recipient = `+234${to.slice(1)}`;
+      // Normalize phone to E.164: 0XXXXXXXXXX → +234XXXXXXXXXX, strip spaces/dashes
+      let recipient = to.replace(/[\s\-()]/g, '');
+      if (/^0\d{10}$/.test(recipient)) {
+        recipient = `+234${recipient.slice(1)}`;
+      } else if (/^\d{10,13}$/.test(recipient) && !recipient.startsWith('+')) {
+        recipient = `+${recipient}`;
       }
 
-      const body = {
+      const smsBody = {
         sender: 'KNEF',
         recipient,
         content: message,
+        type: 'transactional',
       };
+
+      this.logger.log(`SMS: sending to ${recipient} via Brevo`);
 
       const response = await fetch('https://api.brevo.com/v3/transactionalSMS/sms', {
         method: 'POST',
@@ -226,18 +231,22 @@ export class EmailService {
           'api-key': apiKey,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify(smsBody),
       });
 
+      const responseText = await response.text();
+
       if (!response.ok) {
-        const errorText = await response.text();
-        return { success: false, error: `Brevo SMS error ${response.status}: ${errorText}` };
+        this.logger.error(`SMS: Brevo error ${response.status}: ${responseText}`);
+        return { success: false, error: `Brevo SMS error ${response.status}: ${responseText}` };
       }
 
-      const data = (await response.json()) as { messageId?: string; reference?: string };
-      return { success: true, messageId: data.reference ?? `brevo-sms-${Date.now()}` };
+      this.logger.log(`SMS: sent successfully to ${recipient}`);
+      const data = JSON.parse(responseText) as { messageId?: string; reference?: string };
+      return { success: true, messageId: data.reference ?? data.messageId ?? `brevo-sms-${Date.now()}` };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(`SMS: unexpected error: ${message}`);
       return { success: false, error: message };
     }
   }

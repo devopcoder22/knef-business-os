@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { RedisService } from '../../common/services/redis.service';
 import { EmailService } from '../communications/email.service';
 import { PrismaService } from '../../common/services/prisma.service';
@@ -14,6 +14,8 @@ interface OtpRecord {
 
 @Injectable()
 export class StorefrontOtpService {
+  private readonly logger = new Logger(StorefrontOtpService.name);
+
   constructor(
     private readonly redis: RedisService,
     private readonly email: EmailService,
@@ -64,7 +66,11 @@ export class StorefrontOtpService {
     await this.redis.setJson(key, record, OTP_TTL_SECONDS);
 
     const smsBody = `Your KNEF verification code: ${code}. Expires in 10 minutes.`;
-    await this.email.sendSms(organizationId, phone, smsBody);
+    const result = await this.email.sendSms(organizationId, phone, smsBody);
+    if (!result.success) {
+      this.logger.error(`SMS OTP send failed for ${phone}: ${result.error}`);
+      throw new BadRequestException(result.error ?? 'Failed to send SMS verification code');
+    }
   }
 
   async verifySmsOtp(phone: string, code: string): Promise<void> {
