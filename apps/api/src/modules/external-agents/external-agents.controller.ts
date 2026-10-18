@@ -54,7 +54,7 @@ export class ExternalAgentsController {
   @Permissions(PERMISSIONS.EXTERNAL_AGENTS.VIEW)
   @ApiOperation({ summary: 'List all externally exposed KNEF tools' })
   listExposedTools() {
-    return { tools: this.agentsService.listExposedTools() };
+    return { data: this.agentsService.listExposedTools() };
   }
 
   @Get(':id')

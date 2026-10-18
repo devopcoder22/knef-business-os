@@ -108,7 +108,6 @@ export default function ProductDetailPage() {
 
     setAdded(true);
     toast('success', `${product.name} added to cart`);
-    setTimeout(() => setAdded(false), 2000);
   }
 
   function handleBuyNow() {
@@ -331,14 +330,22 @@ export default function ProductDetailPage() {
                 </>
               )}
             </button>
-            {!isOutOfStock && (
+            {added ? (
+              <Link
+                href="/cart"
+                className="flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm bg-knef-primary text-white hover:bg-opacity-90 transition-colors"
+              >
+                <ShoppingCart size={18} />
+                View Cart
+              </Link>
+            ) : !isOutOfStock ? (
               <button
                 onClick={handleBuyNow}
                 className="flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm bg-knef-secondary text-knef-primary hover:bg-amber-400 transition-colors"
               >
                 Buy Now
               </button>
-            )}
+            ) : null}
           </div>
 
           {/* SKU */}

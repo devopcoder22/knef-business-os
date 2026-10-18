@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ConflictException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
@@ -389,6 +390,85 @@ export class UsersService {
     });
 
     return { message: 'Password reset email sent' };
+  }
+
+  async requestEmailChange(organizationId: string, userId: string, newEmail: string, requestingUser: AuthUser) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, organizationId },
+      select: { id: true, email: true, firstName: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const normalizedEmail = newEmail.toLowerCase().trim();
+
+    const taken = await this.prisma.user.findFirst({
+      where: { organizationId, email: normalizedEmail },
+    });
+    if (taken) throw new ConflictException('This email is already in use');
+
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    await this.redis.setJson(`email_change:${userId}`, { pendingEmail: normalizedEmail, code }, 3600);
+
+    const firstName = user.firstName ?? 'there';
+    const html = `
+      <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
+        <h2>Confirm Email Change</h2>
+        <p>Hi ${firstName},</p>
+        <p>Your account email is being changed to <strong>${normalizedEmail}</strong>.</p>
+        <p>Enter this code to confirm the change (expires in 1 hour):</p>
+        <p style="font-size:32px;font-weight:bold;letter-spacing:8px;text-align:center;padding:16px;background:#f3f4f6;border-radius:8px">${code}</p>
+        <p style="color:#666;font-size:13px">If you didn't request this, ignore this email — your current email remains unchanged.</p>
+      </div>`;
+
+    await this.emailService.sendEmail({
+      organizationId,
+      to: normalizedEmail,
+      subject: 'Confirm your new email address',
+      html,
+      text: `Your email change verification code: ${code} (expires in 1 hour)`,
+    });
+
+    await this.auditService.log({
+      organizationId,
+      userId: requestingUser.id,
+      action: 'USER_EMAIL_CHANGE_REQUESTED',
+      entity: 'User',
+      entityId: userId,
+      newValues: { pendingEmail: normalizedEmail },
+    });
+
+    return { message: 'Verification code sent to the new email address' };
+  }
+
+  async confirmEmailChange(organizationId: string, userId: string, code: string, requestingUser: AuthUser) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, organizationId },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const stored = await this.redis.getJson<{ pendingEmail: string; code: string }>(`email_change:${userId}`);
+    if (!stored) throw new BadRequestException('No pending email change or code expired. Please request a new code.');
+    if (stored.code !== code.trim()) throw new BadRequestException('Invalid verification code');
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { email: stored.pendingEmail, isEmailVerified: true },
+    });
+
+    await this.redis.del(`email_change:${userId}`);
+    await this.redis.del(`perms:${userId}`);
+
+    await this.auditService.log({
+      organizationId,
+      userId: requestingUser.id,
+      action: 'USER_EMAIL_CHANGED',
+      entity: 'User',
+      entityId: userId,
+      oldValues: { email: user.email },
+      newValues: { email: stored.pendingEmail },
+    });
+
+    return { message: 'Email updated successfully', email: stored.pendingEmail };
   }
 
   async deleteUser(organizationId: string, userId: string, requestingUser: AuthUser) {

@@ -285,6 +285,13 @@ export default function UserDetailPage() {
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [resetMsg, setResetMsg] = useState<string | null>(null);
 
+  // Email change state
+  const [emailChangeStep, setEmailChangeStep] = useState<'idle' | 'input' | 'code'>('idle');
+  const [newEmailInput, setNewEmailInput] = useState('');
+  const [emailCode, setEmailCode] = useState('');
+  const [emailChangeMsg, setEmailChangeMsg] = useState<string | null>(null);
+  const [emailChangeError, setEmailChangeError] = useState<string | null>(null);
+
   // ── Queries ──
 
   const { data: user, isLoading: userLoading } = useQuery<UserDetail>({
@@ -407,6 +414,37 @@ export default function UserDetailPage() {
     onSuccess: () => router.replace('/admin/users'),
   });
 
+  const requestEmailChangeMutation = useMutation({
+    mutationFn: async (newEmail: string) => {
+      await api().post(`/users/${id}/request-email-change`, { newEmail });
+    },
+    onSuccess: () => {
+      setEmailChangeStep('code');
+      setEmailChangeError(null);
+      setEmailChangeMsg('Verification code sent to the new email address.');
+    },
+    onError: (err: any) => {
+      setEmailChangeError(err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to send code');
+    },
+  });
+
+  const confirmEmailChangeMutation = useMutation({
+    mutationFn: async (code: string) => {
+      await api().post(`/users/${id}/confirm-email-change`, { code });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['user', id] });
+      setEmailChangeStep('idle');
+      setEmailChangeMsg('Email updated successfully.');
+      setNewEmailInput('');
+      setEmailCode('');
+      setTimeout(() => setEmailChangeMsg(null), 4000);
+    },
+    onError: (err: any) => {
+      setEmailChangeError(err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Invalid code');
+    },
+  });
+
   // ── Feature flag mutation ──
 
   const flagMutation = useMutation({
@@ -431,7 +469,7 @@ export default function UserDetailPage() {
   };
 
   const initials = user
-    ? `${user.firstName[0] ?? ''}${user.lastName[0] ?? ''}`.toUpperCase()
+    ? `${user.firstName?.[0] ?? '?'}${user.lastName?.[0] ?? ''}`.toUpperCase()
     : '??';
 
   // ── Loading state ──
@@ -603,15 +641,81 @@ export default function UserDetailPage() {
                     <p className="text-sm text-gray-500 mt-1">{user.email}</p>
                     {user.phone && <p className="text-sm text-gray-500">{user.phone}</p>}
                     {canManageUsers && (
-                      <button
-                        onClick={() => {
-                          setProfileForm({ firstName: user.firstName, lastName: user.lastName, phone: user.phone ?? '' });
-                          setEditingProfile(true);
-                        }}
-                        className="flex items-center gap-1 mt-2 text-xs text-blue-600 hover:underline"
-                      >
-                        <Edit2 size={11} /> Edit profile
-                      </button>
+                      <div className="flex items-center gap-3 mt-2 flex-wrap">
+                        <button
+                          onClick={() => {
+                            setProfileForm({ firstName: user.firstName, lastName: user.lastName, phone: user.phone ?? '' });
+                            setEditingProfile(true);
+                          }}
+                          className="flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                        >
+                          <Edit2 size={11} /> Edit profile
+                        </button>
+                        {emailChangeStep === 'idle' && (
+                          <button
+                            onClick={() => { setEmailChangeStep('input'); setEmailChangeError(null); setEmailChangeMsg(null); }}
+                            className="flex items-center gap-1 text-xs text-purple-600 hover:underline"
+                          >
+                            <Edit2 size={11} /> Change email
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {/* Email change flow */}
+                    {emailChangeMsg && (
+                      <p className="mt-2 text-xs text-green-600">{emailChangeMsg}</p>
+                    )}
+                    {emailChangeError && (
+                      <p className="mt-2 text-xs text-red-600">{emailChangeError}</p>
+                    )}
+                    {emailChangeStep === 'input' && (
+                      <div className="mt-3 flex items-center gap-2 flex-wrap">
+                        <input
+                          type="email"
+                          value={newEmailInput}
+                          onChange={(e) => setNewEmailInput(e.target.value)}
+                          placeholder="New email address"
+                          className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 w-56"
+                        />
+                        <button
+                          onClick={() => requestEmailChangeMutation.mutate(newEmailInput)}
+                          disabled={requestEmailChangeMutation.isPending || !newEmailInput.trim()}
+                          className="px-3 py-1.5 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
+                        >
+                          {requestEmailChangeMutation.isPending ? 'Sending…' : 'Send Code'}
+                        </button>
+                        <button onClick={() => setEmailChangeStep('idle')} className="text-xs text-gray-500 hover:underline">
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+                    {emailChangeStep === 'code' && (
+                      <div className="mt-3 flex items-center gap-2 flex-wrap">
+                        <input
+                          type="text"
+                          value={emailCode}
+                          onChange={(e) => setEmailCode(e.target.value)}
+                          placeholder="6-digit code"
+                          maxLength={6}
+                          className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 w-32 font-mono tracking-widest"
+                        />
+                        <button
+                          onClick={() => confirmEmailChangeMutation.mutate(emailCode)}
+                          disabled={confirmEmailChangeMutation.isPending || emailCode.length !== 6}
+                          className="px-3 py-1.5 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
+                        >
+                          {confirmEmailChangeMutation.isPending ? 'Confirming…' : 'Confirm'}
+                        </button>
+                        <button
+                          onClick={() => { setEmailChangeStep('input'); setEmailChangeError(null); }}
+                          className="text-xs text-gray-500 hover:underline"
+                        >
+                          Resend
+                        </button>
+                        <button onClick={() => { setEmailChangeStep('idle'); setEmailChangeError(null); }} className="text-xs text-gray-500 hover:underline">
+                          Cancel
+                        </button>
+                      </div>
                     )}
                   </div>
                 )}

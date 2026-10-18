@@ -118,7 +118,7 @@ function EmployeeDetailContent() {
             {user.avatarUrl ? (
               <img src={user.avatarUrl} alt="" className="w-14 h-14 rounded-full object-cover" />
             ) : (
-              <span className="text-xl font-bold text-blue-600">{user.firstName[0]}{user.lastName[0]}</span>
+              <span className="text-xl font-bold text-blue-600">{user.firstName?.[0] ?? '?'}{user.lastName?.[0] ?? ''}</span>
             )}
           </div>
           <div>

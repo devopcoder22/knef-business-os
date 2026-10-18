@@ -6,7 +6,7 @@ import { Plus, Trash2, Star, Send, Pencil } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
-type ProviderType = 'smtp' | 'sendgrid' | 'mailgun';
+type ProviderType = 'smtp' | 'sendgrid' | 'mailgun' | 'brevo';
 
 interface EmailProvider {
   id: string;
@@ -54,6 +54,7 @@ const TYPE_BADGES: Record<ProviderType, string> = {
   smtp: 'bg-blue-100 text-blue-700',
   sendgrid: 'bg-green-100 text-green-700',
   mailgun: 'bg-red-100 text-red-700',
+  brevo: 'bg-purple-100 text-purple-700',
 };
 
 function ProviderForm({
@@ -85,6 +86,7 @@ function ProviderForm({
           <option value="smtp">SMTP</option>
           <option value="sendgrid">SendGrid</option>
           <option value="mailgun">Mailgun</option>
+          <option value="brevo">Brevo</option>
         </select>
       </div>
 
@@ -141,7 +143,7 @@ function ProviderForm({
         </>
       )}
 
-      {(form.type === 'sendgrid' || form.type === 'mailgun') && (
+      {(form.type === 'sendgrid' || form.type === 'mailgun' || form.type === 'brevo') && (
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
             API Key <span className="text-gray-400 font-normal">(leave blank to keep existing)</span>
@@ -302,7 +304,7 @@ export default function EmailProvidersPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Email Providers</h1>
-          <p className="text-sm text-gray-500 mt-1">Configure SMTP, SendGrid or Mailgun.</p>
+          <p className="text-sm text-gray-500 mt-1">Configure SMTP, SendGrid, Mailgun or Brevo.</p>
         </div>
         <button
           onClick={() => { setShowAdd(true); setForm(defaultForm); setSaveError(null); }}

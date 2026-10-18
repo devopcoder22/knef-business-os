@@ -126,6 +126,30 @@ export class UsersController {
     return this.usersService.sendPasswordReset(user.organizationId, id, appUrl, user);
   }
 
+  @Post(':id/request-email-change')
+  @Permissions(PERMISSIONS.ADMIN.MANAGE_USERS)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Request email change — sends verification code to new email' })
+  requestEmailChange(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: { newEmail: string },
+  ) {
+    return this.usersService.requestEmailChange(user.organizationId, id, body.newEmail, user);
+  }
+
+  @Post(':id/confirm-email-change')
+  @Permissions(PERMISSIONS.ADMIN.MANAGE_USERS)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Confirm email change with verification code' })
+  confirmEmailChange(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: { code: string },
+  ) {
+    return this.usersService.confirmEmailChange(user.organizationId, id, body.code, user);
+  }
+
   @Delete(':id')
   @Permissions(PERMISSIONS.ADMIN.MANAGE_USERS)
   @HttpCode(HttpStatus.OK)
