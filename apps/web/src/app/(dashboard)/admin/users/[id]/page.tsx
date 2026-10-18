@@ -265,7 +265,7 @@ function PermissionRow({
 export default function UserDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { hasPermission } = useAuthStore();
+  const { hasPermission, user: currentAuthUser } = useAuthStore();
   const queryClient = useQueryClient();
 
   const canManageRoles = hasPermission(PERMISSIONS.ADMIN.MANAGE_ROLES);
@@ -651,7 +651,7 @@ export default function UserDetailPage() {
                         >
                           <Edit2 size={11} /> Edit profile
                         </button>
-                        {emailChangeStep === 'idle' && (
+                        {emailChangeStep === 'idle' && currentAuthUser?.id !== id && (
                           <button
                             onClick={() => { setEmailChangeStep('input'); setEmailChangeError(null); setEmailChangeMsg(null); }}
                             className="flex items-center gap-1 text-xs text-purple-600 hover:underline"
@@ -664,6 +664,9 @@ export default function UserDetailPage() {
                     {/* Email change flow */}
                     {emailChangeMsg && (
                       <p className="mt-2 text-xs text-green-600">{emailChangeMsg}</p>
+                    )}
+                    {currentAuthUser?.id === id && canManageUsers && (
+                      <p className="mt-2 text-xs text-gray-400">To change your email, ask another admin.</p>
                     )}
                     {emailChangeError && (
                       <p className="mt-2 text-xs text-red-600">{emailChangeError}</p>

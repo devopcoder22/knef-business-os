@@ -20,6 +20,9 @@ import {
   Trash2,
   Tag,
   Star,
+  Pencil,
+  X,
+  Save,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -115,6 +118,8 @@ export default function CustomerDetailPage() {
     const d = new Date(); d.setDate(1); return d.toISOString().slice(0, 10);
   });
   const [stmtEnd, setStmtEnd] = useState(() => new Date().toISOString().slice(0, 10));
+  const [editingContact, setEditingContact] = useState(false);
+  const [contactForm, setContactForm] = useState({ email: '', phone: '', altPhone: '', address: '', city: '', state: '' });
 
   // ── Queries ──────────────────────────────────────────────────────────────
 
@@ -190,6 +195,15 @@ export default function CustomerDetailPage() {
     mutationFn: async (noteId: string) =>
       (await api().delete(`/customers/${id}/notes/${noteId}`)).data,
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['customer-notes', id] }),
+  });
+
+  const updateCustomer = useMutation({
+    mutationFn: async (data: typeof contactForm) =>
+      (await api().patch(`/customers/${id}`, data)).data,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['customer', id] });
+      setEditingContact(false);
+    },
   });
 
   // ── PDF downloads ─────────────────────────────────────────────────────────
@@ -317,13 +331,80 @@ export default function CustomerDetailPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Contact */}
               <div className="space-y-3">
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Contact</h3>
-                <InfoRow icon={<Phone size={13} />} label="Primary" value={customer.phone} />
-                {customer.altPhone && <InfoRow icon={<Phone size={13} />} label="Alt" value={customer.altPhone} />}
-                {customer.email && <InfoRow icon={<Mail size={13} />} label="Email" value={customer.email} />}
-                {customer.address && <InfoRow icon={<MapPin size={13} />} label="Address" value={[customer.address, customer.city, customer.state, customer.country].filter(Boolean).join(', ')} />}
-                <InfoRow icon={<Star size={13} />} label="Loyalty" value={`${customer.loyaltyPoints.toLocaleString()} pts`} />
-                <InfoRow icon={<FileText size={13} />} label="Member since" value={fmtDate(customer.createdAt)} />
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Contact</h3>
+                  {!editingContact && (
+                    <button
+                      onClick={() => {
+                        setContactForm({
+                          email: customer.email ?? '',
+                          phone: customer.phone ?? '',
+                          altPhone: customer.altPhone ?? '',
+                          address: customer.address ?? '',
+                          city: customer.city ?? '',
+                          state: customer.state ?? '',
+                        });
+                        setEditingContact(true);
+                      }}
+                      className="flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                    >
+                      <Pencil size={11} /> Edit
+                    </button>
+                  )}
+                </div>
+                {editingContact ? (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">Phone *</label>
+                        <input type="tel" value={contactForm.phone} onChange={(e) => setContactForm((f) => ({ ...f, phone: e.target.value }))} className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">Alt Phone</label>
+                        <input type="tel" value={contactForm.altPhone} onChange={(e) => setContactForm((f) => ({ ...f, altPhone: e.target.value }))} className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Email</label>
+                      <input type="email" value={contactForm.email} onChange={(e) => setContactForm((f) => ({ ...f, email: e.target.value }))} className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Address</label>
+                      <input type="text" value={contactForm.address} onChange={(e) => setContactForm((f) => ({ ...f, address: e.target.value }))} className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">City</label>
+                        <input type="text" value={contactForm.city} onChange={(e) => setContactForm((f) => ({ ...f, city: e.target.value }))} className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">State</label>
+                        <input type="text" value={contactForm.state} onChange={(e) => setContactForm((f) => ({ ...f, state: e.target.value }))} className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      </div>
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={() => updateCustomer.mutate(contactForm)}
+                        disabled={updateCustomer.isPending}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        <Save size={11} /> Save
+                      </button>
+                      <button onClick={() => setEditingContact(false)} className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50">
+                        <X size={11} /> Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <InfoRow icon={<Phone size={13} />} label="Primary" value={customer.phone} />
+                    {customer.altPhone && <InfoRow icon={<Phone size={13} />} label="Alt" value={customer.altPhone} />}
+                    {customer.email && <InfoRow icon={<Mail size={13} />} label="Email" value={customer.email} />}
+                    {customer.address && <InfoRow icon={<MapPin size={13} />} label="Address" value={[customer.address, customer.city, customer.state, customer.country].filter(Boolean).join(', ')} />}
+                    <InfoRow icon={<Star size={13} />} label="Loyalty" value={`${customer.loyaltyPoints.toLocaleString()} pts`} />
+                    <InfoRow icon={<FileText size={13} />} label="Member since" value={fmtDate(customer.createdAt)} />
+                  </>
+                )}
               </div>
 
               {/* Purchase behaviour */}

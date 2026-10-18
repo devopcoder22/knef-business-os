@@ -6,6 +6,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Save, Plus, Trash2, Upload } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { RichTextEditor } from '@/components/ui/rich-text-editor';
 
 const TABS = [
   { id: 'basic', label: 'Basic Info' },
@@ -355,23 +356,21 @@ export default function NewProductPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Short Description</label>
-                  <input
-                    type="text"
+                  <RichTextEditor
                     value={shortDesc}
-                    onChange={(e) => setShortDesc(e.target.value)}
+                    onChange={setShortDesc}
                     placeholder="Brief product description"
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    minHeight="min-h-[80px]"
                   />
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                  <textarea
+                  <RichTextEditor
                     value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    rows={4}
+                    onChange={setDescription}
                     placeholder="Detailed product description..."
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    minHeight="min-h-[150px]"
                   />
                 </div>
               </div>

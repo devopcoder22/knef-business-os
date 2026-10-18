@@ -83,8 +83,37 @@ export default function InventoryPage() {
     },
   });
 
+  const { data: allProductsData } = useQuery({
+    queryKey: ['products-catalog-all'],
+    queryFn: async () => {
+      const res = await api().get('/products?limit=500&status=ACTIVE');
+      return (res.data as any)?.data ?? [];
+    },
+  });
+
   const levels = levelsData ?? [];
-  const filtered = levels.filter((l) => {
+  const allProducts: { id: string; name: string; sku: string; lowStockAlert: number; status: string }[] = allProductsData ?? [];
+
+  // Products in inventory levels (keyed by productId)
+  const stockedProductIds = new Set(levels.map((l) => l.productId));
+
+  // Synthetic "not stocked" rows for products not yet in any location
+  const unstockedRows: InventoryLevel[] = allProducts
+    .filter((p) => !stockedProductIds.has(p.id))
+    .map((p) => ({
+      id: `unstocked-${p.id}`,
+      productId: p.id,
+      quantity: 0,
+      reserved: 0,
+      incoming: 0,
+      product: { id: p.id, name: p.name, sku: p.sku, lowStockAlert: p.lowStockAlert ?? 5, status: p.status },
+      location: { id: '', name: 'Not stocked', code: '' },
+      variant: null,
+    }));
+
+  const allLevels = [...levels, ...unstockedRows];
+
+  const filtered = allLevels.filter((l) => {
     if (!search) return true;
     return (
       l.product.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -96,6 +125,7 @@ export default function InventoryPage() {
   const totalPages = Math.ceil(filtered.length / LIMIT);
 
   const getStockStatus = (level: InventoryLevel) => {
+    if (level.location.id === '') return 'none';
     if (level.quantity === 0) return 'out';
     if (level.quantity <= level.product.lowStockAlert) return 'low';
     return 'ok';
@@ -303,7 +333,11 @@ export default function InventoryPage() {
                           {level.incoming}
                         </td>
                         <td className="px-4 py-3">
-                          {stockStatus === 'out' ? (
+                          {stockStatus === 'none' ? (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">
+                              Not stocked
+                            </span>
+                          ) : stockStatus === 'out' ? (
                             <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
                               Out of stock
                             </span>
