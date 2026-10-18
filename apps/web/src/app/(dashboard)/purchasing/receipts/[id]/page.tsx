@@ -45,8 +45,8 @@ export default function GoodsReceiptDetailPage() {
   const { data: grn, isLoading } = useQuery<GoodsReceiptDetail>({
     queryKey: ['goods-receipt', id],
     queryFn: async () => {
-      const res = await api().get<GoodsReceiptDetail>(`/goods-receipts/${id}`);
-      return res.data;
+      const res = await api().get(`/goods-receipts/${id}`);
+      return (res.data as any).data as GoodsReceiptDetail;
     },
   });
 

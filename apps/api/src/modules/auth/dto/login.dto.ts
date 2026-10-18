@@ -21,4 +21,9 @@ export class LoginDto {
   @IsOptional()
   @IsBoolean()
   rememberMe?: boolean;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  turnstileToken?: string;
 }

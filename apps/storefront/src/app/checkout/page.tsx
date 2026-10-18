@@ -8,8 +8,11 @@ import { z } from 'zod';
 import Image from 'next/image';
 import Link from 'next/link';
 import { ArrowLeft, Package, Loader2, CheckCircle } from 'lucide-react';
+import { Turnstile } from '@marsidev/react-turnstile';
 import { useMutation } from '@tanstack/react-query';
 import { createOrder } from '@/lib/api';
+
+const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
 import { useCartStore } from '@/stores/cart.store';
 import { formatNGN, cn } from '@/lib/utils';
 import { toast } from '@/components/ui/toast';
@@ -41,6 +44,7 @@ export default function CheckoutPage() {
   const totalAmount = useCartStore((s) => s.totalAmount());
   const clearCart = useCartStore((s) => s.clearCart);
   const [orderRef, setOrderRef] = useState<string | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   const {
     register,
@@ -60,6 +64,7 @@ export default function CheckoutPage() {
         paymentMethod: data.paymentMethod,
         notes: data.notes || undefined,
         idempotencyKey: crypto.randomUUID(),
+        turnstileToken: turnstileToken ?? undefined,
         items: items.map((i) => ({
           productId: i.productId,
           variantId: i.variantId ?? undefined,
@@ -314,10 +319,16 @@ export default function CheckoutPage() {
             </div>
           </div>
 
+          {SITE_KEY && (
+            <div className="mt-5">
+              <Turnstile siteKey={SITE_KEY} onSuccess={setTurnstileToken} onError={() => setTurnstileToken(null)} onExpire={() => setTurnstileToken(null)} />
+            </div>
+          )}
+
           <button
             form="checkout-form"
             type="submit"
-            disabled={mutation.isPending}
+            disabled={mutation.isPending || (!!SITE_KEY && !turnstileToken)}
             className="mt-5 w-full flex items-center justify-center gap-2 py-4 bg-knef-primary text-white rounded-xl font-bold text-base hover:bg-opacity-90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {mutation.isPending ? (

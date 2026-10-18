@@ -82,6 +82,7 @@ export interface CheckoutPayload {
   notes?: string;
   items: Array<{ productId: string; variantId?: string; quantity: number }>;
   idempotencyKey?: string;
+  turnstileToken?: string;
   // NOTE: delivery fee is server-authoritative — never sent from the client.
   customerAccountId?: string;
 }
@@ -117,6 +118,7 @@ export async function customerRegister(body: {
   lastName: string;
   phone?: string;
   password: string;
+  turnstileToken?: string;
 }): Promise<AuthResult> {
   return apiFetch('/api/auth/register', { method: 'POST', body: JSON.stringify(body) });
 }
@@ -124,6 +126,7 @@ export async function customerRegister(body: {
 export async function customerLogin(body: {
   email: string;
   password: string;
+  turnstileToken?: string;
 }): Promise<AuthResult> {
   return apiFetch('/api/auth/login', { method: 'POST', body: JSON.stringify(body) });
 }

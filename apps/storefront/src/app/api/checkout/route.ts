@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyTurnstile } from '@/lib/turnstile';
 
 const BACKEND = process.env.STOREFRONT_BACKEND_URL ?? 'http://localhost:4000';
 const API_KEY = process.env.STOREFRONT_API_KEY ?? '';
@@ -7,18 +8,25 @@ const LOCATION_ID = process.env.STOREFRONT_ORG_LOCATION_ID ?? '';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json() as Record<string, unknown>;
+    const { turnstileToken, ...bodyWithoutToken } = body;
+    const bodyClean = bodyWithoutToken as Record<string, unknown>;
 
-    if (!body.items || !Array.isArray(body.items) || body.items.length === 0) {
+    const check = await verifyTurnstile(turnstileToken as string | undefined);
+    if (!check.ok) {
+      return NextResponse.json({ error: check.error }, { status: 403 });
+    }
+
+    if (!bodyClean.items || !Array.isArray(bodyClean.items) || bodyClean.items.length === 0) {
       return NextResponse.json({ error: 'Cart is empty' }, { status: 400 });
     }
-    if (!body.customerPhone || !body.customerName) {
+    if (!bodyClean.customerPhone || !bodyClean.customerName) {
       return NextResponse.json({ error: 'Customer name and phone are required' }, { status: 400 });
     }
-    if (!body.paymentMethod) {
+    if (!bodyClean.paymentMethod) {
       return NextResponse.json({ error: 'Payment method is required' }, { status: 400 });
     }
 
-    const locationId = (body.locationId as string | undefined) || LOCATION_ID;
+    const locationId = (bodyClean.locationId as string | undefined) || LOCATION_ID;
     if (!locationId) {
       return NextResponse.json(
         { error: 'Store location not configured — contact support' },
@@ -36,7 +44,7 @@ export async function POST(request: NextRequest) {
       discountAmount: _ignoredDiscountAmount,
       taxAmount: _ignoredTaxAmount,
       ...sanitized
-    } = body;
+    } = bodyClean;
     void _ignoredDeliveryFee;
     void _ignoredSubtotal;
     void _ignoredTotalAmount;

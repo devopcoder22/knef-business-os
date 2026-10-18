@@ -17,6 +17,7 @@ COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
+ENV NEXT_PUBLIC_TURNSTILE_SITE_KEY=0x4AAAAAAFZ_7Qph45mfl9bO
 
 RUN corepack enable && corepack prepare pnpm@9.1.4 --activate
 
