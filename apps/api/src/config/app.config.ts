@@ -22,6 +22,7 @@ const AppConfigSchema = z.object({
   SMTP_FROM_NAME: z.string().default('KNEF Gadgets'),
   UNSUBSCRIBE_SECRET: z.string().min(32).optional(),
   STOREFRONT_ORG_ID: z.string().optional(),
+  TERMII_API_KEY: z.string().optional(),
 });
 
 export type AppConfig = z.infer<typeof AppConfigSchema>;

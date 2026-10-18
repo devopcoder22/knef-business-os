@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { useState, useRef, useCallback } from 'react';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import Image from 'next/image';
 import Link from 'next/link';
-import { ArrowLeft, Package, Loader2, CheckCircle, ShieldCheck } from 'lucide-react';
+import Script from 'next/script';
+import { ArrowLeft, Package, Loader2, CheckCircle, ShieldCheck, MapPin } from 'lucide-react';
 import { Turnstile } from '@marsidev/react-turnstile';
 import { useMutation } from '@tanstack/react-query';
 import {
@@ -18,52 +19,74 @@ import {
   postOrderRegister,
 } from '@/lib/api';
 import type { AuthResult } from '@/lib/api';
-
-const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
 import { useCartStore } from '@/stores/cart.store';
 import { formatNGN, cn } from '@/lib/utils';
 import { toast } from '@/components/ui/toast';
 
+const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
+const MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
+
 const schema = z.object({
-  customerName: z
-    .string()
-    .min(2, 'Full name is required')
-    .max(100, 'Name is too long'),
+  customerName: z.string().min(2, 'Full name is required').max(100, 'Name is too long'),
   customerPhone: z
     .string()
     .min(7, 'Valid phone number required')
     .max(20, 'Phone number too long')
     .regex(/^\+?[\d\s\-()]+$/, 'Invalid phone number'),
   customerEmail: z.string().email('Valid email required'),
+  deliveryAddress: z.string().min(5, 'Delivery address is required'),
+  deliveryCity: z.string().optional(),
+  deliveryState: z.string().optional(),
+  deliveryPhone: z.string().optional(),
   paymentMethod: z.enum(['CASH', 'BANK_TRANSFER']),
   notes: z.string().max(500, 'Notes too long').optional(),
 });
 
 type FormData = z.infer<typeof schema>;
+type OtpStep = 'idle' | 'sending' | 'sent' | 'verifying' | 'verified';
 
-type Step = 'form' | 'verify' | 'success';
+// Minimal Google Maps types (no @types/google.maps package needed)
+declare global {
+  interface Window {
+    google?: {
+      maps?: {
+        places?: {
+          Autocomplete: new (
+            input: HTMLInputElement,
+            opts?: { componentRestrictions?: { country: string }; fields?: string[] },
+          ) => {
+            addListener: (event: string, handler: () => void) => void;
+            getPlace: () => {
+              formatted_address?: string;
+              address_components?: Array<{ long_name: string; types: string[] }>;
+            };
+          };
+        };
+      };
+    };
+  }
+}
 
 export default function CheckoutPage() {
   const items = useCartStore((s) => s.items);
   const totalAmount = useCartStore((s) => s.totalAmount());
   const clearCart = useCartStore((s) => s.clearCart);
 
-  // Step control
-  const [step, setStep] = useState<Step>('form');
+  const [step, setStep] = useState<'form' | 'success'>('form');
   const [orderRef, setOrderRef] = useState<string | null>(null);
   const [formSnapshot, setFormSnapshot] = useState<FormData | null>(null);
-
-  // Turnstile (shown in verify step)
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState('');
 
-  // OTP states
+  // Phone OTP
+  const [phoneOtpStep, setPhoneOtpStep] = useState<OtpStep>('idle');
   const [phoneOtp, setPhoneOtp] = useState('');
+  const [phoneOtpError, setPhoneOtpError] = useState('');
+
+  // Email OTP
+  const [emailOtpStep, setEmailOtpStep] = useState<OtpStep>('idle');
   const [emailOtp, setEmailOtp] = useState('');
-  const [otpError, setOtpError] = useState('');
-  const [otpSending, setOtpSending] = useState(false);
-  const [otpVerifying, setOtpVerifying] = useState(false);
-  const [phoneSent, setPhoneSent] = useState(false);
-  const [emailSent, setEmailSent] = useState(false);
+  const [emailOtpError, setEmailOtpError] = useState('');
 
   // Post-order account creation
   const [showRegister, setShowRegister] = useState(true);
@@ -72,15 +95,102 @@ export default function CheckoutPage() {
   const [regLoading, setRegLoading] = useState(false);
   const [registered, setRegistered] = useState(false);
 
+  const addressInputRef = useRef<HTMLInputElement | null>(null);
+
   const {
     register,
     handleSubmit,
+    setValue,
     getValues,
+    control,
     formState: { errors },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: { paymentMethod: 'CASH' },
   });
+
+  const watchPhone = useWatch({ control, name: 'customerPhone' });
+  const watchEmail = useWatch({ control, name: 'customerEmail' });
+
+  const phoneValid = /^\+?[\d\s\-()]{7,20}$/.test(watchPhone ?? '');
+  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(watchEmail ?? '');
+
+  // Google Maps Places autocomplete
+  const initAutocomplete = useCallback(() => {
+    if (!addressInputRef.current || !window.google?.maps?.places) return;
+    const ac = new window.google.maps.places.Autocomplete(addressInputRef.current, {
+      componentRestrictions: { country: 'ng' },
+      fields: ['formatted_address', 'address_components'],
+    });
+    ac.addListener('place_changed', () => {
+      const place = ac.getPlace();
+      if (place.formatted_address) {
+        setValue('deliveryAddress', place.formatted_address, { shouldValidate: true });
+      }
+      const comps = place.address_components ?? [];
+      const city =
+        comps.find((c) => c.types.includes('locality'))?.long_name ??
+        comps.find((c) => c.types.includes('administrative_area_level_2'))?.long_name ??
+        '';
+      const state = comps.find((c) => c.types.includes('administrative_area_level_1'))?.long_name ?? '';
+      if (city) setValue('deliveryCity', city);
+      if (state) setValue('deliveryState', state);
+    });
+  }, [setValue]);
+
+  // Phone OTP
+  async function sendPhoneOtp() {
+    setPhoneOtpStep('sending');
+    setPhoneOtpError('');
+    try {
+      await requestSmsOtp(getValues('customerPhone'));
+      setPhoneOtpStep('sent');
+      toast('success', 'SMS verification code sent');
+    } catch (err) {
+      setPhoneOtpError((err as { message?: string }).message ?? 'Failed to send SMS code');
+      setPhoneOtpStep('idle');
+    }
+  }
+
+  async function verifyPhone() {
+    setPhoneOtpStep('verifying');
+    setPhoneOtpError('');
+    try {
+      await verifySmsOtp(getValues('customerPhone'), phoneOtp);
+      setPhoneOtpStep('verified');
+      toast('success', 'Phone verified');
+    } catch (err) {
+      setPhoneOtpError((err as { message?: string }).message ?? 'Invalid code. Try again.');
+      setPhoneOtpStep('sent');
+    }
+  }
+
+  // Email OTP
+  async function sendEmailOtp() {
+    setEmailOtpStep('sending');
+    setEmailOtpError('');
+    try {
+      await requestEmailOtp(getValues('customerEmail'));
+      setEmailOtpStep('sent');
+      toast('success', 'Email verification code sent');
+    } catch (err) {
+      setEmailOtpError((err as { message?: string }).message ?? 'Failed to send email code');
+      setEmailOtpStep('idle');
+    }
+  }
+
+  async function verifyEmail() {
+    setEmailOtpStep('verifying');
+    setEmailOtpError('');
+    try {
+      await verifyEmailOtp(getValues('customerEmail'), emailOtp);
+      setEmailOtpStep('verified');
+      toast('success', 'Email verified');
+    } catch (err) {
+      setEmailOtpError((err as { message?: string }).message ?? 'Invalid code. Try again.');
+      setEmailOtpStep('sent');
+    }
+  }
 
   const placeMutation = useMutation({
     mutationFn: (data: FormData) =>
@@ -88,6 +198,10 @@ export default function CheckoutPage() {
         customerName: data.customerName,
         customerPhone: data.customerPhone,
         customerEmail: data.customerEmail,
+        deliveryAddress: data.deliveryAddress,
+        deliveryCity: data.deliveryCity,
+        deliveryState: data.deliveryState,
+        deliveryPhone: data.deliveryPhone,
         paymentMethod: data.paymentMethod,
         notes: data.notes || undefined,
         idempotencyKey: crypto.randomUUID(),
@@ -99,69 +213,29 @@ export default function CheckoutPage() {
         })),
       }),
     onSuccess: (res) => {
-      const ref = res.data.reference;
-      setOrderRef(ref);
+      setOrderRef(res.data.reference);
       clearCart();
       setStep('success');
     },
     onError: (err: unknown) => {
-      const e = err as { message?: string };
-      setOtpError(e?.message ?? 'Failed to place order. Please try again.');
+      setSubmitError((err as { message?: string })?.message ?? 'Failed to place order. Please try again.');
     },
   });
 
-  // ── Step 1: send OTPs then advance to verify screen ────────────────────────
-  async function sendOtps(data: FormData) {
-    setOtpSending(true);
-    setOtpError('');
-    setPhoneSent(false);
-    setEmailSent(false);
-    try {
-      await Promise.all([
-        requestEmailOtp(data.customerEmail)
-          .then(() => setEmailSent(true))
-          .catch(() => {}),
-        requestSmsOtp(data.customerPhone)
-          .then(() => setPhoneSent(true))
-          .catch(() => {}),
-      ]);
-      setFormSnapshot(data);
-      setStep('verify');
-    } catch {
-      setOtpError('Failed to send verification codes. Please try again.');
-    } finally {
-      setOtpSending(false);
+  async function onSubmit(data: FormData) {
+    setSubmitError('');
+    if (phoneOtpStep === 'sent' || phoneOtpStep === 'verifying') {
+      setSubmitError('Please verify your phone number before placing the order');
+      return;
     }
+    if (emailOtpStep === 'sent' || emailOtpStep === 'verifying') {
+      setSubmitError('Please verify your email address before placing the order');
+      return;
+    }
+    setFormSnapshot(data);
+    await placeMutation.mutateAsync(data);
   }
 
-  // ── Step 2: verify OTPs then place order ───────────────────────────────────
-  async function handleVerifyAndOrder() {
-    if (!formSnapshot) return;
-    setOtpVerifying(true);
-    setOtpError('');
-    try {
-      if (emailSent && emailOtp.length < 4) {
-        setOtpError('Enter your email verification code');
-        return;
-      }
-      if (phoneSent && phoneOtp.length < 4) {
-        setOtpError('Enter your phone verification code');
-        return;
-      }
-
-      if (emailSent) await verifyEmailOtp(formSnapshot.customerEmail, emailOtp);
-      if (phoneSent) await verifySmsOtp(formSnapshot.customerPhone, phoneOtp);
-
-      await placeMutation.mutateAsync(formSnapshot);
-    } catch (err) {
-      const e = err as { message?: string };
-      setOtpError(e?.message ?? 'Verification failed. Check your codes and try again.');
-    } finally {
-      setOtpVerifying(false);
-    }
-  }
-
-  // ── Step 3: post-order account registration ────────────────────────────────
   async function handlePostOrderRegister() {
     if (!formSnapshot || !orderRef) return;
     if (!regPassword || regPassword.length < 8) {
@@ -184,35 +258,9 @@ export default function CheckoutPage() {
       });
       setRegistered(true);
     } catch (err) {
-      const e = err as { message?: string };
-      setRegError(e?.message ?? 'Failed to create account. Try registering separately.');
+      setRegError((err as { message?: string })?.message ?? 'Failed to create account. Try registering separately.');
     } finally {
       setRegLoading(false);
-    }
-  }
-
-  // ── Resend helpers ─────────────────────────────────────────────────────────
-  async function resendEmailOtp() {
-    if (!formSnapshot) return;
-    try {
-      await requestEmailOtp(formSnapshot.customerEmail);
-      setEmailSent(true);
-      setEmailOtp('');
-      toast('success', 'Email code resent');
-    } catch {
-      toast('error', 'Could not resend email code');
-    }
-  }
-
-  async function resendSmsOtp() {
-    if (!formSnapshot) return;
-    try {
-      await requestSmsOtp(formSnapshot.customerPhone);
-      setPhoneSent(true);
-      setPhoneOtp('');
-      toast('success', 'SMS code resent');
-    } catch {
-      toast('error', 'Could not resend SMS code');
     }
   }
 
@@ -232,11 +280,10 @@ export default function CheckoutPage() {
     );
   }
 
-  // ── Step 3: Success ────────────────────────────────────────────────────────
+  // ── Success screen ─────────────────────────────────────────────────────────
   if (step === 'success' && orderRef && formSnapshot) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-16">
-        {/* Success header */}
         <div className="text-center mb-10">
           <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-6">
             <CheckCircle size={40} className="text-green-600" />
@@ -253,18 +300,15 @@ export default function CheckoutPage() {
           </p>
         </div>
 
-        {/* Two-card row */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-8">
-          {/* Card 1: Track order */}
+          {/* Track order */}
           <div className="bg-white border border-gray-100 rounded-2xl p-6 flex flex-col gap-4">
             <div className="w-10 h-10 rounded-xl bg-knef-primary/10 flex items-center justify-center">
               <Package size={20} className="text-knef-primary" />
             </div>
             <div>
               <h3 className="font-semibold text-gray-900 mb-1">Track Your Order</h3>
-              <p className="text-sm text-gray-500">
-                Check your order status and updates in real time.
-              </p>
+              <p className="text-sm text-gray-500">Check your order status and updates in real time.</p>
             </div>
             <Link
               href={`/order?ref=${orderRef}&email=${encodeURIComponent(formSnapshot.customerEmail)}`}
@@ -274,16 +318,14 @@ export default function CheckoutPage() {
             </Link>
           </div>
 
-          {/* Card 2: Create account */}
+          {/* Create account */}
           <div className="bg-white border border-gray-100 rounded-2xl p-6 flex flex-col gap-4">
             <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
               <ShieldCheck size={20} className="text-blue-600" />
             </div>
             <div>
               <h3 className="font-semibold text-gray-900 mb-1">Save Your Order History</h3>
-              <p className="text-sm text-gray-500">
-                Create a free account to track all your orders in one place.
-              </p>
+              <p className="text-sm text-gray-500">Create a free account to track all your orders in one place.</p>
             </div>
 
             {registered ? (
@@ -297,8 +339,7 @@ export default function CheckoutPage() {
             ) : showRegister ? (
               <div className="mt-auto space-y-3">
                 <p className="text-xs text-gray-500">
-                  Account email:{' '}
-                  <strong className="text-gray-700">{formSnapshot.customerEmail}</strong>
+                  Account email: <strong className="text-gray-700">{formSnapshot.customerEmail}</strong>
                 </p>
                 <input
                   type="password"
@@ -307,9 +348,7 @@ export default function CheckoutPage() {
                   onChange={(e) => setRegPassword(e.target.value)}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 transition-colors"
                 />
-                {regError && (
-                  <p className="text-xs text-red-600">{regError}</p>
-                )}
+                {regError && <p className="text-xs text-red-600">{regError}</p>}
                 <button
                   onClick={handlePostOrderRegister}
                   disabled={regLoading}
@@ -343,7 +382,6 @@ export default function CheckoutPage() {
           </div>
         </div>
 
-        {/* Continue shopping */}
         <div className="text-center">
           <Link
             href="/products"
@@ -356,158 +394,20 @@ export default function CheckoutPage() {
     );
   }
 
-  // ── Step 2: OTP Verification ───────────────────────────────────────────────
-  if (step === 'verify' && formSnapshot) {
-    const neitherSent = !emailSent && !phoneSent;
+  // Address field — merge react-hook-form ref with our Maps ref
+  const addressField = register('deliveryAddress');
 
-    return (
-      <div className="max-w-lg mx-auto px-4 py-16">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="w-14 h-14 rounded-full bg-blue-50 flex items-center justify-center mx-auto mb-4">
-            <ShieldCheck size={28} className="text-blue-600" />
-          </div>
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Verify Your Details</h1>
-          <p className="text-sm text-gray-500">
-            We've sent verification codes to confirm your contact details.
-          </p>
-        </div>
-
-        <div className="bg-white border border-gray-100 rounded-2xl p-6 space-y-6">
-          {neitherSent ? (
-            /* Verification unavailable — place order directly */
-            <div className="rounded-xl bg-amber-50 border border-amber-100 px-4 py-3 text-sm text-amber-800">
-              Verification unavailable. We'll place your order directly.
-            </div>
-          ) : (
-            <>
-              {/* Phone OTP */}
-              {phoneSent && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Phone Code
-                  </label>
-                  <p className="text-xs text-gray-400 mb-2">
-                    Sent to {formSnapshot.customerPhone}
-                  </p>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={6}
-                    pattern="[0-9]*"
-                    placeholder="6-digit code"
-                    value={phoneOtp}
-                    onChange={(e) =>
-                      setPhoneOtp(e.target.value.replace(/\D/g, '').slice(0, 6))
-                    }
-                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-center tracking-widest font-mono focus:outline-none focus:ring-2 focus:ring-blue-400 transition-colors"
-                  />
-                  <button
-                    type="button"
-                    onClick={resendSmsOtp}
-                    className="mt-1.5 text-xs text-blue-600 hover:underline"
-                  >
-                    Resend SMS code
-                  </button>
-                </div>
-              )}
-
-              {/* Email OTP */}
-              {emailSent && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Email Code
-                  </label>
-                  <p className="text-xs text-gray-400 mb-2">
-                    Sent to {formSnapshot.customerEmail}
-                  </p>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={6}
-                    pattern="[0-9]*"
-                    placeholder="6-digit code"
-                    value={emailOtp}
-                    onChange={(e) =>
-                      setEmailOtp(e.target.value.replace(/\D/g, '').slice(0, 6))
-                    }
-                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-center tracking-widest font-mono focus:outline-none focus:ring-2 focus:ring-blue-400 transition-colors"
-                  />
-                  <button
-                    type="button"
-                    onClick={resendEmailOtp}
-                    className="mt-1.5 text-xs text-blue-600 hover:underline"
-                  >
-                    Resend email code
-                  </button>
-                </div>
-              )}
-            </>
-          )}
-
-          {/* Turnstile */}
-          {SITE_KEY && (
-            <div>
-              <Turnstile
-                siteKey={SITE_KEY}
-                onSuccess={setTurnstileToken}
-                onError={() => setTurnstileToken(null)}
-                onExpire={() => setTurnstileToken(null)}
-              />
-            </div>
-          )}
-
-          {/* Error */}
-          {otpError && (
-            <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
-              {otpError}
-            </p>
-          )}
-
-          {/* CTA */}
-          <button
-            type="button"
-            onClick={handleVerifyAndOrder}
-            disabled={
-              otpVerifying ||
-              placeMutation.isPending ||
-              (!!SITE_KEY && !turnstileToken)
-            }
-            className="w-full flex items-center justify-center gap-2 py-4 bg-knef-primary text-white rounded-xl font-bold text-base hover:bg-opacity-90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {otpVerifying || placeMutation.isPending ? (
-              <>
-                <Loader2 size={20} className="animate-spin" />
-                {placeMutation.isPending ? 'Placing Order…' : 'Verifying…'}
-              </>
-            ) : neitherSent ? (
-              'Place Order'
-            ) : (
-              'Verify & Place Order'
-            )}
-          </button>
-        </div>
-
-        {/* Back link */}
-        <button
-          type="button"
-          onClick={() => {
-            setStep('form');
-            setOtpError('');
-          }}
-          className="mt-5 flex items-center gap-1.5 text-sm text-gray-500 hover:text-knef-primary transition-colors mx-auto"
-        >
-          <ArrowLeft size={14} />
-          Change details
-        </button>
-      </div>
-    );
-  }
-
-  // ── Step 1: Checkout Form ──────────────────────────────────────────────────
+  // ── Checkout form ──────────────────────────────────────────────────────────
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Back */}
+      {MAPS_KEY && (
+        <Script
+          src={`https://maps.googleapis.com/maps/api/js?key=${MAPS_KEY}&libraries=places`}
+          onLoad={initAutocomplete}
+          strategy="lazyOnload"
+        />
+      )}
+
       <Link
         href="/cart"
         className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-knef-primary mb-8 transition-colors"
@@ -519,108 +419,268 @@ export default function CheckoutPage() {
       <h1 className="text-2xl font-bold text-gray-900 mb-8">Checkout</h1>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-        {/* Form */}
-        <div>
-          <h2 className="font-semibold text-gray-900 mb-5">Your Details</h2>
-          <form
-            id="checkout-form"
-            onSubmit={handleSubmit(sendOtps)}
-            className="space-y-5"
-          >
-            {/* Name */}
+        {/* ── Left: Form ── */}
+        <div className="space-y-8">
+          <form id="checkout-form" onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+            {/* ── Contact Details ── */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Full Name <span className="text-red-500">*</span>
-              </label>
-              <input
-                {...register('customerName')}
-                type="text"
-                placeholder="e.g. Amara Chukwu"
-                className={cn(
-                  'w-full border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary transition-colors',
-                  errors.customerName ? 'border-red-300' : 'border-gray-200',
+              <h2 className="font-semibold text-gray-900 mb-4">Contact Details</h2>
+
+              {/* Full Name */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Full Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  {...register('customerName')}
+                  type="text"
+                  placeholder="e.g. Amara Chukwu"
+                  className={cn(
+                    'w-full border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary transition-colors',
+                    errors.customerName ? 'border-red-300' : 'border-gray-200',
+                  )}
+                />
+                {errors.customerName && (
+                  <p className="mt-1 text-xs text-red-600">{errors.customerName.message}</p>
                 )}
-              />
-              {errors.customerName && (
-                <p className="mt-1 text-xs text-red-600">
-                  {errors.customerName.message}
+              </div>
+
+              {/* Phone + inline OTP */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Phone Number <span className="text-red-500">*</span>
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    {...register('customerPhone')}
+                    type="tel"
+                    placeholder="+234 800 000 0000"
+                    disabled={phoneOtpStep === 'verified'}
+                    className={cn(
+                      'flex-1 border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary transition-colors',
+                      errors.customerPhone ? 'border-red-300' : 'border-gray-200',
+                      phoneOtpStep === 'verified' && 'bg-green-50 border-green-300',
+                    )}
+                  />
+                  {phoneOtpStep === 'verified' ? (
+                    <div className="flex items-center gap-1.5 px-3 text-green-600 text-sm font-medium shrink-0">
+                      <CheckCircle size={16} />
+                      Verified
+                    </div>
+                  ) : phoneValid && phoneOtpStep === 'idle' ? (
+                    <button
+                      type="button"
+                      onClick={sendPhoneOtp}
+                      className="shrink-0 px-4 py-3 bg-gray-800 text-white text-sm font-medium rounded-xl hover:bg-gray-700 transition-colors"
+                    >
+                      Send Code
+                    </button>
+                  ) : phoneOtpStep === 'sending' ? (
+                    <div className="shrink-0 flex items-center px-4 text-gray-400 text-sm">
+                      <Loader2 size={16} className="animate-spin" />
+                    </div>
+                  ) : null}
+                </div>
+                {errors.customerPhone && (
+                  <p className="mt-1 text-xs text-red-600">{errors.customerPhone.message}</p>
+                )}
+
+                {/* Phone code input */}
+                {(phoneOtpStep === 'sent' || phoneOtpStep === 'verifying') && (
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      placeholder="6-digit SMS code"
+                      value={phoneOtp}
+                      onChange={(e) => setPhoneOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      className="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-knef-primary"
+                    />
+                    <button
+                      type="button"
+                      onClick={verifyPhone}
+                      disabled={phoneOtp.length < 6 || phoneOtpStep === 'verifying'}
+                      className="shrink-0 px-4 py-2.5 bg-knef-primary text-white text-sm font-medium rounded-xl hover:bg-opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {phoneOtpStep === 'verifying' ? <Loader2 size={16} className="animate-spin" /> : 'Verify'}
+                    </button>
+                  </div>
+                )}
+                {phoneOtpError && <p className="mt-1 text-xs text-red-600">{phoneOtpError}</p>}
+                {phoneOtpStep === 'sent' && (
+                  <button
+                    type="button"
+                    onClick={sendPhoneOtp}
+                    className="mt-1 text-xs text-blue-600 hover:underline"
+                  >
+                    Resend code
+                  </button>
+                )}
+              </div>
+
+              {/* Email + inline OTP */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Email Address <span className="text-red-500">*</span>
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    {...register('customerEmail')}
+                    type="email"
+                    placeholder="you@example.com"
+                    disabled={emailOtpStep === 'verified'}
+                    className={cn(
+                      'flex-1 border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary transition-colors',
+                      errors.customerEmail ? 'border-red-300' : 'border-gray-200',
+                      emailOtpStep === 'verified' && 'bg-green-50 border-green-300',
+                    )}
+                  />
+                  {emailOtpStep === 'verified' ? (
+                    <div className="flex items-center gap-1.5 px-3 text-green-600 text-sm font-medium shrink-0">
+                      <CheckCircle size={16} />
+                      Verified
+                    </div>
+                  ) : emailValid && emailOtpStep === 'idle' ? (
+                    <button
+                      type="button"
+                      onClick={sendEmailOtp}
+                      className="shrink-0 px-4 py-3 bg-gray-800 text-white text-sm font-medium rounded-xl hover:bg-gray-700 transition-colors"
+                    >
+                      Send Code
+                    </button>
+                  ) : emailOtpStep === 'sending' ? (
+                    <div className="shrink-0 flex items-center px-4 text-gray-400 text-sm">
+                      <Loader2 size={16} className="animate-spin" />
+                    </div>
+                  ) : null}
+                </div>
+                <p className="mt-1 text-xs text-gray-400">
+                  Required for order confirmation and tracking
                 </p>
-              )}
+                {errors.customerEmail && (
+                  <p className="mt-1 text-xs text-red-600">{errors.customerEmail.message}</p>
+                )}
+
+                {/* Email code input */}
+                {(emailOtpStep === 'sent' || emailOtpStep === 'verifying') && (
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      placeholder="6-digit email code"
+                      value={emailOtp}
+                      onChange={(e) => setEmailOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      className="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-knef-primary"
+                    />
+                    <button
+                      type="button"
+                      onClick={verifyEmail}
+                      disabled={emailOtp.length < 6 || emailOtpStep === 'verifying'}
+                      className="shrink-0 px-4 py-2.5 bg-knef-primary text-white text-sm font-medium rounded-xl hover:bg-opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {emailOtpStep === 'verifying' ? <Loader2 size={16} className="animate-spin" /> : 'Verify'}
+                    </button>
+                  </div>
+                )}
+                {emailOtpError && <p className="mt-1 text-xs text-red-600">{emailOtpError}</p>}
+                {emailOtpStep === 'sent' && (
+                  <button
+                    type="button"
+                    onClick={sendEmailOtp}
+                    className="mt-1 text-xs text-blue-600 hover:underline"
+                  >
+                    Resend code
+                  </button>
+                )}
+              </div>
             </div>
 
-            {/* Phone */}
+            {/* ── Delivery Address ── */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Phone Number <span className="text-red-500">*</span>
-              </label>
-              <input
-                {...register('customerPhone')}
-                type="tel"
-                placeholder="+234 800 000 0000"
-                className={cn(
-                  'w-full border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary transition-colors',
-                  errors.customerPhone ? 'border-red-300' : 'border-gray-200',
+              <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <MapPin size={16} className="text-knef-primary" />
+                Delivery Address
+              </h2>
+
+              {/* Street address with Google Maps autocomplete */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Street Address <span className="text-red-500">*</span>
+                </label>
+                <input
+                  {...addressField}
+                  ref={(el) => {
+                    addressField.ref(el);
+                    addressInputRef.current = el;
+                  }}
+                  type="text"
+                  placeholder={MAPS_KEY ? 'Start typing your address…' : 'e.g. 15 Broad Street, Lagos'}
+                  className={cn(
+                    'w-full border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary transition-colors',
+                    errors.deliveryAddress ? 'border-red-300' : 'border-gray-200',
+                  )}
+                  autoComplete="off"
+                />
+                {MAPS_KEY && (
+                  <p className="mt-1 text-xs text-gray-400">Start typing — select from suggestions</p>
                 )}
-              />
-              {errors.customerPhone && (
-                <p className="mt-1 text-xs text-red-600">
-                  {errors.customerPhone.message}
-                </p>
-              )}
+                {errors.deliveryAddress && (
+                  <p className="mt-1 text-xs text-red-600">{errors.deliveryAddress.message}</p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
+                  <input
+                    {...register('deliveryCity')}
+                    type="text"
+                    placeholder="e.g. Lagos"
+                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">State</label>
+                  <input
+                    {...register('deliveryState')}
+                    type="text"
+                    placeholder="e.g. Lagos State"
+                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary transition-colors"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Delivery Contact Phone{' '}
+                  <span className="text-gray-400 font-normal">(if different from above)</span>
+                </label>
+                <input
+                  {...register('deliveryPhone')}
+                  type="tel"
+                  placeholder="+234 800 000 0000"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary transition-colors"
+                />
+              </div>
             </div>
 
-            {/* Email (now required) */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Email Address <span className="text-red-500">*</span>
-              </label>
-              <input
-                {...register('customerEmail')}
-                type="email"
-                placeholder="you@example.com"
-                className={cn(
-                  'w-full border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary transition-colors',
-                  errors.customerEmail ? 'border-red-300' : 'border-gray-200',
-                )}
-              />
-              <p className="mt-1 text-xs text-gray-400">
-                Required for order confirmation and tracking
-              </p>
-              {errors.customerEmail && (
-                <p className="mt-1 text-xs text-red-600">
-                  {errors.customerEmail.message}
-                </p>
-              )}
-            </div>
-
-            {/* Payment Method */}
+            {/* ── Payment Method ── */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Payment Method <span className="text-red-500">*</span>
               </label>
               <div className="grid grid-cols-2 gap-3">
                 {([
-                  {
-                    value: 'CASH',
-                    label: 'Cash on Delivery',
-                    sub: 'Pay when you receive your order',
-                  },
-                  {
-                    value: 'BANK_TRANSFER',
-                    label: 'Bank Transfer',
-                    sub: 'Transfer before dispatch',
-                  },
+                  { value: 'CASH', label: 'Cash on Delivery', sub: 'Pay when you receive your order' },
+                  { value: 'BANK_TRANSFER', label: 'Bank Transfer', sub: 'Transfer before dispatch' },
                 ] as const).map(({ value, label, sub }) => (
                   <label
                     key={value}
                     className="relative flex cursor-pointer rounded-xl border border-gray-200 p-3 hover:border-blue-300 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50 transition-colors"
                   >
-                    <input
-                      {...register('paymentMethod')}
-                      type="radio"
-                      value={value}
-                      className="sr-only"
-                    />
+                    <input {...register('paymentMethod')} type="radio" value={value} className="sr-only" />
                     <div>
                       <p className="text-sm font-medium text-gray-900">{label}</p>
                       <p className="text-xs text-gray-500 mt-0.5">{sub}</p>
@@ -630,23 +690,22 @@ export default function CheckoutPage() {
               </div>
             </div>
 
-            {/* Notes */}
+            {/* ── Notes ── */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Order Notes{' '}
-                <span className="text-gray-400 font-normal">(optional)</span>
+                Order Notes <span className="text-gray-400 font-normal">(optional)</span>
               </label>
               <textarea
                 {...register('notes')}
                 rows={3}
-                placeholder="Delivery address, special instructions…"
+                placeholder="Special instructions, landmarks near delivery location…"
                 className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary resize-none"
               />
             </div>
           </form>
         </div>
 
-        {/* Order summary */}
+        {/* ── Right: Order Summary + Submit ── */}
         <div>
           <h2 className="font-semibold text-gray-900 mb-5">Order Summary</h2>
           <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
@@ -690,32 +749,40 @@ export default function CheckoutPage() {
                 <span className="text-gray-900">Total</span>
                 <span className="text-knef-primary">{formatNGN(totalAmount)}</span>
               </div>
-              <p className="text-xs text-gray-400 mt-1">
-                Payment collected on delivery / in store
-              </p>
+              <p className="text-xs text-gray-400 mt-1">Payment collected on delivery / in store</p>
             </div>
           </div>
 
-          {/* OTP sending error shown here if it happens before advancing */}
-          {otpError && (
-            <p className="mt-3 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
-              {otpError}
-            </p>
+          {/* Turnstile */}
+          {SITE_KEY && (
+            <div className="mt-5">
+              <Turnstile
+                siteKey={SITE_KEY}
+                onSuccess={setTurnstileToken}
+                onError={() => setTurnstileToken(null)}
+                onExpire={() => setTurnstileToken(null)}
+              />
+            </div>
+          )}
+
+          {/* Error */}
+          {submitError && (
+            <p className="mt-3 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{submitError}</p>
           )}
 
           <button
             form="checkout-form"
             type="submit"
-            disabled={otpSending}
+            disabled={placeMutation.isPending || (!!SITE_KEY && !turnstileToken)}
             className="mt-5 w-full flex items-center justify-center gap-2 py-4 bg-knef-primary text-white rounded-xl font-bold text-base hover:bg-opacity-90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            {otpSending ? (
+            {placeMutation.isPending ? (
               <>
                 <Loader2 size={20} className="animate-spin" />
-                Sending Codes…
+                Placing Order…
               </>
             ) : (
-              'Continue to Verification'
+              'Place Order'
             )}
           </button>
 

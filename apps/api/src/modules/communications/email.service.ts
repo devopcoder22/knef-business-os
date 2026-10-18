@@ -193,57 +193,51 @@ export class EmailService {
     }
   }
 
-  async sendSms(organizationId: string, to: string, message: string): Promise<SendEmailResult> {
+  async sendSms(_organizationId: string, to: string, message: string): Promise<SendEmailResult> {
     try {
-      // Use any active Brevo provider — not restricted to default, since default may be SMTP
-      const provider = await this.prisma.emailProvider.findFirst({
-        where: { organizationId, isActive: true, type: 'brevo' },
-      });
-
-      if (!provider || !provider.apiKeyEncrypted) {
-        this.logger.warn(`SMS: no active Brevo provider for org ${organizationId}`);
-        return { success: false, error: 'SMS not configured — add a Brevo provider in Communications settings' };
+      const apiKey = process.env.TERMII_API_KEY;
+      if (!apiKey) {
+        this.logger.warn('SMS: TERMII_API_KEY not set');
+        return { success: false, error: 'SMS not configured — set TERMII_API_KEY environment variable' };
       }
 
-      const encryptionKey = this.config.get<string>('ENCRYPTION_KEY')!;
-      const apiKey = decrypt(provider.apiKeyEncrypted, encryptionKey);
-
-      // Normalize phone to E.164: 0XXXXXXXXXX → +234XXXXXXXXXX, strip spaces/dashes
+      // Normalize phone to Termii format: 0XXXXXXXXXX → 2348XXXXXXXXX (no + prefix)
       let recipient = to.replace(/[\s\-()]/g, '');
-      if (/^0\d{10}$/.test(recipient)) {
-        recipient = `+234${recipient.slice(1)}`;
-      } else if (/^\d{10,13}$/.test(recipient) && !recipient.startsWith('+')) {
-        recipient = `+${recipient}`;
+      if (recipient.startsWith('+')) {
+        recipient = recipient.slice(1);
+      } else if (/^0\d{10}$/.test(recipient)) {
+        recipient = `234${recipient.slice(1)}`;
+      } else if (/^\d{10}$/.test(recipient)) {
+        recipient = `234${recipient}`;
       }
 
-      const smsBody = {
-        sender: 'KNEF',
-        recipient,
-        content: message,
-        type: 'transactional',
+      const body = {
+        api_key: apiKey,
+        to: recipient,
+        from: 'KNEF',
+        sms: message,
+        type: 'plain',
+        channel: 'dnd',
       };
 
-      this.logger.log(`SMS: sending to ${recipient} via Brevo`);
+      this.logger.log(`SMS: sending to ${recipient} via Termii`);
 
-      const response = await fetch('https://api.brevo.com/v3/transactionalSMS/sms', {
+      const response = await fetch('https://v4.api.termii.com/api/sms/send', {
         method: 'POST',
-        headers: {
-          'api-key': apiKey,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(smsBody),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
       });
 
       const responseText = await response.text();
 
       if (!response.ok) {
-        this.logger.error(`SMS: Brevo error ${response.status}: ${responseText}`);
-        return { success: false, error: `Brevo SMS error ${response.status}: ${responseText}` };
+        this.logger.error(`SMS: Termii error ${response.status}: ${responseText}`);
+        return { success: false, error: `Termii SMS error ${response.status}: ${responseText}` };
       }
 
       this.logger.log(`SMS: sent successfully to ${recipient}`);
-      const data = JSON.parse(responseText) as { messageId?: string; reference?: string };
-      return { success: true, messageId: data.reference ?? data.messageId ?? `brevo-sms-${Date.now()}` };
+      const data = JSON.parse(responseText) as { message_id?: string; message?: string };
+      return { success: true, messageId: data.message_id ?? `termii-sms-${Date.now()}` };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(`SMS: unexpected error: ${message}`);
