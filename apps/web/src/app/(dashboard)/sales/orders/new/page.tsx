@@ -132,7 +132,7 @@ export default function NewSalesOrderPage() {
       const res = await api().get<{ data: Customer[] }>(`/customers?limit=10&search=${customerSearch}`);
       return res.data;
     },
-    enabled: customerSearch.length >= 2,
+    enabled: customerSearch.length >= 1,
   });
 
   const { data: selectedCustomer } = useQuery<Customer>({
@@ -150,7 +150,7 @@ export default function NewSalesOrderPage() {
       const res = await api().get<{ data: Product[] }>(`/products?limit=10&search=${productSearch}`);
       return res.data;
     },
-    enabled: productSearch.length >= 2,
+    enabled: productSearch.length >= 1,
   });
 
   const addProduct = (product: Product) => {

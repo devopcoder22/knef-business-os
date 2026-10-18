@@ -341,7 +341,7 @@ export class InventoryService {
   ) {
     const productWhere: Record<string, unknown> = {
       organizationId,
-      trackInventory: true,
+      status: 'ACTIVE',
     };
 
     const levelWhere: Record<string, unknown> = {

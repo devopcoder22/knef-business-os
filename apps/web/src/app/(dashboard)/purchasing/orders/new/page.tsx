@@ -64,7 +64,7 @@ export default function NewPurchaseOrderPage() {
       const res = await api().get<{ data: Product[] }>(`/products?${params}`);
       return res.data;
     },
-    enabled: productSearch.length >= 2,
+    enabled: productSearch.length >= 1,
   });
 
   const addProduct = (product: Product) => {

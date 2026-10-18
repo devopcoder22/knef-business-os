@@ -23,7 +23,11 @@ interface RolesResponse {
 
 const PERMISSION_GROUPS = Object.entries(PERMISSIONS).map(([group, perms]) => ({
   group,
-  permissions: Object.entries(perms).map(([key, value]) => ({ key, value: value as string })),
+  permissions: Object.entries(perms as Record<string, unknown>).flatMap(([key, value]) =>
+    typeof value === 'string'
+      ? [{ key, value }]
+      : Object.entries(value as Record<string, string>).map(([k, v]) => ({ key: `${key} ${k}`, value: v })),
+  ),
 }));
 
 interface NewRoleForm {

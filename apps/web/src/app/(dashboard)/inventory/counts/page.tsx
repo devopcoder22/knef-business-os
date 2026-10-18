@@ -74,6 +74,18 @@ export default function StockCountsPage() {
     },
   });
 
+  const completeMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await api().patch(`/stock-counts/${id}/complete`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['stock-counts'] });
+    },
+    onError: (err: any) => {
+      alert(err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to complete count');
+    },
+  });
+
   const approveMutation = useMutation({
     mutationFn: async (id: string) => {
       await api().patch(`/stock-counts/${id}/approve`);
@@ -212,19 +224,34 @@ export default function StockCountsPage() {
                         {new Date(count.startedAt).toLocaleDateString('en-NG')}
                       </td>
                       <td className="px-4 py-3">
-                        {count.status === 'COMPLETED' && (
-                          <button
-                            onClick={() => {
-                              if (confirm('Approve this count? Stock corrections will be applied.')) {
-                                approveMutation.mutate(count.id);
-                              }
-                            }}
-                            disabled={approveMutation.isPending}
-                            className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200 disabled:opacity-50"
-                          >
-                            Approve
-                          </button>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {count.status === 'IN_PROGRESS' && (
+                            <button
+                              onClick={() => {
+                                if (confirm('Mark this count as complete?')) {
+                                  completeMutation.mutate(count.id);
+                                }
+                              }}
+                              disabled={completeMutation.isPending}
+                              className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50"
+                            >
+                              Complete
+                            </button>
+                          )}
+                          {count.status === 'COMPLETED' && (
+                            <button
+                              onClick={() => {
+                                if (confirm('Approve this count? Stock corrections will be applied.')) {
+                                  approveMutation.mutate(count.id);
+                                }
+                              }}
+                              disabled={approveMutation.isPending}
+                              className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200 disabled:opacity-50"
+                            >
+                              Approve
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );

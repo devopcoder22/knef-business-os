@@ -39,7 +39,7 @@ interface Options {
 
 export function useGlobalSearch({ q, types, limit = 5, enabled = true }: Options) {
   const trimmed = q.trim();
-  const shouldFetch = enabled && trimmed.length >= 2;
+  const shouldFetch = enabled && trimmed.length >= 1;
 
   return useQuery<GlobalSearchResponse>({
     queryKey: ['global-search', trimmed, types?.join(',') ?? '', limit],
