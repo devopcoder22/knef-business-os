@@ -75,4 +75,4 @@ USER nestjs
 EXPOSE 4000
 
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "dist/apps/api/src/main.js"]
+CMD ["sh", "-c", "node_modules/.bin/prisma migrate deploy --schema=packages/database/prisma/schema.prisma && node dist/apps/api/src/main.js"]

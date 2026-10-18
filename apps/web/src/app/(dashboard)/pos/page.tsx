@@ -96,7 +96,12 @@ interface LookupResult {
   };
 }
 
-const PAYMENT_METHODS = ['CASH', 'CARD', 'BANK_TRANSFER', 'POS_TERMINAL', 'USSD'];
+const PAYMENT_METHODS: { value: string; label: string }[] = [
+  { value: 'CASH', label: 'Cash' },
+  { value: 'POS_CARD', label: 'Card / POS' },
+  { value: 'BANK_TRANSFER', label: 'Bank Transfer' },
+  { value: 'MOBILE_MONEY', label: 'Mobile Money' },
+];
 
 // ---- Receipt Modal ----
 function ReceiptModal({ receipt, onClose }: { receipt: ReceiptData; onClose: () => void }) {
@@ -818,7 +823,7 @@ export default function POSPage() {
                 className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 {PAYMENT_METHODS.map((m) => (
-                  <option key={m} value={m}>{m.replace('_', ' ')}</option>
+                  <option key={m.value} value={m.value}>{m.label}</option>
                 ))}
               </select>
               <input

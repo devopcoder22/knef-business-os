@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
-import { Receipt, Printer } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Receipt, Printer, Plus, X } from 'lucide-react';
 import { api } from '@/lib/api';
 
 interface SalesReceipt {
@@ -24,17 +24,176 @@ interface ReceiptsResponse {
   meta: { total: number; page: number; limit: number; totalPages: number };
 }
 
+interface Invoice {
+  id: string;
+  reference: string;
+  status: string;
+  totalAmount: string;
+  paidAmount: string;
+  customer: { firstName: string; lastName: string } | null;
+}
+
+const PAYMENT_METHODS = [
+  { value: 'CASH', label: 'Cash' },
+  { value: 'POS_CARD', label: 'Card / POS' },
+  { value: 'BANK_TRANSFER', label: 'Bank Transfer' },
+  { value: 'MOBILE_MONEY', label: 'Mobile Money' },
+  { value: 'CHEQUE', label: 'Cheque' },
+];
+
 const METHOD_LABELS: Record<string, string> = {
   CASH: 'Cash',
-  CARD: 'Card',
-  TRANSFER: 'Transfer',
+  POS_CARD: 'Card / POS',
+  BANK_TRANSFER: 'Bank Transfer',
+  MOBILE_MONEY: 'Mobile Money',
   CHEQUE: 'Cheque',
-  CRYPTO: 'Crypto',
   OTHER: 'Other',
 };
 
+function IssueReceiptModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+  const [invoiceId, setInvoiceId] = useState('');
+  const [amount, setAmount] = useState('');
+  const [method, setMethod] = useState('CASH');
+  const [notes, setNotes] = useState('');
+  const [error, setError] = useState('');
+
+  const { data: invoicesData } = useQuery<{ data: Invoice[] }>({
+    queryKey: ['unpaid-invoices-for-receipt'],
+    queryFn: async () => {
+      const res = await api().get('/invoices?limit=100&status=UNPAID');
+      const unpaid: Invoice[] = (res.data as any).data ?? [];
+      const res2 = await api().get('/invoices?limit=100&status=PARTIAL');
+      const partial: Invoice[] = (res2.data as any).data ?? [];
+      const all = [...unpaid, ...partial];
+      const seen = new Set<string>();
+      return { data: all.filter((o) => { if (seen.has(o.id)) return false; seen.add(o.id); return true; }) };
+    },
+  });
+
+  const selectedInvoice = invoicesData?.data?.find((i) => i.id === invoiceId);
+
+  const payMutation = useMutation({
+    mutationFn: async () => {
+      const res = await api().post(`/invoices/${invoiceId}/payments`, { amount, method, notes: notes || undefined });
+      return res.data;
+    },
+    onSuccess: () => {
+      onSuccess();
+      onClose();
+    },
+    onError: (err: any) => {
+      const msg = err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to record payment';
+      setError(Array.isArray(msg) ? msg.join(', ') : msg);
+    },
+  });
+
+  const handleSubmit = () => {
+    if (!invoiceId) { setError('Please select an invoice'); return; }
+    if (!amount || parseFloat(amount) <= 0) { setError('Enter a valid amount'); return; }
+    setError('');
+    payMutation.mutate();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl max-w-md w-full shadow-2xl p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-gray-900">Issue Receipt</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Invoice <span className="text-red-500">*</span></label>
+            <select
+              value={invoiceId}
+              onChange={(e) => {
+                setInvoiceId(e.target.value);
+                const inv = invoicesData?.data?.find((i) => i.id === e.target.value);
+                if (inv) {
+                  const outstanding = parseFloat(inv.totalAmount) - parseFloat(inv.paidAmount || '0');
+                  setAmount(outstanding > 0 ? outstanding.toFixed(2) : '');
+                }
+              }}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Select unpaid/partial invoice...</option>
+              {invoicesData?.data?.map((inv) => (
+                <option key={inv.id} value={inv.id}>
+                  {inv.reference}
+                  {inv.customer ? ` — ${inv.customer.firstName} ${inv.customer.lastName}` : ''}
+                  {' '}({inv.status})
+                </option>
+              ))}
+            </select>
+            {selectedInvoice && (
+              <p className="mt-1 text-xs text-gray-500">
+                Outstanding: {(parseFloat(selectedInvoice.totalAmount) - parseFloat(selectedInvoice.paidAmount || '0')).toLocaleString('en-NG', { style: 'currency', currency: 'NGN' })}
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Payment Method <span className="text-red-500">*</span></label>
+            <select
+              value={method}
+              onChange={(e) => setMethod(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {PAYMENT_METHODS.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Amount (₦) <span className="text-red-500">*</span></label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="0.00"
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
+            <input
+              type="text"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="e.g. Cash collected at store"
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          {error && <p className="text-xs text-red-500">{error}</p>}
+        </div>
+
+        <div className="flex gap-3 pt-2">
+          <button onClick={onClose} className="flex-1 px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-700 hover:bg-gray-50">
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={payMutation.isPending}
+            className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+          >
+            {payMutation.isPending ? 'Processing...' : 'Record Payment & Issue Receipt'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SalesReceiptsPage() {
   const [page, setPage] = useState(1);
+  const [showIssueModal, setShowIssueModal] = useState(false);
+  const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery<ReceiptsResponse>({
     queryKey: ['sales-receipts', page],
@@ -49,11 +208,25 @@ export default function SalesReceiptsPage() {
 
   return (
     <div className="space-y-6">
+      {showIssueModal && (
+        <IssueReceiptModal
+          onClose={() => setShowIssueModal(false)}
+          onSuccess={() => queryClient.invalidateQueries({ queryKey: ['sales-receipts'] })}
+        />
+      )}
+
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Receipts</h1>
           <p className="text-gray-500 text-sm mt-1">Payment receipts issued to customers</p>
         </div>
+        <button
+          onClick={() => setShowIssueModal(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+        >
+          <Plus size={16} />
+          Issue Receipt
+        </button>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">

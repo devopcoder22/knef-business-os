@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { ArrowLeft, FileText, Save } from 'lucide-react';
+import { ArrowLeft, FileText, Plus, Trash2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -23,6 +23,12 @@ interface Customer {
   phone: string;
 }
 
+interface LineItem {
+  description: string;
+  quantity: string;
+  unitPrice: string;
+}
+
 export default function NewInvoicePage() {
   const router = useRouter();
 
@@ -32,6 +38,7 @@ export default function NewInvoicePage() {
   const [dueDate, setDueDate] = useState('');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
+  const [lineItems, setLineItems] = useState<LineItem[]>([{ description: '', quantity: '1', unitPrice: '' }]);
 
   const { data: ordersData } = useQuery<{ data: SalesOrder[] }>({
     queryKey: ['sales-orders-for-invoice'],
@@ -57,20 +64,31 @@ export default function NewInvoicePage() {
     enabled: mode === 'standalone',
   });
 
+  const standaloneTotal = lineItems.reduce((sum, item) => {
+    return sum + (parseFloat(item.unitPrice || '0') * parseInt(item.quantity || '1', 10));
+  }, 0);
+
   const createMutation = useMutation({
     mutationFn: async () => {
-      const payload: Record<string, string | undefined> = {
+      const payload: Record<string, unknown> = {
         dueDate: dueDate || undefined,
         notes: notes || undefined,
       };
       if (mode === 'order' && orderId) {
         payload['orderId'] = orderId;
-        const order = ordersData?.data?.find((o) => o.id === orderId);
-        if (order?.customer) {
-          // customer will be inferred from order on backend
-        }
       }
       if (customerId) payload['customerId'] = customerId;
+
+      if (mode === 'standalone') {
+        const validItems = lineItems.filter((i) => i.description.trim() && i.unitPrice);
+        if (validItems.length > 0) {
+          payload['items'] = validItems.map((i) => ({
+            description: i.description.trim(),
+            quantity: parseInt(i.quantity || '1', 10),
+            unitPrice: i.unitPrice,
+          }));
+        }
+      }
 
       const res = await api().post<{ id: string }>('/invoices', payload);
       return (res.data as any).data.id as string;
@@ -94,8 +112,14 @@ export default function NewInvoicePage() {
 
   const selectedOrder = ordersData?.data?.find((o) => o.id === orderId);
 
+  const addLineItem = () => setLineItems((prev) => [...prev, { description: '', quantity: '1', unitPrice: '' }]);
+  const removeLineItem = (i: number) => setLineItems((prev) => prev.filter((_, idx) => idx !== i));
+  const updateLineItem = (i: number, field: keyof LineItem, value: string) => {
+    setLineItems((prev) => prev.map((item, idx) => idx === i ? { ...item, [field]: value } : item));
+  };
+
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
+    <div className="max-w-3xl mx-auto space-y-6">
       <div className="flex items-center gap-4">
         <button onClick={() => router.back()} className="p-2 rounded-lg text-gray-500 hover:bg-gray-100">
           <ArrowLeft size={20} />
@@ -172,23 +196,89 @@ export default function NewInvoicePage() {
               )}
             </div>
           ) : (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Customer (optional)</label>
-              <select
-                value={customerId}
-                onChange={(e) => setCustomerId(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">Walk-in / No customer</option>
-                {customersData?.data?.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.firstName} {c.lastName} — {c.phone}
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-gray-500 mt-1">
-                Standalone invoices have no line items. Use this for manual billing or adjustments.
-              </p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Customer (optional)</label>
+                <select
+                  value={customerId}
+                  onChange={(e) => setCustomerId(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Walk-in / No customer</option>
+                  {customersData?.data?.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.firstName} {c.lastName} — {c.phone}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Line items */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm font-medium text-gray-700">Line Items</label>
+                  <button
+                    type="button"
+                    onClick={addLineItem}
+                    className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
+                  >
+                    <Plus size={12} />
+                    Add Item
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {lineItems.map((item, i) => (
+                    <div key={i} className="grid grid-cols-12 gap-2 items-center">
+                      <div className="col-span-5">
+                        <input
+                          type="text"
+                          placeholder="Description"
+                          value={item.description}
+                          onChange={(e) => updateLineItem(i, 'description', e.target.value)}
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <input
+                          type="number"
+                          placeholder="Qty"
+                          min="1"
+                          value={item.quantity}
+                          onChange={(e) => updateLineItem(i, 'quantity', e.target.value)}
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div className="col-span-4">
+                        <input
+                          type="number"
+                          placeholder="Unit Price"
+                          min="0"
+                          step="0.01"
+                          value={item.unitPrice}
+                          onChange={(e) => updateLineItem(i, 'unitPrice', e.target.value)}
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div className="col-span-1 flex justify-center">
+                        {lineItems.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeLineItem(i)}
+                            className="text-gray-400 hover:text-red-500 transition-colors"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {standaloneTotal > 0 && (
+                  <div className="mt-2 text-right text-sm font-semibold text-gray-900">
+                    Total: {standaloneTotal.toLocaleString('en-NG', { style: 'currency', currency: 'NGN' })}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

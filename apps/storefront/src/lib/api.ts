@@ -21,8 +21,12 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...init?.headers },
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error((err as { error?: string }).error ?? `HTTP ${res.status}`);
+    const body = await res.json().catch(() => ({ error: 'Request failed' }));
+    const errField = (body as any).error;
+    const message = typeof errField === 'string' ? errField
+      : typeof errField === 'object' && errField?.message ? String(errField.message)
+      : `HTTP ${res.status}`;
+    throw new Error(message);
   }
   return res.json() as Promise<T>;
 }

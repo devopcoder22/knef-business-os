@@ -76,8 +76,9 @@ export default function CheckoutPage() {
       setOrderRef(ref);
       clearCart();
     },
-    onError: () => {
-      toast('error', 'Failed to place order. Please try again.');
+    onError: (err: unknown) => {
+      const e = err as { message?: string };
+      toast('error', e?.message ?? 'Failed to place order. Please try again.');
     },
   });
 

@@ -635,6 +635,33 @@ export class SalesService {
         discountRate: item.discountRate.toString(),
         totalPrice: item.totalPrice.toString(),
       }));
+    } else if (dto.items && dto.items.length > 0) {
+      // Standalone invoice with manually entered line items
+      for (const item of dto.items) {
+        const unitPrice = new Prisma.Decimal(item.unitPrice);
+        const taxRate = new Prisma.Decimal(item.taxRate ?? '0');
+        const discountRate = new Prisma.Decimal(item.discountRate ?? '0');
+        const baseTotal = unitPrice.mul(item.quantity);
+        const discountAmt = baseTotal.mul(discountRate.div(100));
+        const afterDiscount = baseTotal.sub(discountAmt);
+        const taxAmt = afterDiscount.mul(taxRate.div(100));
+        const lineTotal = afterDiscount.add(taxAmt);
+
+        subtotal = subtotal.add(baseTotal);
+        discountAmount = discountAmount.add(discountAmt);
+        taxAmount = taxAmount.add(taxAmt);
+
+        itemsData.push({
+          id: createId(),
+          productId: item.productId,
+          description: item.description,
+          quantity: item.quantity,
+          unitPrice: unitPrice.toString(),
+          taxRate: taxRate.toString(),
+          discountRate: discountRate.toString(),
+          totalPrice: lineTotal.toString(),
+        });
+      }
     }
 
     const totalAmount = subtotal.sub(discountAmount).add(taxAmount);
