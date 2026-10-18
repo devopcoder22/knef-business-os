@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
     const res = await fetch(`${BACKEND}/api/v1/storefront/otp/sms/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-      body: JSON.stringify({ ...body, organizationId: ORG_ID }),
+      body: JSON.stringify({ phone: body.phone, code: body.code }),
     });
     const data = await res.json();
     return NextResponse.json(data, { status: res.status });

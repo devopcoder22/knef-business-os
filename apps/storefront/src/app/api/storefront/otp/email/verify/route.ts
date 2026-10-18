@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
     const res = await fetch(`${BACKEND}/api/v1/storefront/otp/email/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-      body: JSON.stringify({ ...body, organizationId: ORG_ID }),
+      body: JSON.stringify({ email: body.email, code: body.code }),
     });
     const data = await res.json();
     return NextResponse.json(data, { status: res.status });
