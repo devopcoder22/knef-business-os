@@ -421,6 +421,11 @@ export default function UserDetailPage() {
   const deleteUserMutation = useMutation({
     mutationFn: async () => { await api().delete(`/users/${id}`); },
     onSuccess: () => router.replace('/admin/users'),
+    onError: (err: any) => {
+      setDeleteConfirm(false);
+      setResetMsg(err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to delete user. Please try again.');
+      setTimeout(() => setResetMsg(null), 6000);
+    },
   });
 
   const requestEmailChangeMutation = useMutation({

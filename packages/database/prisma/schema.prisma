@@ -1051,7 +1051,7 @@ model SalesOrder {
   reference        String
   customerId       String?
   locationId       String
-  userId           String
+  userId           String?
   status           OrderStatus   @default(DRAFT)
   channel          SalesChannel  @default(IN_STORE)
   currency         String        @default("NGN")
@@ -1078,7 +1078,7 @@ model SalesOrder {
 
   customer        Customer?        @relation(fields: [customerId], references: [id])
   location        Location         @relation(fields: [locationId], references: [id])
-  user            User             @relation(fields: [userId], references: [id])
+  user            User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
   items           SalesOrderItem[]
   invoices        Invoice[]
   payments        Payment[]
@@ -1265,7 +1265,7 @@ model POSSession {
   id             String       @id @default(cuid())
   organizationId String
   locationId     String
-  userId         String
+  userId         String?
   reference      String
   status         SessionStatus @default(OPEN)
   openingFloat   Decimal      @db.Decimal(15, 2) @default(0)
@@ -1279,7 +1279,7 @@ model POSSession {
   notes          String?
 
   location    Location     @relation(fields: [locationId], references: [id])
-  user        User         @relation(fields: [userId], references: [id])
+  user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
   salesOrders SalesOrder[]
 
   @@unique([organizationId, reference])
@@ -1491,7 +1491,7 @@ model Employee {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
-  user       User        @relation(fields: [userId], references: [id])
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   department Department? @relation(fields: [departmentId], references: [id])
   location   Location?   @relation(fields: [locationId], references: [id])
   attendance Attendance[]
@@ -1612,13 +1612,13 @@ enum TaskPriority {
 model TaskComment {
   id        String   @id @default(cuid())
   taskId    String
-  userId    String
+  userId    String?
   content   String
   editedAt  DateTime?
   createdAt DateTime @default(now())
 
-  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id])
+  task Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([taskId])
 }

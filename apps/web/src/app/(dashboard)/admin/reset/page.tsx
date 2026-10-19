@@ -14,6 +14,9 @@ import {
   UserX,
   CheckSquare,
   Square,
+  ClipboardList,
+  LayoutList,
+  CalendarDays,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/stores/auth.store';
@@ -26,7 +29,10 @@ type ResetCategory =
   | 'orders'
   | 'finance'
   | 'customers'
-  | 'staff';
+  | 'staff'
+  | 'tasks'
+  | 'planner'
+  | 'calendar';
 
 interface CategoryConfig {
   id: ResetCategory;
@@ -86,6 +92,27 @@ const CATEGORIES: CategoryConfig[] = [
     color: 'red',
     icon: UserX,
   },
+  {
+    id: 'tasks',
+    label: 'Tasks',
+    desc: 'All tasks, comments, checklists and attachments',
+    color: 'indigo',
+    icon: ClipboardList,
+  },
+  {
+    id: 'planner',
+    label: 'Planner',
+    desc: 'All plans, plan steps, templates and task links',
+    color: 'violet',
+    icon: LayoutList,
+  },
+  {
+    id: 'calendar',
+    label: 'Calendar',
+    desc: 'All calendar integrations and synced events',
+    color: 'sky',
+    icon: CalendarDays,
+  },
 ];
 
 const COLOR_MAP: Record<string, string> = {
@@ -96,6 +123,9 @@ const COLOR_MAP: Record<string, string> = {
   green: 'border-green-200 bg-green-50',
   pink: 'border-pink-200 bg-pink-50',
   red: 'border-red-200 bg-red-50',
+  indigo: 'border-indigo-200 bg-indigo-50',
+  violet: 'border-violet-200 bg-violet-50',
+  sky: 'border-sky-200 bg-sky-50',
 };
 
 const ICON_COLOR_MAP: Record<string, string> = {
@@ -106,6 +136,9 @@ const ICON_COLOR_MAP: Record<string, string> = {
   green: 'text-green-600',
   pink: 'text-pink-600',
   red: 'text-red-600',
+  indigo: 'text-indigo-600',
+  violet: 'text-violet-600',
+  sky: 'text-sky-600',
 };
 
 interface ResetResult {

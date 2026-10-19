@@ -238,6 +238,25 @@ export class AdminService {
           } else if (categories.includes('staff')) {
             deleted['staff'] = 0;
           }
+
+          if (categories.includes('tasks')) {
+            // TaskComment, TaskChecklist, TaskAttachment cascade from Task deletion
+            const { count: taskCount } = await tx.task.deleteMany({ where: { organizationId } });
+            deleted['tasks'] = taskCount;
+          }
+
+          if (categories.includes('planner')) {
+            // PlanStep and PlanTaskLink cascade from Plan deletion
+            const { count: templateCount } = await tx.planTemplate.deleteMany({ where: { organizationId } });
+            const { count: planCount } = await tx.plan.deleteMany({ where: { organizationId } });
+            deleted['planner'] = planCount + templateCount;
+          }
+
+          if (categories.includes('calendar')) {
+            // CalendarEvent cascades from CalendarIntegration deletion
+            const { count: integrationCount } = await tx.calendarIntegration.deleteMany({ where: { organizationId } });
+            deleted['calendar'] = integrationCount;
+          }
         },
         { timeout: 60000 },
       );
