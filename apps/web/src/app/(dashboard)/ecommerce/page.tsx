@@ -91,18 +91,18 @@ export default function EcommercePage() {
   const { data: ordersData, isLoading: ordersLoading } = useQuery<OrdersResponse>({
     queryKey: ['ecommerce-orders', statusFilter],
     queryFn: async () => {
-      const params = new URLSearchParams({ limit: '20' });
+      const params = new URLSearchParams({ limit: '50' });
       if (statusFilter) params.set('status', statusFilter);
-      const res = await api().get<OrdersResponse>(`/ecommerce/orders?${params}`);
-      return res.data;
+      const res = await api().get(`/ecommerce/orders?${params}`);
+      return ((res.data as any)?.data ?? res.data) as OrdersResponse;
     },
   });
 
   const { data: keysData, isLoading: keysLoading } = useQuery<ApiKeysResponse>({
     queryKey: ['api-keys'],
     queryFn: async () => {
-      const res = await api().get<ApiKeysResponse>('/ecommerce/api-keys');
-      return res.data;
+      const res = await api().get('/ecommerce/api-keys');
+      return ((res.data as any)?.data ?? res.data) as ApiKeysResponse;
     },
   });
 
@@ -178,8 +178,8 @@ export default function EcommercePage() {
               <Globe size={20} className="text-blue-600" />
             </div>
             <div>
-              <p className="text-sm text-gray-500">Online Orders (loaded)</p>
-              <p className="text-2xl font-bold text-gray-900">{orders.length}</p>
+              <p className="text-sm text-gray-500">Total Online Orders</p>
+              <p className="text-2xl font-bold text-gray-900">{ordersData?.meta?.total ?? orders.length}</p>
             </div>
           </div>
         </div>
