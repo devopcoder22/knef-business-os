@@ -5,11 +5,13 @@ export const metadata: Metadata = {
   description: 'Get in touch with KNEF Technology & IT Solutions',
 };
 
-const BACKEND = process.env.STOREFRONT_INTERNAL_URL ?? 'http://localhost:4000';
+const BACKEND = process.env.STOREFRONT_BACKEND_URL ?? 'http://localhost:4000';
+const API_KEY = process.env.STOREFRONT_API_KEY ?? '';
 
 async function getStorefrontSettings() {
   try {
-    const res = await fetch(`${BACKEND}/api/storefront-settings`, {
+    const res = await fetch(`${BACKEND}/api/v1/ecommerce/public/settings`, {
+      headers: { 'x-api-key': API_KEY },
       next: { revalidate: 300 },
     });
     if (!res.ok) return {};
