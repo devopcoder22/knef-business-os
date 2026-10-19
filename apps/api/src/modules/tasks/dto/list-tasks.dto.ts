@@ -43,4 +43,13 @@ export class ListTasksDto {
   @IsOptional()
   @IsString()
   customerId?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by creator user ID' })
+  @IsOptional()
+  @IsString()
+  createdBy?: string;
+
+  @ApiPropertyOptional({ description: 'If true, return tasks created by OR assigned to the requesting user' })
+  @IsOptional()
+  mine?: string;
 }

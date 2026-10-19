@@ -32,7 +32,7 @@ export class TasksController {
   @Permissions(PERMISSIONS.TASKS.VIEW)
   @ApiOperation({ summary: 'List tasks (paginated)' })
   findAll(@CurrentUser() user: AuthUser, @Query() query: ListTasksDto) {
-    return this.tasksService.findAll(user.organizationId, query);
+    return this.tasksService.findAll(user.organizationId, query, user.id);
   }
 
   @Post()

@@ -233,8 +233,8 @@ export default function CalendarPage() {
             ))}
           </div>
 
-          {/* Connection selector */}
-          {connections.length > 1 && (
+          {/* Connection selector / label */}
+          {connections.length > 1 ? (
             <select
               className="text-sm border border-gray-200 rounded-lg px-2 py-1.5"
               value={connectionId ?? ''}
@@ -246,6 +246,11 @@ export default function CalendarPage() {
                 </option>
               ))}
             </select>
+          ) : connections.length === 1 && (
+            <span className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-gray-200 text-gray-600">
+              <span className={cn('w-2 h-2 rounded-full', providerColor(connections[0].provider))} />
+              {providerLabel(connections[0].provider)} — {connections[0].calendarName ?? connections[0].calendarId ?? 'Primary'}
+            </span>
           )}
 
           {/* Sync */}

@@ -3,7 +3,7 @@
 import { useState, Suspense } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Plus, Target, TrendingUp, CheckSquare } from 'lucide-react';
+import { ArrowLeft, Plus, Target, TrendingUp, CheckSquare, Edit2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -73,6 +73,8 @@ function GoalDetailContent() {
 
   const [showAddProgress, setShowAddProgress] = useState(false);
   const [showAddKpi, setShowAddKpi] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [editForm, setEditForm] = useState({ title: '', description: '', status: 'ACTIVE' as GoalStatus, startDate: '', endDate: '', notes: '' });
   const [progressForm, setProgressForm] = useState({ value: '', notes: '' });
   const [kpiForm, setKpiForm] = useState({ name: '', target: '', unit: '', description: '' });
 
@@ -81,6 +83,24 @@ function GoalDetailContent() {
     queryFn: async () => {
       const res = await api().get<Goal>(`/goals/${id}`);
       return ((res.data as any)?.data ?? res.data) as Goal;
+    },
+  });
+
+  const editMutation = useMutation({
+    mutationFn: async () => {
+      await api().patch(`/goals/${id}`, {
+        title: editForm.title || undefined,
+        description: editForm.description || undefined,
+        status: editForm.status,
+        startDate: editForm.startDate || undefined,
+        endDate: editForm.endDate || undefined,
+        notes: editForm.notes || undefined,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['goal', id] });
+      queryClient.invalidateQueries({ queryKey: ['goals'] });
+      setShowEdit(false);
     },
   });
 
@@ -137,6 +157,22 @@ function GoalDetailContent() {
             </p>
           </div>
           <span className={cn('px-3 py-1 rounded-full text-sm font-medium', cfg.className)}>{cfg.label}</span>
+          <button
+            onClick={() => {
+              setEditForm({
+                title: goal.title,
+                description: goal.description ?? '',
+                status: goal.status,
+                startDate: goal.startDate.slice(0, 10),
+                endDate: goal.endDate.slice(0, 10),
+                notes: goal.notes ?? '',
+              });
+              setShowEdit(true);
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50"
+          >
+            <Edit2 size={14} /> Edit
+          </button>
         </div>
       </div>
 
@@ -255,6 +291,53 @@ function GoalDetailContent() {
               <button onClick={() => setShowAddProgress(false)} className="flex-1 px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-700">Cancel</button>
               <button onClick={() => addProgressMutation.mutate()} disabled={addProgressMutation.isPending || !progressForm.value} className="flex-1 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg disabled:opacity-50">
                 {addProgressMutation.isPending ? 'Updating...' : 'Update'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Goal Modal */}
+      {showEdit && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md space-y-4">
+            <h2 className="text-lg font-semibold">Edit Goal</h2>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+                <input type="text" value={editForm.title} onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <textarea value={editForm.description} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))} rows={2} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                  <select value={editForm.status} onChange={e => setEditForm(f => ({ ...f, status: e.target.value as GoalStatus }))} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    {(Object.keys(STATUS_CONFIG) as GoalStatus[]).map(s => (
+                      <option key={s} value={s}>{STATUS_CONFIG[s].label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                  <input type="date" value={editForm.startDate} onChange={e => setEditForm(f => ({ ...f, startDate: e.target.value }))} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+                <input type="date" value={editForm.endDate} onChange={e => setEditForm(f => ({ ...f, endDate: e.target.value }))} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+                <textarea value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} rows={3} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setShowEdit(false)} className="flex-1 px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-700">Cancel</button>
+              <button onClick={() => editMutation.mutate()} disabled={editMutation.isPending || !editForm.title} className="flex-1 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg disabled:opacity-50">
+                {editMutation.isPending ? 'Saving...' : 'Save Changes'}
               </button>
             </div>
           </div>

@@ -136,7 +136,7 @@ function TaskPanel({ taskId, onClose }: { taskId: string; onClose: () => void })
     mutationFn: async () => { await api().post(`/tasks/${taskId}/complete`); },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['task-detail', taskId] });
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['tasks'], exact: false });
     },
   });
 
@@ -273,6 +273,7 @@ function TasksContent() {
   const queryClient = useQueryClient();
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [showCreateTask, setShowCreateTask] = useState(false);
+  const [myTasksOnly, setMyTasksOnly] = useState(true);
   const [createForm, setCreateForm] = useState({
     title: '',
     description: '',
@@ -284,9 +285,10 @@ function TasksContent() {
   const [notifyVia, setNotifyVia] = useState<string[]>([]);
 
   const { data, isLoading } = useQuery<TasksResponse>({
-    queryKey: ['tasks'],
+    queryKey: ['tasks', myTasksOnly],
     queryFn: async () => {
-      const res = await api().get<TasksResponse>('/tasks?limit=200');
+      const params = myTasksOnly ? '/tasks?limit=200&mine=true' : '/tasks?limit=200';
+      const res = await api().get<TasksResponse>(params);
       return ((res.data as any)?.data ?? res.data) as TasksResponse;
     },
   });
@@ -311,7 +313,7 @@ function TasksContent() {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['tasks'], exact: false });
       setShowCreateTask(false);
       setCreateForm({ title: '', description: '', priority: 'MEDIUM', status: 'TODO', dueDate: '', assigneeId: '' });
       setNotifyVia([]);
@@ -334,13 +336,29 @@ function TasksContent() {
           <h1 className="text-2xl font-bold text-gray-900">Tasks</h1>
           <p className="text-gray-500 text-sm mt-1">Manage team tasks and assignments</p>
         </div>
-        <button
-          onClick={() => setShowCreateTask(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
-        >
-          <Plus size={16} />
-          New Task
-        </button>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center bg-gray-100 rounded-lg p-0.5 text-sm">
+            <button
+              onClick={() => setMyTasksOnly(true)}
+              className={cn('px-3 py-1.5 rounded-md font-medium transition-colors', myTasksOnly ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700')}
+            >
+              My Tasks
+            </button>
+            <button
+              onClick={() => setMyTasksOnly(false)}
+              className={cn('px-3 py-1.5 rounded-md font-medium transition-colors', !myTasksOnly ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700')}
+            >
+              All Tasks
+            </button>
+          </div>
+          <button
+            onClick={() => setShowCreateTask(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+          >
+            <Plus size={16} />
+            New Task
+          </button>
+        </div>
       </div>
 
       {/* Kanban Board */}

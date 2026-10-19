@@ -29,8 +29,8 @@ export class TasksService {
     private readonly config: ConfigService,
   ) {}
 
-  async findAll(organizationId: string, query: ListTasksDto) {
-    const { page = 1, limit = 50, status, priority, assigneeId, goalId, customerId } = query;
+  async findAll(organizationId: string, query: ListTasksDto, requestingUserId?: string) {
+    const { page = 1, limit = 50, status, priority, assigneeId, goalId, customerId, createdBy, mine } = query;
     const skip = (page - 1) * limit;
 
     const where: Prisma.TaskWhereInput = { organizationId };
@@ -39,6 +39,10 @@ export class TasksService {
     if (assigneeId) where.assigneeId = assigneeId;
     if (goalId) where.goalId = goalId;
     if (customerId) where.customerId = customerId;
+    if (createdBy) where.createdBy = createdBy;
+    if (mine === 'true' && requestingUserId) {
+      where.OR = [{ createdBy: requestingUserId }, { assigneeId: requestingUserId }];
+    }
 
     const [data, total] = await Promise.all([
       this.prisma.task.findMany({
