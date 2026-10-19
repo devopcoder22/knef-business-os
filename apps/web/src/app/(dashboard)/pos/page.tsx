@@ -513,13 +513,13 @@ export default function POSPage() {
   const session = sessionData;
 
   const { data: locationsData } = useQuery<{ data: Location[] }>({
-    queryKey: ['locations-list'],
+    queryKey: ['locations-accessible'],
     queryFn: async () => {
-      const res = await api().get<{ data: Location[] }>('/locations?limit=100');
-      return res.data;
+      const res = await api().get('/locations/accessible');
+      return ((res.data as any)?.data ?? res.data) as { data: Location[] };
     },
   });
-  const locations = locationsData?.data ?? [];
+  const locations = Array.isArray(locationsData) ? locationsData : (locationsData?.data ?? []);
 
   const { data: productsData } = useQuery<ProductsResponse>({
     queryKey: ['pos-products', productSearch],
