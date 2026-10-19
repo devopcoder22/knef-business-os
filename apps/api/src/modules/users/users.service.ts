@@ -29,6 +29,15 @@ export class UsersService {
     private readonly emailService: EmailService,
   ) {}
 
+  async findAssignable(organizationId: string) {
+    const users = await this.prisma.user.findMany({
+      where: { organizationId, isActive: true },
+      select: { id: true, firstName: true, lastName: true, email: true },
+      orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+    });
+    return { data: users };
+  }
+
   async findAll(organizationId: string, dto: ListUsersDto) {
     const { page = 1, limit = 20, search, roleId, isActive } = dto;
     const skip = (page - 1) * limit;

@@ -7,12 +7,9 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Loader2 } from 'lucide-react';
-import { Turnstile } from '@marsidev/react-turnstile';
 import { customerLogin } from '@/lib/api';
 import { useCustomerStore } from '@/stores/customer.store';
 import { cn } from '@/lib/utils';
-
-const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
 
 const schema = z.object({
   email: z.string().email('Enter a valid email address'),
@@ -26,7 +23,6 @@ function LoginForm() {
   const from = searchParams.get('from') ?? '/account';
   const setAuth = useCustomerStore((s) => s.setAuth);
   const [error, setError] = useState('');
-  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -35,7 +31,7 @@ function LoginForm() {
   async function onSubmit(data: FormData) {
     setError('');
     try {
-      const result = await customerLogin({ email: data.email, password: data.password, turnstileToken: turnstileToken ?? undefined });
+      const result = await customerLogin({ email: data.email, password: data.password });
       setAuth(result.customer, result.accessToken, result.refreshToken);
       router.push(from);
     } catch (err) {
@@ -104,7 +100,7 @@ function LoginForm() {
 
             <button
               type="submit"
-              disabled={isSubmitting || (!!SITE_KEY && !turnstileToken)}
+              disabled={isSubmitting}
               className="w-full bg-blue-600 text-white font-semibold py-2.5 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
             >
               {isSubmitting && <Loader2 size={16} className="animate-spin" />}

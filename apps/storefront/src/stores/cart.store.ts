@@ -33,15 +33,19 @@ export const useCartStore = create<CartState>()(
             sameItem(i, item.productId, item.variantId),
           );
           if (existing) {
+            const maxQty = existing.stock ?? Infinity;
+            const newQty = Math.min(existing.quantity + item.quantity, maxQty);
+            if (newQty === existing.quantity) return state; // already at stock limit
             return {
               items: state.items.map((i) =>
                 sameItem(i, item.productId, item.variantId)
-                  ? { ...i, quantity: i.quantity + item.quantity }
+                  ? { ...i, quantity: newQty }
                   : i,
               ),
             };
           }
-          return { items: [...state.items, item] };
+          const cappedQty = item.stock != null ? Math.min(item.quantity, item.stock) : item.quantity;
+          return { items: [...state.items, { ...item, quantity: cappedQty }] };
         });
       },
 
@@ -57,9 +61,11 @@ export const useCartStore = create<CartState>()(
           return;
         }
         set((state) => ({
-          items: state.items.map((i) =>
-            sameItem(i, productId, variantId) ? { ...i, quantity: qty } : i,
-          ),
+          items: state.items.map((i) => {
+            if (!sameItem(i, productId, variantId)) return i;
+            const maxQty = i.stock ?? Infinity;
+            return { ...i, quantity: Math.min(qty, maxQty) };
+          }),
         }));
       },
 

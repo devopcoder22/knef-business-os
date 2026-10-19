@@ -292,9 +292,9 @@ function TasksContent() {
   });
 
   const { data: usersData } = useQuery<OrgUser[]>({
-    queryKey: ['users-list'],
+    queryKey: ['users-assignable'],
     queryFn: async () => {
-      const res = await api().get('/users?limit=200');
+      const res = await api().get('/users/assignable');
       const raw = (res.data as any)?.data ?? res.data;
       return (Array.isArray(raw) ? raw : raw?.data ?? []) as OrgUser[];
     },

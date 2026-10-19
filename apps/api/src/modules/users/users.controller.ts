@@ -37,6 +37,12 @@ export class UsersController {
     return this.usersService.findAll(user.organizationId, query);
   }
 
+  @Get('assignable')
+  @ApiOperation({ summary: 'List users available for assignment (any authenticated user)' })
+  getAssignable(@CurrentUser() user: AuthUser) {
+    return this.usersService.findAssignable(user.organizationId);
+  }
+
   @Get('me')
   @ApiOperation({ summary: 'Get my profile' })
   getMe(@CurrentUser() user: AuthUser) {
