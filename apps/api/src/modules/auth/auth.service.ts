@@ -146,6 +146,7 @@ export class AuthService {
     ]);
 
     const roles = [...new Set(userRoles.map((ur) => ur.role.name))];
+    const isSuperAdmin = roles.includes('SUPER_ADMIN');
     const locationIds = userRoles
       .filter((ur) => ur.locationId !== null)
       .map((ur) => ur.locationId as string);
@@ -176,7 +177,8 @@ export class AuthService {
       lastName,
       roles,
       permissions: Array.from(finalPerms),
-      locationIds: locationIds.length > 0 ? locationIds : null,
+      // SUPER_ADMIN always gets org-wide access regardless of location assignments
+      locationIds: isSuperAdmin ? null : (locationIds.length > 0 ? locationIds : null),
       mustChangePassword: userRecord?.mustChangePassword ?? false,
     };
   }

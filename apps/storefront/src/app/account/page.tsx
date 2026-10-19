@@ -10,13 +10,14 @@ import { customerLogout } from '@/lib/api';
 export default function AccountPage() {
   const router = useRouter();
   const { customer, accessToken, refreshToken, isAuthenticated, clearAuth } = useCustomerStore();
-  const [hydrated, setHydrated] = useState(false);
+  const [hydrated, setHydrated] = useState(() => useCustomerStore.persist.hasHydrated());
 
   useEffect(() => {
+    if (hydrated) return;
     const unsub = useCustomerStore.persist.onFinishHydration(() => setHydrated(true));
     if (useCustomerStore.persist.hasHydrated()) setHydrated(true);
     return unsub;
-  }, []);
+  }, [hydrated]);
 
   useEffect(() => {
     if (hydrated && !isAuthenticated) router.replace('/login?from=/account');
@@ -30,7 +31,8 @@ export default function AccountPage() {
     router.push('/');
   }
 
-  if (!hydrated || !customer) return null;
+  if (!hydrated) return <div className="min-h-[60vh]" />;
+  if (!customer) return null;
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-10">
