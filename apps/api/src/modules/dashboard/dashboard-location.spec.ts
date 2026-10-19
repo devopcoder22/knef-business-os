@@ -64,11 +64,12 @@ function makePrismaForLocation(opts: {
 // ── 1: Authorization guard ────────────────────────────────────────────────────
 
 describe('DashboardController — authorization', () => {
-  it('1: user without REPORTS.VIEW throws ForbiddenException', () => {
+  it('1: user without REPORTS.VIEW throws ForbiddenException', async () => {
     const reflector = {
       getAllAndOverride: jest.fn(() => ['reports:view']),
     } as unknown as Reflector;
-    const guard = new PermissionGuard(reflector);
+    const mockAudit = { log: jest.fn().mockResolvedValue(undefined) } as never;
+    const guard = new PermissionGuard(reflector, mockAudit);
     const user = { permissions: ['customers:view'], organizationId: ORG, locationIds: null };
     const mockContext = {
       getHandler: () => ({}),
@@ -77,7 +78,7 @@ describe('DashboardController — authorization', () => {
         getRequest: () => ({ user }),
       }),
     };
-    expect(() => guard.canActivate(mockContext as never)).toThrow(ForbiddenException);
+    await expect(guard.canActivate(mockContext as never)).rejects.toThrow(ForbiddenException);
   });
 });
 

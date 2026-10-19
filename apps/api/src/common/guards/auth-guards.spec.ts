@@ -110,31 +110,31 @@ describe('JwtAuthGuard', () => {
 // ── PermissionGuard ───────────────────────────────────────────────────────────
 
 describe('PermissionGuard', () => {
-  it('5: no permissions metadata → allows', () => {
+  it('5: no permissions metadata → allows', async () => {
     const reflector = makeReflector({ [PERMISSIONS_KEY]: undefined });
-    const guard = new PermissionGuard(reflector);
-    expect(guard.canActivate(makeContext())).toBe(true);
+    const guard = new PermissionGuard(reflector, makeAudit() as never);
+    await expect(guard.canActivate(makeContext())).resolves.toBe(true);
   });
 
-  it('6: user has required permissions → allows', () => {
+  it('6: user has required permissions → allows', async () => {
     const reflector = makeReflector({ [PERMISSIONS_KEY]: ['finance:view'] });
-    const guard = new PermissionGuard(reflector);
+    const guard = new PermissionGuard(reflector, makeAudit() as never);
     const context = makeContext({ user: { permissions: ['finance:view', 'sales:view'] } });
-    expect(guard.canActivate(context)).toBe(true);
+    await expect(guard.canActivate(context)).resolves.toBe(true);
   });
 
-  it('7: user lacks required permission → ForbiddenException', () => {
+  it('7: user lacks required permission → ForbiddenException', async () => {
     const reflector = makeReflector({ [PERMISSIONS_KEY]: ['finance:manage'] });
-    const guard = new PermissionGuard(reflector);
+    const guard = new PermissionGuard(reflector, makeAudit() as never);
     const context = makeContext({ user: { permissions: ['finance:view'] } });
-    expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
+    await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
   });
 
-  it('8: no user on request → ForbiddenException', () => {
+  it('8: no user on request → ForbiddenException', async () => {
     const reflector = makeReflector({ [PERMISSIONS_KEY]: ['finance:view'] });
-    const guard = new PermissionGuard(reflector);
+    const guard = new PermissionGuard(reflector, makeAudit() as never);
     const context = makeContext({ user: undefined });
-    expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
+    await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
   });
 });
 

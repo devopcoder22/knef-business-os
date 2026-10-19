@@ -149,9 +149,11 @@ describe('EcommerceService.createPublicOrder — server-authoritative totals', (
   beforeEach(() => {
     prisma = makePrismaMock();
     const inventory: Partial<InventoryService> = {};
+    const eventEmitter = { emit: jest.fn() } as never;
     service = new EcommerceService(
       prisma as unknown as PrismaService,
       inventory as InventoryService,
+      eventEmitter,
     );
 
     // Common happy-path mocks

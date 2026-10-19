@@ -4,6 +4,7 @@ import { UsersService } from './users.service';
 import { PrismaService } from '../../common/services/prisma.service';
 import { RedisService } from '../../common/services/redis.service';
 import { AuditService } from '../audit/audit.service';
+import { EmailService } from '../communications/email.service';
 
 const MOCK_ORG = 'org-1';
 const MOCK_USER_ID = 'user-1';
@@ -52,6 +53,7 @@ const mockPrisma = {
 
 const mockRedis = { del: jest.fn() };
 const mockAudit = { log: jest.fn().mockResolvedValue(undefined) };
+const mockEmail = { sendEmail: jest.fn().mockResolvedValue(undefined) };
 
 describe('UsersService', () => {
   let service: UsersService;
@@ -65,6 +67,7 @@ describe('UsersService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: RedisService, useValue: mockRedis },
         { provide: AuditService, useValue: mockAudit },
+        { provide: EmailService, useValue: mockEmail },
       ],
     }).compile();
 
@@ -142,7 +145,7 @@ describe('UsersService', () => {
       await expect(service.invite(MOCK_ORG, invitedBy, dto)).rejects.toThrow(NotFoundException);
     });
 
-    it('creates user with hashed password and returns tempPassword', async () => {
+    it('creates user and sends invite email with reset link', async () => {
       const newUser = { ...mockUser, id: 'user-new', email: dto.email };
       mockPrisma.user.findFirst.mockResolvedValue(null);
       mockPrisma.role.findMany.mockResolvedValue([{ id: MOCK_ROLE_ID }]);
@@ -152,11 +155,13 @@ describe('UsersService', () => {
           userRole: { create: jest.fn().mockResolvedValue({}) },
         }),
       );
+      mockPrisma.user.update.mockResolvedValue({ ...newUser, resetPasswordToken: 'hashed-token' });
 
       const result = await service.invite(MOCK_ORG, invitedBy, dto);
-      expect(result.tempPassword).toBeDefined();
-      expect(typeof result.tempPassword).toBe('string');
       expect(result.passwordHash).toBeUndefined();
+      expect(mockEmail.sendEmail).toHaveBeenCalledWith(
+        expect.objectContaining({ to: dto.email }),
+      );
     });
 
     it('calls auditService.log with USER_INVITED action', async () => {
