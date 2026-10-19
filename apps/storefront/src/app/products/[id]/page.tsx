@@ -42,6 +42,7 @@ export default function ProductDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const addItem = useCartStore((s) => s.addItem);
+  const cartItems = useCartStore((s) => s.items);
 
   const [selectedVariant, setSelectedVariant] = useState<ProductVariant | null>(null);
   const [selectedImage, setSelectedImage] = useState(0);
@@ -82,7 +83,10 @@ export default function ProductDetailPage() {
     0,
   );
   const isOutOfStock = product.stock !== null && totalAvailable <= 0;
-  const maxQty = product.stock !== null ? Math.min(totalAvailable, 20) : 20;
+  const inCartQty = cartItems.find(
+    (i) => i.productId === product.id && (i.variantId ?? null) === (activeVariant?.id ?? null),
+  )?.quantity ?? 0;
+  const maxQty = product.stock !== null ? Math.max(0, Math.min(totalAvailable - inCartQty, 20)) : 20;
 
   const images =
     product.images.length > 0
@@ -92,7 +96,7 @@ export default function ProductDetailPage() {
       : [];
 
   function handleAddToCart() {
-    if (isOutOfStock) return;
+    if (isOutOfStock || added) return;
 
     addItem({
       productId: product.id,
@@ -103,11 +107,12 @@ export default function ProductDetailPage() {
       unitPrice: displayPrice,
       quantity,
       imageUrl: images[0]?.url ?? null,
-      stock: product.stock,
+      stock: totalAvailable,
     });
 
     setAdded(true);
     toast('success', `${product.name} added to cart`);
+    setTimeout(() => setAdded(false), 3000);
   }
 
   function handleBuyNow() {
@@ -308,7 +313,7 @@ export default function ProductDetailPage() {
           <div className="flex flex-col sm:flex-row gap-3 pt-2">
             <button
               onClick={handleAddToCart}
-              disabled={isOutOfStock}
+              disabled={isOutOfStock || maxQty === 0}
               className={cn(
                 'flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm transition-all',
                 isOutOfStock
