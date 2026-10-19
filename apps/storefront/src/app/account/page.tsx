@@ -10,7 +10,9 @@ import { customerLogout } from '@/lib/api';
 export default function AccountPage() {
   const router = useRouter();
   const { customer, accessToken, refreshToken, isAuthenticated, clearAuth } = useCustomerStore();
-  const [hydrated, setHydrated] = useState(() => useCustomerStore.persist.hasHydrated());
+  const [hydrated, setHydrated] = useState(() =>
+    typeof window !== 'undefined' && (useCustomerStore.persist?.hasHydrated?.() ?? false),
+  );
 
   useEffect(() => {
     if (hydrated) return;
