@@ -16,6 +16,16 @@ export function Header() {
   const router = useRouter();
   const totalItems = useCartStore((s) => s.totalItems());
   const { customer, isAuthenticated } = useCustomerStore();
+  const [storeHydrated, setStoreHydrated] = useState(false);
+
+  useEffect(() => {
+    if (useCustomerStore.persist.hasHydrated()) {
+      setStoreHydrated(true);
+      return;
+    }
+    const unsub = useCustomerStore.persist.onFinishHydration(() => setStoreHydrated(true));
+    return unsub;
+  }, []);
 
   const { data: settings = {} } = useQuery({
     queryKey: ['storefront-settings'],
@@ -88,7 +98,9 @@ export function Header() {
             </button>
 
             {/* Account */}
-            {isAuthenticated && customer ? (
+            {!storeHydrated ? (
+              <div className="hidden md:block w-20 h-8" />
+            ) : isAuthenticated && customer ? (
               <Link
                 href="/account"
                 className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-gray-700 hover:text-knef-primary hover:bg-gray-50 transition-colors"
@@ -169,7 +181,7 @@ export function Header() {
                 {link.label}
               </Link>
             ))}
-            {isAuthenticated && customer ? (
+            {storeHydrated && isAuthenticated && customer ? (
               <Link
                 href="/account"
                 onClick={() => setMobileMenuOpen(false)}

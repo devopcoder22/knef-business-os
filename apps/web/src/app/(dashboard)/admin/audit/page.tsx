@@ -13,6 +13,8 @@ interface AuditLog {
   entityId: string | null;
   ipAddress: string | null;
   createdAt: string;
+  metadata: Record<string, unknown> | null;
+  newValues: Record<string, unknown> | null;
   user: {
     id: string;
     firstName: string;
@@ -110,7 +112,8 @@ export default function AuditPage() {
                 <th className="px-4 py-3 text-left font-medium text-gray-600">When</th>
                 <th className="px-4 py-3 text-left font-medium text-gray-600">User</th>
                 <th className="px-4 py-3 text-left font-medium text-gray-600">Action</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Entity</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-600">Entity / Target</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-600">Details</th>
                 <th className="px-4 py-3 text-left font-medium text-gray-600">IP Address</th>
               </tr>
             </thead>
@@ -118,7 +121,7 @@ export default function AuditPage() {
               {isLoading ? (
                 Array.from({ length: 10 }).map((_, i) => (
                   <tr key={i}>
-                    {Array.from({ length: 5 }).map((_, j) => (
+                    {Array.from({ length: 6 }).map((_, j) => (
                       <td key={j} className="px-4 py-3">
                         <div className="h-4 bg-gray-100 rounded animate-pulse" />
                       </td>
@@ -127,7 +130,7 @@ export default function AuditPage() {
                 ))
               ) : data?.data.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-12 text-center text-gray-400">
+                  <td colSpan={6} className="px-4 py-12 text-center text-gray-400">
                     No audit log entries found
                   </td>
                 </tr>
@@ -159,7 +162,32 @@ export default function AuditPage() {
                     <td className="px-4 py-3 text-xs">
                       <span className="text-gray-700 font-medium">{log.entity}</span>
                       {log.entityId && (
-                        <span className="text-gray-400 ml-1 font-mono">{log.entityId.slice(0, 8)}</span>
+                        <span className="text-gray-400 ml-1 font-mono text-xs block mt-0.5 max-w-[140px] truncate" title={log.entityId}>
+                          {log.entityId}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-500 max-w-[200px]">
+                      {log.action === 'PERMISSION_DENIED' && log.metadata ? (
+                        <div className="space-y-0.5">
+                          <p className="font-medium text-red-600">Access denied</p>
+                          {(log.metadata as any).path && (
+                            <p className="font-mono text-gray-500 truncate" title={(log.metadata as any).path}>
+                              {(log.metadata as any).method} {(log.metadata as any).path}
+                            </p>
+                          )}
+                          {(log.metadata as any).requiredPermissions && (
+                            <p className="text-gray-400">
+                              Needs: {((log.metadata as any).requiredPermissions as string[]).join(', ')}
+                            </p>
+                          )}
+                        </div>
+                      ) : log.newValues ? (
+                        <span className="text-gray-400 font-mono truncate block max-w-full" title={JSON.stringify(log.newValues)}>
+                          {Object.entries(log.newValues).slice(0, 2).map(([k, v]) => `${k}: ${String(v).slice(0, 20)}`).join(' · ')}
+                        </span>
+                      ) : (
+                        <span className="text-gray-300">—</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500 font-mono">

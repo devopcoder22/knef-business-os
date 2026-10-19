@@ -44,11 +44,12 @@ export class PermissionGuard implements CanActivate {
         userId: user.id,
         action: 'PERMISSION_DENIED',
         entity: 'Permission',
+        entityId: `${request.method} ${request.path}`,
         metadata: {
           requiredPermissions,
-          userPermissions: user.permissions,
-          path: request.url,
+          path: request.path,
           method: request.method,
+          query: Object.keys(request.query ?? {}).length ? request.query : undefined,
         },
       }).catch(() => {});
 

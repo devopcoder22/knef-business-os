@@ -10,16 +10,16 @@ import { customerLogout } from '@/lib/api';
 export default function AccountPage() {
   const router = useRouter();
   const { customer, accessToken, refreshToken, isAuthenticated, clearAuth } = useCustomerStore();
-  const [hydrated, setHydrated] = useState(() =>
-    typeof window !== 'undefined' && (useCustomerStore.persist?.hasHydrated?.() ?? false),
-  );
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    if (hydrated) return;
+    if (useCustomerStore.persist.hasHydrated()) {
+      setHydrated(true);
+      return;
+    }
     const unsub = useCustomerStore.persist.onFinishHydration(() => setHydrated(true));
-    if (useCustomerStore.persist.hasHydrated()) setHydrated(true);
     return unsub;
-  }, [hydrated]);
+  }, []);
 
   useEffect(() => {
     if (hydrated && !isAuthenticated) router.replace('/login?from=/account');

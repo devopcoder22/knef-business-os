@@ -94,10 +94,11 @@ export class BackupService implements OnModuleInit {
   }
 
   async listBackups(limit = 20) {
-    return this.prisma.systemBackup.findMany({
+    const rows = await this.prisma.systemBackup.findMany({
       orderBy: { startedAt: 'desc' },
       take: limit,
     });
+    return rows.map((r) => ({ ...r, sizeBytes: r.sizeBytes != null ? r.sizeBytes.toString() : null }));
   }
 
   async triggerBackup(triggeredBy?: string) {

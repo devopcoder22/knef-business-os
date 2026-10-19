@@ -66,7 +66,8 @@ export class UsersController {
   @Permissions(PERMISSIONS.ADMIN.MANAGE_USERS)
   @ApiOperation({ summary: 'Invite a new user to the organization' })
   invite(@CurrentUser() user: AuthUser, @Body() dto: InviteUserDto) {
-    return this.usersService.invite(user.organizationId, user, dto);
+    const appUrl = this.config.get<string>('APP_URL', 'http://localhost:3000');
+    return this.usersService.invite(user.organizationId, user, dto, appUrl);
   }
 
   @Patch(':id/profile')

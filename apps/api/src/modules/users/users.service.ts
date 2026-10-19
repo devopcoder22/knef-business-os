@@ -163,7 +163,7 @@ export class UsersService {
     return updated;
   }
 
-  async invite(organizationId: string, invitedBy: AuthUser, dto: InviteUserDto) {
+  async invite(organizationId: string, invitedBy: AuthUser, dto: InviteUserDto, appUrl = 'http://localhost:3000') {
     // Check email uniqueness within org
     const existing = await this.prisma.user.findFirst({
       where: { organizationId, email: dto.email.toLowerCase().trim() },
@@ -227,8 +227,36 @@ export class UsersService {
       newValues: { email: dto.email, roleIds: dto.roleIds },
     });
 
-    // TODO-PHASE1: Send invitation email with temp password
-    return { ...user, tempPassword, passwordHash: undefined };
+    // Generate a 7-day reset token so the invited user can set their own password
+    const token = randomBytes(32).toString('hex');
+    const hashed = createHash('sha256').update(token).digest('hex');
+    const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { resetPasswordToken: hashed, resetPasswordExpires: expires, mustChangePassword: true },
+    });
+
+    const resetUrl = `${appUrl}/reset-password?token=${token}`;
+    const firstName = dto.firstName ?? 'there';
+    const html = `
+      <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
+        <h2 style="color:#1e40af">You've been invited — KNEF Business OS</h2>
+        <p>Hi ${firstName},</p>
+        <p>You have been added to your organisation's KNEF Business OS workspace. Click the button below to set your password and activate your account:</p>
+        <p style="margin:24px 0"><a href="${resetUrl}" style="background:#2563eb;color:#fff;padding:14px 28px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:600">Set Your Password</a></p>
+        <p style="color:#6b7280;font-size:13px">This link expires in <strong>7 days</strong>. If you did not expect this invitation, you can safely ignore this email.</p>
+      </div>`;
+
+    await this.emailService.sendEmail({
+      organizationId,
+      to: user.email,
+      subject: 'You have been invited to KNEF Business OS',
+      html,
+      text: `You've been invited to KNEF Business OS. Set your password here (expires in 7 days): ${resetUrl}`,
+    });
+
+    return { ...user, passwordHash: undefined };
   }
 
   async updateProfile(userId: string, organizationId: string, dto: UpdateProfileDto) {
