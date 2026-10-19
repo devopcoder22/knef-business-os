@@ -49,6 +49,7 @@ import {
   BrainCircuit,
   Scale,
   ShoppingBag,
+  Trash2,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -255,6 +256,7 @@ const BOTTOM_ITEMS: NavItem[] = [
       { label: 'Audit Logs', href: '/admin/audit', icon: FileText, adminOnly: true },
       { label: 'Security', href: '/admin/security', icon: ShieldAlert, adminOnly: true },
       { label: 'System Health', href: '/admin/health', icon: Activity, adminOnly: true },
+      { label: 'Data Reset', href: '/admin/reset', icon: Trash2, adminOnly: true },
     ],
   },
 ];

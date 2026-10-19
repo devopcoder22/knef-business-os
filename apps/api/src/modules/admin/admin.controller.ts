@@ -1,7 +1,9 @@
 import {
   Controller,
   Get,
+  Post,
   Delete,
+  Body,
   Param,
   Query,
   HttpCode,
@@ -14,6 +16,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { PERMISSIONS } from '@knef/constants';
 import type { AuthUser } from '@knef/types';
+import { ResetDataDto } from './dto/reset-data.dto';
 
 @ApiTags('admin')
 @ApiBearerAuth('JWT')
@@ -68,5 +71,13 @@ export class AdminController {
   @ApiOperation({ summary: 'Worker queue health and stats' })
   getWorkerHealth(@CurrentUser() _user: AuthUser) {
     return this.adminService.getWorkerHealth();
+  }
+
+  @Post('reset')
+  @HttpCode(HttpStatus.OK)
+  @Permissions(PERMISSIONS.ADMIN.MANAGE_USERS)
+  @ApiOperation({ summary: 'Reset (wipe) selected data categories for the organisation' })
+  async resetData(@Body() dto: ResetDataDto, @CurrentUser() user: AuthUser) {
+    return this.adminService.resetData(user.organizationId, dto.categories, user.id);
   }
 }
