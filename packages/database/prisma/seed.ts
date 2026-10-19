@@ -435,7 +435,7 @@ async function seed(): Promise<void> {
   }
 
   // ── Email Templates ──────────────────────────────────────────────────────────
-  const org = await prisma.organization.findFirst();
+  org = await prisma.organization.findFirst();
   if (org) {
     const TEMPLATES = [
       {
