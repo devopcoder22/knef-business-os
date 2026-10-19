@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Save, Upload, Monitor, Globe, Type, Bell, Image as ImageIcon } from 'lucide-react';
+import { Save, Upload, Monitor, Globe, Type, Bell, Image as ImageIcon, Phone } from 'lucide-react';
 import { api } from '@/lib/api';
 
 interface StorefrontSetting {
@@ -25,6 +25,10 @@ const SETTING_DEFS = [
   { key: 'storefront.announcementEnabled', label: 'Show Announcement Banner', type: 'toggle', placeholder: '', section: 'announcement' },
   { key: 'storefront.announcementText', label: 'Announcement Text',      type: 'textarea', placeholder: 'Free delivery on orders over ₦50,000!', section: 'announcement' },
   { key: 'storefront.announcementColor', label: 'Announcement Color',   type: 'select',   placeholder: '', section: 'announcement', options: ['blue','green','amber','red'] },
+  { key: 'storefront.footerDescription', label: 'Footer Tagline',       type: 'textarea', placeholder: 'Your trusted destination for smartphones…', section: 'contact' },
+  { key: 'storefront.footerAddress',     label: 'Address',              type: 'text',     placeholder: 'Lagos, Nigeria',              section: 'contact' },
+  { key: 'storefront.footerPhone',       label: 'Phone Number',         type: 'text',     placeholder: '+234 800 000 0000',            section: 'contact' },
+  { key: 'storefront.footerEmail',       label: 'Email Address',        type: 'text',     placeholder: 'info@knef.ng',                section: 'contact' },
 ] as const;
 
 const SECTIONS = [
@@ -32,6 +36,7 @@ const SECTIONS = [
   { id: 'hero',         label: 'Hero Section',     icon: Monitor },
   { id: 'sections',     label: 'Page Sections',    icon: Type },
   { id: 'announcement', label: 'Announcement',     icon: Bell },
+  { id: 'contact',      label: 'Footer & Contact', icon: Phone },
 ] as const;
 
 type SectionId = typeof SECTIONS[number]['id'];

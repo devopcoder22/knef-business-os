@@ -7,6 +7,7 @@ import type { AuthUser } from '@knef/types';
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 interface AuthStore {
+  _hasHydrated: boolean;
   user: AuthUser | null;
   accessToken: string | null;
   isAuthenticated: boolean;
@@ -37,6 +38,7 @@ function startIdleWatcher(clearAuthFn: () => void) {
 export const useAuthStore = create<AuthStore>()(
   persist(
     (set, get) => ({
+      _hasHydrated: false,
       user: null,
       accessToken: null,
       isAuthenticated: false,
@@ -91,6 +93,7 @@ export const useAuthStore = create<AuthStore>()(
         if (state?.isAuthenticated) {
           startIdleWatcher(() => state.clearAuth());
         }
+        useAuthStore.setState({ _hasHydrated: true });
       },
     },
   ),

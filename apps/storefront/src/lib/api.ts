@@ -183,6 +183,10 @@ export interface StorefrontSettings {
   announcementEnabled?: boolean;
   announcementText?: string;
   announcementColor?: string;
+  footerDescription?: string;
+  footerAddress?: string;
+  footerPhone?: string;
+  footerEmail?: string;
 }
 
 export async function fetchStorefrontSettings(): Promise<StorefrontSettings> {

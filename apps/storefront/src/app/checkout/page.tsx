@@ -14,8 +14,6 @@ import {
   createOrder,
   requestEmailOtp,
   verifyEmailOtp,
-  requestSmsOtp,
-  verifySmsOtp,
   postOrderRegister,
 } from '@/lib/api';
 import type { AuthResult } from '@/lib/api';
@@ -78,11 +76,6 @@ export default function CheckoutPage() {
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState('');
 
-  // Phone OTP
-  const [phoneOtpStep, setPhoneOtpStep] = useState<OtpStep>('idle');
-  const [phoneOtp, setPhoneOtp] = useState('');
-  const [phoneOtpError, setPhoneOtpError] = useState('');
-
   // Email OTP
   const [emailOtpStep, setEmailOtpStep] = useState<OtpStep>('idle');
   const [emailOtp, setEmailOtp] = useState('');
@@ -109,10 +102,8 @@ export default function CheckoutPage() {
     defaultValues: { paymentMethod: 'CASH' },
   });
 
-  const watchPhone = useWatch({ control, name: 'customerPhone' });
   const watchEmail = useWatch({ control, name: 'customerEmail' });
 
-  const phoneValid = /^\+?[\d\s\-()]{7,20}$/.test(watchPhone ?? '');
   const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(watchEmail ?? '');
 
   // Google Maps Places autocomplete
@@ -137,33 +128,6 @@ export default function CheckoutPage() {
       if (state) setValue('deliveryState', state);
     });
   }, [setValue]);
-
-  // Phone OTP
-  async function sendPhoneOtp() {
-    setPhoneOtpStep('sending');
-    setPhoneOtpError('');
-    try {
-      await requestSmsOtp(getValues('customerPhone'));
-      setPhoneOtpStep('sent');
-      toast('success', 'SMS verification code sent');
-    } catch (err) {
-      setPhoneOtpError((err as { message?: string }).message ?? 'Failed to send SMS code');
-      setPhoneOtpStep('idle');
-    }
-  }
-
-  async function verifyPhone() {
-    setPhoneOtpStep('verifying');
-    setPhoneOtpError('');
-    try {
-      await verifySmsOtp(getValues('customerPhone'), phoneOtp);
-      setPhoneOtpStep('verified');
-      toast('success', 'Phone verified');
-    } catch (err) {
-      setPhoneOtpError((err as { message?: string }).message ?? 'Invalid code. Try again.');
-      setPhoneOtpStep('sent');
-    }
-  }
 
   // Email OTP
   async function sendEmailOtp() {
@@ -224,10 +188,6 @@ export default function CheckoutPage() {
 
   async function onSubmit(data: FormData) {
     setSubmitError('');
-    if (phoneOtpStep === 'sent' || phoneOtpStep === 'verifying') {
-      setSubmitError('Please verify your phone number before placing the order');
-      return;
-    }
     if (emailOtpStep === 'sent' || emailOtpStep === 'verifying') {
       setSubmitError('Please verify your email address before placing the order');
       return;
@@ -445,77 +405,22 @@ export default function CheckoutPage() {
                 )}
               </div>
 
-              {/* Phone + inline OTP */}
+              {/* Phone */}
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Phone Number <span className="text-red-500">*</span>
                 </label>
-                <div className="flex gap-2">
-                  <input
-                    {...register('customerPhone')}
-                    type="tel"
-                    placeholder="+234 800 000 0000"
-                    disabled={phoneOtpStep === 'verified'}
-                    className={cn(
-                      'flex-1 border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary transition-colors',
-                      errors.customerPhone ? 'border-red-300' : 'border-gray-200',
-                      phoneOtpStep === 'verified' && 'bg-green-50 border-green-300',
-                    )}
-                  />
-                  {phoneOtpStep === 'verified' ? (
-                    <div className="flex items-center gap-1.5 px-3 text-green-600 text-sm font-medium shrink-0">
-                      <CheckCircle size={16} />
-                      Verified
-                    </div>
-                  ) : phoneValid && phoneOtpStep === 'idle' ? (
-                    <button
-                      type="button"
-                      onClick={sendPhoneOtp}
-                      className="shrink-0 px-4 py-3 bg-gray-800 text-white text-sm font-medium rounded-xl hover:bg-gray-700 transition-colors"
-                    >
-                      Send Code
-                    </button>
-                  ) : phoneOtpStep === 'sending' ? (
-                    <div className="shrink-0 flex items-center px-4 text-gray-400 text-sm">
-                      <Loader2 size={16} className="animate-spin" />
-                    </div>
-                  ) : null}
-                </div>
+                <input
+                  {...register('customerPhone')}
+                  type="tel"
+                  placeholder="+234 800 000 0000"
+                  className={cn(
+                    'w-full border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary transition-colors',
+                    errors.customerPhone ? 'border-red-300' : 'border-gray-200',
+                  )}
+                />
                 {errors.customerPhone && (
                   <p className="mt-1 text-xs text-red-600">{errors.customerPhone.message}</p>
-                )}
-
-                {/* Phone code input */}
-                {(phoneOtpStep === 'sent' || phoneOtpStep === 'verifying') && (
-                  <div className="mt-2 flex gap-2">
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={6}
-                      placeholder="6-digit SMS code"
-                      value={phoneOtp}
-                      onChange={(e) => setPhoneOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                      className="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-knef-primary"
-                    />
-                    <button
-                      type="button"
-                      onClick={verifyPhone}
-                      disabled={phoneOtp.length < 6 || phoneOtpStep === 'verifying'}
-                      className="shrink-0 px-4 py-2.5 bg-knef-primary text-white text-sm font-medium rounded-xl hover:bg-opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {phoneOtpStep === 'verifying' ? <Loader2 size={16} className="animate-spin" /> : 'Verify'}
-                    </button>
-                  </div>
-                )}
-                {phoneOtpError && <p className="mt-1 text-xs text-red-600">{phoneOtpError}</p>}
-                {phoneOtpStep === 'sent' && (
-                  <button
-                    type="button"
-                    onClick={sendPhoneOtp}
-                    className="mt-1 text-xs text-blue-600 hover:underline"
-                  >
-                    Resend code
-                  </button>
                 )}
               </div>
 

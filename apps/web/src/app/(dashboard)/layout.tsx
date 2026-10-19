@@ -16,7 +16,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const { isAuthenticated, user } = useAuthStore();
+  const { isAuthenticated, user, _hasHydrated } = useAuthStore();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -32,10 +32,11 @@ export default function DashboardLayout({
   });
 
   useEffect(() => {
+    if (!_hasHydrated) return;
     if (!isAuthenticated) {
       router.replace('/login');
     }
-  }, [isAuthenticated, router]);
+  }, [isAuthenticated, _hasHydrated, router]);
 
   // Global ⌘K / Ctrl+K opens the search palette
   useEffect(() => {
@@ -49,7 +50,7 @@ export default function DashboardLayout({
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  if (!isAuthenticated || !user) {
+  if (!_hasHydrated || !isAuthenticated || !user) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />

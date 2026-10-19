@@ -17,6 +17,10 @@ export function Footer() {
 
   const STORE_NAME = settings.storeName || DEFAULT_STORE_NAME;
   const logoSrc = settings.logoUrl || '/logo.png';
+  const description = settings.footerDescription || 'Your trusted destination for smartphones, gadgets, and consumer electronics in Lagos, Nigeria. Genuine products, competitive prices.';
+  const address = settings.footerAddress || 'Lagos, Nigeria';
+  const phone = settings.footerPhone || '+234 800 000 0000';
+  const email = settings.footerEmail || 'info@knef.ng';
 
   return (
     <footer className="bg-knef-primary text-white mt-16">
@@ -29,24 +33,23 @@ export function Footer() {
               <img src={logoSrc} alt={STORE_NAME} className="h-24 w-auto object-contain brightness-0 invert" />
             </div>
             <p className="text-blue-200 text-sm leading-relaxed max-w-sm">
-              Your trusted destination for smartphones, gadgets, and consumer
-              electronics in Lagos, Nigeria. Genuine products, competitive prices.
+              {description}
             </p>
             <div className="mt-4 space-y-2 text-sm text-blue-200">
               <div className="flex items-center gap-2">
                 <MapPin size={14} />
-                <span>Lagos, Nigeria</span>
+                <span>{address}</span>
               </div>
               <div className="flex items-center gap-2">
                 <Phone size={14} />
-                <a href="tel:+2348000000000" className="hover:text-white transition-colors">
-                  +234 800 000 0000
+                <a href={`tel:${phone.replace(/\s/g, '')}`} className="hover:text-white transition-colors">
+                  {phone}
                 </a>
               </div>
               <div className="flex items-center gap-2">
                 <Mail size={14} />
-                <a href="mailto:info@knef.ng" className="hover:text-white transition-colors">
-                  info@knef.ng
+                <a href={`mailto:${email}`} className="hover:text-white transition-colors">
+                  {email}
                 </a>
               </div>
             </div>
