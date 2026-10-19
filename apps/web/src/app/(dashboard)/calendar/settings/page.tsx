@@ -85,13 +85,28 @@ export default function CalendarSettingsPage() {
     queryFn: () => api().get('/calendar/connections').then((r) => (r.data as any)?.data ?? r.data),
   });
 
+  const [connectingProvider, setConnectingProvider] = useState<Provider | null>(null);
+
   const connectMutation = useMutation({
-    mutationFn: (provider: Provider) =>
-      api().post(`/calendar/connections/${provider}/authorize`).then((r) => r.data),
-    onSuccess: (data: { url: string }) => {
-      window.location.href = data.url;
+    mutationFn: (provider: Provider) => {
+      setConnectingProvider(provider);
+      return api().post(`/calendar/connections/${provider}/authorize`).then((r) => {
+        const payload = (r.data as any)?.data ?? r.data;
+        return payload as { url: string };
+      });
     },
-    onError: () => setErrorMessage('Failed to initiate connection. Check that OAuth credentials are configured.'),
+    onSuccess: (data: { url: string }) => {
+      if (data?.url) {
+        window.location.href = data.url;
+      } else {
+        setErrorMessage('Invalid response from server. Please try again.');
+        setConnectingProvider(null);
+      }
+    },
+    onError: () => {
+      setErrorMessage('Failed to initiate connection. Check that OAuth credentials are configured.');
+      setConnectingProvider(null);
+    },
   });
 
   const disconnectMutation = useMutation({
@@ -291,15 +306,16 @@ export default function CalendarSettingsPage() {
                 <p className="text-sm text-gray-500 mb-4">{p.description}</p>
                 <button
                   onClick={() => connectMutation.mutate(p.id)}
-                  disabled={connectMutation.isPending}
+                  disabled={connectingProvider === p.id}
                   className={cn(
                     'w-full flex items-center justify-center gap-2 px-4 py-2 text-sm rounded-lg font-medium',
                     isConnected
                       ? 'border border-gray-200 text-gray-600 hover:bg-white'
                       : 'bg-blue-600 text-white hover:bg-blue-700',
+                    connectingProvider === p.id && 'opacity-70 cursor-not-allowed',
                   )}
                 >
-                  {connectMutation.isPending ? (
+                  {connectingProvider === p.id ? (
                     <Loader2 size={14} className="animate-spin" />
                   ) : (
                     <ExternalLink size={14} />
