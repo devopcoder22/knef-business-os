@@ -7,9 +7,12 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Loader2 } from 'lucide-react';
+import { Turnstile } from '@marsidev/react-turnstile';
 import { customerRegister } from '@/lib/api';
 import { useCustomerStore } from '@/stores/customer.store';
 import { cn } from '@/lib/utils';
+
+const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
 
 const schema = z.object({
   firstName: z.string().min(1, 'First name is required').max(100),
@@ -28,6 +31,7 @@ export default function RegisterPage() {
   const router = useRouter();
   const setAuth = useCustomerStore((s) => s.setAuth);
   const [error, setError] = useState('');
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -42,6 +46,7 @@ export default function RegisterPage() {
         lastName: data.lastName,
         phone: data.phone || undefined,
         password: data.password,
+        turnstileToken: turnstileToken ?? undefined,
       });
       setAuth(result.customer, result.accessToken, result.refreshToken);
       router.push('/account');
@@ -97,9 +102,18 @@ export default function RegisterPage() {
             {field('password', 'Password', 'password', 'new-password')}
             {field('confirmPassword', 'Confirm password', 'password', 'new-password')}
 
+            {SITE_KEY && (
+              <Turnstile
+                siteKey={SITE_KEY}
+                onSuccess={setTurnstileToken}
+                onError={() => setTurnstileToken(null)}
+                onExpire={() => setTurnstileToken(null)}
+              />
+            )}
+
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || (!!SITE_KEY && !turnstileToken)}
               className="w-full bg-blue-600 text-white font-semibold py-2.5 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
             >
               {isSubmitting && <Loader2 size={16} className="animate-spin" />}

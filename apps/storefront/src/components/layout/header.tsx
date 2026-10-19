@@ -2,10 +2,11 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ShoppingCart, Search, Menu, X } from 'lucide-react';
+import { ShoppingCart, Search, Menu, X, User } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useCartStore } from '@/stores/cart.store';
+import { useCustomerStore } from '@/stores/customer.store';
 import { fetchStorefrontSettings } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -14,6 +15,7 @@ const DEFAULT_STORE_NAME = process.env.NEXT_PUBLIC_STORE_NAME ?? 'KNEF Gadgets';
 export function Header() {
   const router = useRouter();
   const totalItems = useCartStore((s) => s.totalItems());
+  const { customer, isAuthenticated } = useCustomerStore();
 
   const { data: settings = {} } = useQuery({
     queryKey: ['storefront-settings'],
@@ -85,6 +87,26 @@ export function Header() {
               <Search size={20} />
             </button>
 
+            {/* Account */}
+            {isAuthenticated && customer ? (
+              <Link
+                href="/account"
+                className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-gray-700 hover:text-knef-primary hover:bg-gray-50 transition-colors"
+                aria-label="My account"
+              >
+                <User size={16} />
+                <span>{customer.firstName}</span>
+              </Link>
+            ) : (
+              <Link
+                href="/login"
+                className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-gray-700 hover:text-knef-primary hover:bg-gray-50 transition-colors border border-gray-200"
+              >
+                <User size={15} />
+                Sign in
+              </Link>
+            )}
+
             {/* Cart */}
             <Link
               href="/cart"
@@ -147,6 +169,25 @@ export function Header() {
                 {link.label}
               </Link>
             ))}
+            {isAuthenticated && customer ? (
+              <Link
+                href="/account"
+                onClick={() => setMobileMenuOpen(false)}
+                className="px-3 py-2 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-knef-primary transition-colors flex items-center gap-2"
+              >
+                <User size={15} />
+                My Account ({customer.firstName})
+              </Link>
+            ) : (
+              <Link
+                href="/login"
+                onClick={() => setMobileMenuOpen(false)}
+                className="px-3 py-2 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-knef-primary transition-colors flex items-center gap-2"
+              >
+                <User size={15} />
+                Sign in
+              </Link>
+            )}
           </nav>
         </div>
       )}
