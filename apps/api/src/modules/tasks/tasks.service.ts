@@ -169,7 +169,7 @@ export class TasksService {
     }
 
     if (channels.includes('telegram')) {
-      const link = await this.prisma.telegramBotLink.findFirst({
+      const link = await this.prisma.telegramUserLink.findFirst({
         where: { userId: task.assigneeId, organizationId, isVerified: true },
         select: { telegramChatId: true },
       });
