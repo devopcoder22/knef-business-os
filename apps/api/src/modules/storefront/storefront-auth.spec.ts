@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { StorefrontAuthService } from './storefront-auth.service';
 import { PrismaService } from '../../common/services/prisma.service';
 import { RedisService } from '../../common/services/redis.service';
+import { EmailService } from '../communications/email.service';
 
 // ── Shared mocks ─────────────────────────────────────────────────────────────
 
@@ -72,6 +73,8 @@ const mockRedis = {
   del: jest.fn(),
 };
 
+const mockEmail = { sendEmail: jest.fn().mockResolvedValue(undefined) };
+
 // ── StorefrontAuthService ─────────────────────────────────────────────────────
 
 describe('StorefrontAuthService', () => {
@@ -87,6 +90,7 @@ describe('StorefrontAuthService', () => {
         { provide: JwtService, useValue: mockJwt },
         { provide: ConfigService, useValue: mockConfig },
         { provide: RedisService, useValue: mockRedis },
+        { provide: EmailService, useValue: mockEmail },
       ],
     }).compile();
 
