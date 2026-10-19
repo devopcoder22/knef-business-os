@@ -66,8 +66,13 @@ export class CreatePublicOrderDto {
   @MaxLength(20)
   deliveryPhone?: string;
 
-  @IsIn(['CASH', 'BANK_TRANSFER', 'OTHER'])
+  @IsIn(['CASH', 'BANK_TRANSFER', 'OTHER', 'PAYSTACK'])
   paymentMethod!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  paystackReference?: string;
 
   @IsOptional()
   @IsString()

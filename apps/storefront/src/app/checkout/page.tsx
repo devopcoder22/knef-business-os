@@ -23,6 +23,7 @@ import { toast } from '@/components/ui/toast';
 
 const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
 const MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
+const PAYSTACK_PUBLIC_KEY = process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY ?? '';
 
 const schema = z.object({
   customerName: z.string().min(2, 'Full name is required').max(100, 'Name is too long'),
@@ -36,16 +37,27 @@ const schema = z.object({
   deliveryCity: z.string().optional(),
   deliveryState: z.string().optional(),
   deliveryPhone: z.string().optional(),
-  paymentMethod: z.enum(['CASH', 'BANK_TRANSFER']),
+  paymentMethod: z.enum(['CASH', 'BANK_TRANSFER', 'PAYSTACK']),
   notes: z.string().max(500, 'Notes too long').optional(),
 });
 
 type FormData = z.infer<typeof schema>;
 type OtpStep = 'idle' | 'sending' | 'sent' | 'verifying' | 'verified';
 
-// Minimal Google Maps types (no @types/google.maps package needed)
 declare global {
   interface Window {
+    PaystackPop?: {
+      setup(options: {
+        key: string;
+        email: string;
+        amount: number;
+        currency: string;
+        ref: string;
+        metadata?: Record<string, unknown>;
+        onClose: () => void;
+        callback: (response: { reference: string }) => void;
+      }): { openIframe: () => void };
+    };
     google?: {
       maps?: {
         places?: {
@@ -157,17 +169,18 @@ export default function CheckoutPage() {
   }
 
   const placeMutation = useMutation({
-    mutationFn: (data: FormData) =>
+    mutationFn: (payload: FormData & { paystackReference?: string }) =>
       createOrder({
-        customerName: data.customerName,
-        customerPhone: data.customerPhone,
-        customerEmail: data.customerEmail,
-        deliveryAddress: data.deliveryAddress,
-        deliveryCity: data.deliveryCity,
-        deliveryState: data.deliveryState,
-        deliveryPhone: data.deliveryPhone,
-        paymentMethod: data.paymentMethod,
-        notes: data.notes || undefined,
+        customerName: payload.customerName,
+        customerPhone: payload.customerPhone,
+        customerEmail: payload.customerEmail,
+        deliveryAddress: payload.deliveryAddress,
+        deliveryCity: payload.deliveryCity,
+        deliveryState: payload.deliveryState,
+        deliveryPhone: payload.deliveryPhone,
+        paymentMethod: payload.paymentMethod,
+        paystackReference: payload.paystackReference,
+        notes: payload.notes || undefined,
         idempotencyKey: crypto.randomUUID(),
         turnstileToken: turnstileToken ?? undefined,
         items: items.map((i) => ({
@@ -193,6 +206,30 @@ export default function CheckoutPage() {
       return;
     }
     setFormSnapshot(data);
+
+    if (data.paymentMethod === 'PAYSTACK') {
+      if (!window.PaystackPop) {
+        setSubmitError('Paystack is still loading. Please wait a moment and try again.');
+        return;
+      }
+      const handler = window.PaystackPop.setup({
+        key: PAYSTACK_PUBLIC_KEY,
+        email: data.customerEmail,
+        amount: Math.round(totalAmount * 100), // kobo
+        currency: 'NGN',
+        ref: `KNEF-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
+        metadata: { customerName: data.customerName, customerPhone: data.customerPhone },
+        onClose: () => {
+          setSubmitError('Payment cancelled. Your order was not placed.');
+        },
+        callback: async (response) => {
+          await placeMutation.mutateAsync({ ...data, paystackReference: response.reference });
+        },
+      });
+      handler.openIframe();
+      return;
+    }
+
     await placeMutation.mutateAsync(data);
   }
 
@@ -360,6 +397,9 @@ export default function CheckoutPage() {
   // ── Checkout form ──────────────────────────────────────────────────────────
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {PAYSTACK_PUBLIC_KEY && (
+        <Script src="https://js.paystack.co/v1/inline.js" strategy="lazyOnload" />
+      )}
       {MAPS_KEY && (
         <Script
           src={`https://maps.googleapis.com/maps/api/js?key=${MAPS_KEY}&libraries=places`}
@@ -580,6 +620,7 @@ export default function CheckoutPage() {
                 {([
                   { value: 'CASH', label: 'Cash on Delivery', sub: 'Pay when you receive your order' },
                   { value: 'BANK_TRANSFER', label: 'Bank Transfer', sub: 'Transfer before dispatch' },
+                  ...(PAYSTACK_PUBLIC_KEY ? [{ value: 'PAYSTACK' as const, label: 'Pay with Card', sub: 'Debit/credit card via Paystack' }] : []),
                 ] as const).map(({ value, label, sub }) => (
                   <label
                     key={value}

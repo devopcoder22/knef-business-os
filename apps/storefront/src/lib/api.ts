@@ -82,7 +82,8 @@ export interface CheckoutPayload {
   deliveryState?: string;
   deliveryPhone?: string;
   deliveryMethod?: 'PICKUP' | 'DELIVERY';
-  paymentMethod: 'CASH' | 'BANK_TRANSFER';
+  paymentMethod: 'CASH' | 'BANK_TRANSFER' | 'PAYSTACK';
+  paystackReference?: string;
   notes?: string;
   items: Array<{ productId: string; variantId?: string; quantity: number }>;
   idempotencyKey?: string;

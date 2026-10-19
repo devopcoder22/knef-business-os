@@ -417,6 +417,33 @@ export class EcommerceService {
 
     const totalAmount = subtotal.add(deliveryFee);
 
+    // Verify Paystack payment before creating the order so we fail fast if invalid
+    if (dto.paymentMethod === 'PAYSTACK') {
+      if (!dto.paystackReference) {
+        throw new BadRequestException('Paystack payment reference is required');
+      }
+      const paystackKey = process.env.PAYSTACK_SECRET_KEY;
+      if (!paystackKey) {
+        throw new BadRequestException('Card payments are not configured on this store');
+      }
+      const verifyRes = await fetch(
+        `https://api.paystack.co/transaction/verify/${encodeURIComponent(dto.paystackReference)}`,
+        { headers: { Authorization: `Bearer ${paystackKey}` } },
+      );
+      const verifyJson = (await verifyRes.json()) as {
+        status: boolean;
+        data?: { status: string; amount: number; currency: string };
+      };
+      if (!verifyJson.status || verifyJson.data?.status !== 'success') {
+        throw new BadRequestException('Card payment verification failed. Please try again.');
+      }
+      const paidKobo = verifyJson.data.amount;
+      const expectedKobo = Math.round(totalAmount.toNumber() * 100);
+      if (paidKobo < expectedKobo) {
+        throw new BadRequestException('Payment amount does not match order total.');
+      }
+    }
+
     const reference = generateReference('WEB');
 
     // Use a system userId from org (we pick a user from the org to satisfy the FK)
@@ -453,7 +480,7 @@ export class EcommerceService {
       },
     });
 
-    // Create a PENDING payment record
+    const isPaystack = dto.paymentMethod === 'PAYSTACK';
     await this.prisma.payment.create({
       data: {
         id: createId(),
@@ -463,8 +490,10 @@ export class EcommerceService {
         customerId: customer.id,
         amount: totalAmount,
         currency: 'NGN',
-        method: dto.paymentMethod as 'CASH' | 'BANK_TRANSFER' | 'OTHER',
-        status: 'PENDING',
+        method: isPaystack ? 'PAYSTACK' : (dto.paymentMethod as 'CASH' | 'BANK_TRANSFER' | 'OTHER'),
+        status: isPaystack ? 'COMPLETED' : 'PENDING',
+        gatewayRef: dto.paystackReference ?? null,
+        receivedAt: isPaystack ? new Date() : null,
       },
     });
 

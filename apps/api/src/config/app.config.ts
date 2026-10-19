@@ -23,6 +23,7 @@ const AppConfigSchema = z.object({
   UNSUBSCRIBE_SECRET: z.string().min(32).optional(),
   STOREFRONT_ORG_ID: z.string().optional(),
   TERMII_API_KEY: z.string().optional(),
+  PAYSTACK_SECRET_KEY: z.string().optional(),
 });
 
 export type AppConfig = z.infer<typeof AppConfigSchema>;
