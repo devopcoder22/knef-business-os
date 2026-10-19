@@ -23,13 +23,13 @@ interface ReceiptDetail {
   method: string;
   issuedAt: string;
   notes: string | null;
-  invoiceId: string;
+  invoiceId: string | null;
   invoice: {
     id: string;
     reference: string;
     status: string;
     items: ReceiptItem[];
-  };
+  } | null;
   customer: {
     id: string;
     firstName: string;
@@ -159,7 +159,7 @@ export default function SalesReceiptDetailPage() {
               </tr>
             </thead>
             <tbody>
-              {receipt.invoice.items.map((item) => (
+              {receipt.invoice?.items.map((item) => (
                 <tr key={item.id} className="border-b border-gray-100">
                   <td className="py-3">
                     <p className="font-medium">{item.product.name}</p>
@@ -173,7 +173,11 @@ export default function SalesReceiptDetailPage() {
                     {Number(item.totalPrice).toLocaleString('en-NG', { style: 'currency', currency: receipt.currency })}
                   </td>
                 </tr>
-              ))}
+              )) ?? (
+                <tr>
+                  <td colSpan={4} className="py-6 text-center text-gray-400 text-xs">No invoice items linked to this receipt</td>
+                </tr>
+              )}
             </tbody>
             <tfoot>
               <tr className="border-t border-gray-200 font-semibold">
@@ -207,9 +211,13 @@ export default function SalesReceiptDetailPage() {
             <div className="space-y-1 text-sm">
               <div className="flex justify-between">
                 <span className="text-gray-500">Invoice</span>
-                <Link href={`/sales/invoices/${receipt.invoiceId}`} className="font-mono text-blue-600 hover:underline">
-                  {receipt.invoice.reference}
-                </Link>
+                {receipt.invoice && receipt.invoiceId ? (
+                  <Link href={`/sales/invoices/${receipt.invoiceId}`} className="font-mono text-blue-600 hover:underline">
+                    {receipt.invoice.reference}
+                  </Link>
+                ) : (
+                  <span className="text-gray-400">—</span>
+                )}
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Method</span>

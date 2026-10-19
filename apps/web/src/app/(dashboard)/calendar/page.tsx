@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ChevronLeft,
@@ -101,14 +101,14 @@ export default function CalendarPage() {
   }, [currentDate, viewMode]);
 
   const { data: eventsData, isLoading: eventsLoading } = useQuery({
-    queryKey: ['calendar-events', connectionId, timeMin, timeMax],
+    queryKey: ['calendar-events', timeMin, timeMax],
     queryFn: async () => {
-      if (!connectionId) return [];
-      const r = await api().get(`/calendar/events/sync/${connectionId}`, { params: { timeMin, timeMax } });
+      if (!activeConnection) return [];
+      const r = await api().get('/calendar/events', { params: { timeMin, timeMax, limit: 500 } });
       const payload = (r.data as any)?.data ?? r.data;
       return Array.isArray(payload) ? payload : (payload?.data ?? []);
     },
-    enabled: !!connectionId,
+    enabled: connections.length > 0,
   });
   const events: CalendarEvent[] = eventsData ?? [];
 
@@ -116,6 +116,14 @@ export default function CalendarPage() {
     mutationFn: (connId: string) => api().post(`/calendar/events/sync/${connId}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['calendar-events'] }),
   });
+
+  // Auto-sync on mount and when active connection changes (populates DB cache)
+  useEffect(() => {
+    if (activeConnection?.id && activeConnection.isActive) {
+      syncMutation.mutate(activeConnection.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeConnection?.id]);
 
   const createMutation = useMutation({
     mutationFn: (data: CreateEventForm & { connectionId: string }) =>
@@ -242,14 +250,18 @@ export default function CalendarPage() {
             >
               {connections.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {providerLabel(c.provider)} — {c.calendarName ?? c.calendarId ?? 'Primary'}
+                  {providerLabel(c.provider)} — {c.calendarId?.includes('@') ? c.calendarId : c.calendarName ?? c.calendarId ?? 'Primary'}
+                  {!c.isActive ? ' (inactive)' : ''}
                 </option>
               ))}
             </select>
           ) : connections.length === 1 && (
-            <span className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-gray-200 text-gray-600">
-              <span className={cn('w-2 h-2 rounded-full', providerColor(connections[0].provider))} />
-              {providerLabel(connections[0].provider)} — {connections[0].calendarName ?? connections[0].calendarId ?? 'Primary'}
+            <span className={cn('flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border text-gray-600',
+              connections[0].isActive ? 'border-gray-200' : 'border-red-200 bg-red-50 text-red-700'
+            )}>
+              <span className={cn('w-2 h-2 rounded-full', connections[0].isActive ? providerColor(connections[0].provider) : 'bg-red-400')} />
+              {providerLabel(connections[0].provider)} — {connections[0].calendarId?.includes('@') ? connections[0].calendarId : connections[0].calendarName ?? connections[0].calendarId ?? 'Primary'}
+              {!connections[0].isActive && ' · Inactive'}
             </span>
           )}
 
@@ -275,6 +287,16 @@ export default function CalendarPage() {
           </button>
         </div>
       </div>
+
+      {/* Inactive connection warning */}
+      {connections.length > 0 && !activeConnection && (
+        <div className="mx-6 mt-3 flex items-center justify-between bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
+          <span>Your calendar connection is inactive. Please reconnect to sync events.</span>
+          <a href="/calendar/settings" className="ml-4 px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-700">
+            Reconnect
+          </a>
+        </div>
+      )}
 
       {/* Calendar grid — month view */}
       {viewMode === 'month' && (

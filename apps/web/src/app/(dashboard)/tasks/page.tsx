@@ -172,7 +172,7 @@ function TaskPanel({ taskId, onClose }: { taskId: string; onClose: () => void })
               <p className="font-medium text-gray-900 mt-0.5">{task.status.replace('_', ' ')}</p>
             </div>
             <div>
-              <p className="text-gray-500">Assignee</p>
+              <p className="text-gray-500">Assigned To</p>
               <p className="font-medium text-gray-900 mt-0.5">
                 {task.assignee ? `${task.assignee.firstName} ${task.assignee.lastName}` : '—'}
               </p>
@@ -273,7 +273,7 @@ function TasksContent() {
   const queryClient = useQueryClient();
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [showCreateTask, setShowCreateTask] = useState(false);
-  const [myTasksOnly, setMyTasksOnly] = useState(true);
+  const [myTasksOnly, setMyTasksOnly] = useState(false);
   const [createForm, setCreateForm] = useState({
     title: '',
     description: '',
@@ -284,7 +284,7 @@ function TasksContent() {
   });
   const [notifyVia, setNotifyVia] = useState<string[]>([]);
 
-  const { data, isLoading } = useQuery<TasksResponse>({
+  const { data, isLoading, isError } = useQuery<TasksResponse>({
     queryKey: ['tasks', myTasksOnly],
     queryFn: async () => {
       const params = myTasksOnly ? '/tasks?limit=200&mine=true' : '/tasks?limit=200';
@@ -360,6 +360,12 @@ function TasksContent() {
           </button>
         </div>
       </div>
+
+      {isError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
+          Failed to load tasks. You may not have permission to view tasks — contact your administrator.
+        </div>
+      )}
 
       {/* Kanban Board */}
       <div className="flex gap-4 overflow-x-auto pb-4">
@@ -455,7 +461,7 @@ function TasksContent() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Assignee</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Assigned To</label>
                   <select
                     value={createForm.assigneeId}
                     onChange={e => setCreateForm(f => ({ ...f, assigneeId: e.target.value }))}
