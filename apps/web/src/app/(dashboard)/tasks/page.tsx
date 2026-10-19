@@ -111,7 +111,7 @@ function TaskPanel({ taskId, onClose }: { taskId: string; onClose: () => void })
     queryKey: ['task-detail', taskId],
     queryFn: async () => {
       const res = await api().get<TaskDetail>(`/tasks/${taskId}`);
-      return res.data as TaskDetail;
+      return ((res.data as any)?.data ?? res.data) as TaskDetail;
     },
   });
 
