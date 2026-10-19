@@ -39,9 +39,9 @@ export class TasksService {
     if (assigneeId) where.assigneeId = assigneeId;
     if (goalId) where.goalId = goalId;
     if (customerId) where.customerId = customerId;
-    if (createdBy) where.createdBy = createdBy;
+    if (createdBy) where.creatorId = createdBy;
     if (mine === 'true' && requestingUserId) {
-      where.OR = [{ createdBy: requestingUserId }, { assigneeId: requestingUserId }];
+      where.OR = [{ creatorId: requestingUserId }, { assigneeId: requestingUserId }];
     }
 
     const [data, total] = await Promise.all([
