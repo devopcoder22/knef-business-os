@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, Eye, Edit2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { RichTextEditor } from '@/components/ui/rich-text-editor';
 
 interface Template {
   id: string;
@@ -150,7 +151,10 @@ export default function TemplatesPage() {
           {previewResult.subject && (
             <p className="text-sm text-gray-500 mb-2"><strong>Subject:</strong> {previewResult.subject}</p>
           )}
-          <div className="bg-gray-50 rounded-lg p-3 text-sm whitespace-pre-wrap">{previewResult.body}</div>
+          <div
+            className="bg-gray-50 rounded-lg p-3 text-sm prose prose-sm max-w-none"
+            dangerouslySetInnerHTML={{ __html: previewResult.body }}
+          />
         </div>
       )}
 
@@ -252,12 +256,21 @@ export default function TemplatesPage() {
               )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Body</label>
-                <textarea
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm h-40 resize-none"
-                  value={form.body}
-                  onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
-                  placeholder="Use {{variableName}} for dynamic content"
-                />
+                {form.type === 'email' ? (
+                  <RichTextEditor
+                    value={form.body}
+                    onChange={(html) => setForm((f) => ({ ...f, body: html }))}
+                    placeholder="Use {{variableName}} for dynamic content"
+                    minHeight="min-h-[160px]"
+                  />
+                ) : (
+                  <textarea
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm h-40 resize-none"
+                    value={form.body}
+                    onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
+                    placeholder="Use {{variableName}} for dynamic content"
+                  />
+                )}
                 <p className="text-xs text-gray-400 mt-1">
                   Variables: use {'{{variableName}}'} syntax — e.g. {'{{customerName}}'}, {'{{orderTotal}}'}
                 </p>

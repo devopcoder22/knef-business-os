@@ -145,8 +145,8 @@ export default function AdminResetPage() {
 
   const resetMutation = useMutation({
     mutationFn: async (categories: ResetCategory[]) => {
-      const res = await api().post<ResetResult>('/admin/reset', { categories });
-      return res.data;
+      const res = await api().post('/admin/reset', { categories });
+      return ((res.data as any)?.data ?? res.data) as ResetResult;
     },
     onSuccess: (data) => {
       setResult(data);

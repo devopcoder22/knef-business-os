@@ -19,6 +19,7 @@ import {
   NotificationsController,
   TelegramController,
   WebhooksController,
+  SmsController,
 } from './communications.controller';
 
 @Module({
@@ -43,6 +44,7 @@ import {
     NotificationsController,
     TelegramController,
     WebhooksController,
+    SmsController,
   ],
   exports: [
     EmailService,

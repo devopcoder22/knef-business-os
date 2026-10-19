@@ -193,12 +193,23 @@ export class EmailService {
     }
   }
 
-  async sendSms(_organizationId: string, to: string, message: string): Promise<SendEmailResult> {
+  async sendSms(organizationId: string, to: string, message: string): Promise<SendEmailResult> {
     try {
-      const apiKey = process.env.TERMII_API_KEY;
+      // Prefer per-org DB setting, fall back to env var
+      const dbApiKey = await this.prisma.systemSetting.findFirst({
+        where: { organizationId, key: 'sms.apiKey' },
+        select: { value: true },
+      });
+      const dbSenderId = await this.prisma.systemSetting.findFirst({
+        where: { organizationId, key: 'sms.senderId' },
+        select: { value: true },
+      });
+      const apiKey = dbApiKey?.value || process.env.TERMII_API_KEY;
+      const senderId = dbSenderId?.value || 'N-Alert';
+
       if (!apiKey) {
         this.logger.warn('SMS: TERMII_API_KEY not set');
-        return { success: false, error: 'SMS not configured — set TERMII_API_KEY environment variable' };
+        return { success: false, error: 'SMS not configured — set TERMII_API_KEY or configure in SMS Providers settings' };
       }
 
       // Normalize phone to Termii format: 0XXXXXXXXXX → 2348XXXXXXXXX (no + prefix)
@@ -214,7 +225,7 @@ export class EmailService {
       const body = {
         api_key: apiKey,
         to: recipient,
-        from: 'N-Alert',
+        from: senderId,
         sms: message,
         type: 'plain',
         channel: 'generic',

@@ -409,9 +409,7 @@ export class InventoryService {
       totalInventoryValue += v.total * v.cost;
     });
 
-    const totalSKUs = await this.prisma.productVariant.count({
-      where: { product: { organizationId } },
-    });
+    const totalSKUs = await this.prisma.product.count({ where: { organizationId } });
 
     return {
       totalProducts,

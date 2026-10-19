@@ -12,12 +12,14 @@ import {
   ParseIntPipe,
   DefaultValuePipe,
   Headers,
+  BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { CommunicationsService } from './communications.service';
 import { NotificationsService } from './notifications.service';
 import { TelegramService } from './telegram.service';
 import { WebhooksService } from './webhooks.service';
+import { EmailService } from './email.service';
 import { EmailSubscriptionService } from './email-subscription.service';
 import { ProviderWebhooksService } from './provider-webhooks.service';
 import { TelegramLinkingService } from '../telegram-bot/telegram-linking.service';
@@ -609,5 +611,33 @@ export class WebhooksController {
       event: 'ping',
       payload: { event: 'ping', timestamp: new Date().toISOString(), endpointId: id },
     });
+  }
+}
+
+// ── SMS ──────────────────────────────────────────────────────────
+
+@ApiTags('communications-sms')
+@ApiBearerAuth('JWT')
+@Controller('communications/sms')
+export class SmsController {
+  constructor(private readonly emailService: EmailService) {}
+
+  @Post('test')
+  @Permissions(PERMISSIONS.COMMUNICATIONS.EMAIL_PROVIDERS)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Send a test SMS via Termii' })
+  async testSms(
+    @Body() dto: { phone: string },
+    @CurrentUser() _user: AuthUser,
+  ) {
+    const result = await this.emailService.sendSms(
+      _user.organizationId,
+      dto.phone,
+      'This is a test SMS from KNEF Business OS. Your SMS integration is working correctly.',
+    );
+    if (!result.success) {
+      throw new BadRequestException(result.error ?? 'Failed to send SMS');
+    }
+    return { message: 'Test SMS sent successfully', messageId: (result as any).messageId };
   }
 }

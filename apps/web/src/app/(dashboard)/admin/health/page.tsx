@@ -75,8 +75,8 @@ export default function HealthPage() {
   const { data: overview, isLoading: overviewLoading } = useQuery<OverviewData>({
     queryKey: ['admin-overview'],
     queryFn: async () => {
-      const res = await api().get<OverviewData>('/admin/overview');
-      return res.data;
+      const res = await api().get('/admin/overview');
+      return ((res.data as any)?.data ?? res.data) as OverviewData;
     },
   });
 

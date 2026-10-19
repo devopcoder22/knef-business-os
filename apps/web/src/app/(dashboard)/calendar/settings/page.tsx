@@ -82,7 +82,7 @@ export default function CalendarSettingsPage() {
 
   const { data: connections = [], isLoading } = useQuery<CalendarConnection[]>({
     queryKey: ['calendar-connections'],
-    queryFn: () => api().get('/calendar/connections').then((r) => r.data),
+    queryFn: () => api().get('/calendar/connections').then((r) => (r.data as any)?.data ?? r.data),
   });
 
   const connectMutation = useMutation({

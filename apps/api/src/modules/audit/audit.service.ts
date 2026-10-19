@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
 import { PrismaService } from '../../common/services/prisma.service';
+import { requestContextStore } from '../../common/services/request-context.service';
 
 export interface AuditLogEntry {
   organizationId: string;
@@ -32,10 +33,14 @@ export class AuditService {
   constructor(private readonly prisma: PrismaService) {}
 
   async log(entry: AuditLogEntry): Promise<void> {
+    const ctx = requestContextStore.getStore() ?? {};
     await this.prisma.auditLog
       .create({
         data: {
           id: createId(),
+          ipAddress: ctx.ipAddress,
+          userAgent: ctx.userAgent,
+          requestId: ctx.requestId,
           ...entry,
           oldValues: entry.oldValues as object | undefined,
           newValues: entry.newValues as object | undefined,
@@ -43,7 +48,6 @@ export class AuditService {
         },
       })
       .catch((err) => {
-        // Audit logs should never break the main flow
         console.error('Failed to write audit log:', err);
       });
   }

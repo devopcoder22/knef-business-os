@@ -4,6 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { LoggerMiddleware } from './common/middleware/logger.middleware';
+import { RequestContextMiddleware } from './common/middleware/request-context.middleware';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionGuard } from './common/guards/permission.guard';
 import appConfig, { validateConfig } from './config/app.config';
@@ -142,6 +143,6 @@ import { UploadsModule } from './modules/uploads/uploads.module';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(LoggerMiddleware).forRoutes('*');
+    consumer.apply(RequestContextMiddleware, LoggerMiddleware).forRoutes('*');
   }
 }

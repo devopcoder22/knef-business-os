@@ -63,4 +63,26 @@ export class SettingsController {
     }));
     return this.settingsService.upsertMany(user.organizationId, entries, user.id);
   }
+
+  @Get('sms')
+  @Permissions(PERMISSIONS.SETTINGS.VIEW)
+  @ApiOperation({ summary: 'Get SMS provider settings' })
+  getSmsSettings(@CurrentUser() user: AuthUser) {
+    return this.settingsService.findByGroup(user.organizationId, 'sms');
+  }
+
+  @Post('sms')
+  @Permissions(PERMISSIONS.SETTINGS.EDIT)
+  @ApiOperation({ summary: 'Save SMS provider settings (upsert)' })
+  saveSmsSettings(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { settings: Array<{ key: string; value: string; label: string }> },
+  ) {
+    const entries = body.settings.map((s) => ({
+      ...s,
+      group: 'sms',
+      isPublic: false,
+    }));
+    return this.settingsService.upsertMany(user.organizationId, entries, user.id);
+  }
 }

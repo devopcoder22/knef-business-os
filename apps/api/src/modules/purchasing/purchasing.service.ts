@@ -451,7 +451,22 @@ export class PurchasingService {
         throw new NotFoundException('Goods receipt not found');
       }
     }
-    return receipt;
+
+    const productIds = [...new Set(receipt.items.map((i: any) => i.productId))];
+    const products = await this.prisma.product.findMany({
+      where: { id: { in: productIds as string[] } },
+      select: { id: true, name: true, sku: true },
+    });
+    const productMap = new Map(products.map((p) => [p.id, p]));
+
+    return {
+      ...receipt,
+      items: receipt.items.map((item: any) => ({
+        ...item,
+        product: productMap.get(item.productId) ?? null,
+        totalCost: String(item.quantityReceived * Number(item.unitCost)),
+      })),
+    };
   }
 
   async createGoodsReceipt(
