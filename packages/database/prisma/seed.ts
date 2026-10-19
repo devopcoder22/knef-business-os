@@ -23,6 +23,8 @@ const ALL_PERMISSIONS = [
   'settings.view', 'settings.edit', 'settings.manage_integrations',
   'admin.manage_users', 'admin.manage_roles', 'admin.manage_feature_flags', 'admin.view_audit', 'admin.manage_locations', 'admin.manage_departments',
   'automation.view', 'automation.create', 'automation.edit', 'automation.delete', 'automation.activate', 'automation.execute', 'automation.history.view',
+  'communications.email_providers', 'communications.campaigns', 'communications.campaigns.approve', 'communications.campaigns.send',
+  'communications.templates', 'communications.telegram', 'communications.webhooks', 'communications.subscriptions',
 ];
 
 const ROLE_PERMISSIONS: Record<string, string[]> = {
