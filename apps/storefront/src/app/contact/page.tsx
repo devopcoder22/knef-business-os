@@ -5,7 +5,29 @@ export const metadata: Metadata = {
   description: 'Get in touch with KNEF Technology & IT Solutions',
 };
 
-export default function ContactPage() {
+const BACKEND = process.env.STOREFRONT_INTERNAL_URL ?? 'http://localhost:4000';
+
+async function getStorefrontSettings() {
+  try {
+    const res = await fetch(`${BACKEND}/api/storefront-settings`, {
+      next: { revalidate: 300 },
+    });
+    if (!res.ok) return {};
+    const json = await res.json();
+    const items: { key: string; value: string }[] = json.data ?? [];
+    return Object.fromEntries(items.map((i) => [i.key.replace('storefront.', ''), i.value]));
+  } catch {
+    return {};
+  }
+}
+
+export default async function ContactPage() {
+  const settings = await getStorefrontSettings();
+
+  const address = settings.footerAddress || 'Lagos, Nigeria';
+  const phone = settings.footerPhone || '+234 800 000 0000';
+  const email = settings.footerEmail || 'info@knefgadgets.com';
+
   return (
     <div className="max-w-3xl mx-auto px-4 py-12">
       <h1 className="text-3xl font-bold text-gray-900 mb-2">Contact Us</h1>
@@ -13,16 +35,16 @@ export default function ContactPage() {
 
       <div className="grid md:grid-cols-2 gap-6">
         <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="font-semibold text-gray-900 mb-4">KNEF Technology & IT Solutions</h2>
+          <h2 className="font-semibold text-gray-900 mb-4">KNEF Technology &amp; IT Solutions</h2>
           <div className="space-y-3 text-sm text-gray-600">
-            <p>Lagos, Nigeria</p>
+            <p>{address}</p>
             <p>
               <span className="font-medium">Phone:</span>{' '}
-              <a href="tel:+2348000000000" className="hover:text-blue-600">+234 800 000 0000</a>
+              <a href={`tel:${phone.replace(/\s/g, '')}`} className="hover:text-blue-600">{phone}</a>
             </p>
             <p>
               <span className="font-medium">Email:</span>{' '}
-              <a href="mailto:hello@knefgadgets.com" className="hover:text-blue-600">hello@knefgadgets.com</a>
+              <a href={`mailto:${email}`} className="hover:text-blue-600">{email}</a>
             </p>
           </div>
         </div>

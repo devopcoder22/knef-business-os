@@ -20,7 +20,7 @@ export function Footer() {
   const description = settings.footerDescription || 'Your trusted destination for smartphones, gadgets, and consumer electronics in Lagos, Nigeria. Genuine products, competitive prices.';
   const address = settings.footerAddress || 'Lagos, Nigeria';
   const phone = settings.footerPhone || '+234 800 000 0000';
-  const email = settings.footerEmail || 'info@knef.ng';
+  const email = settings.footerEmail || 'info@knefgadgets.com';
 
   return (
     <footer className="bg-knef-primary text-white mt-16">

@@ -63,8 +63,8 @@ export default function PrivacyPage() {
           <p>
             You have the right to access, correct, or request deletion of your personal data. To exercise
             these rights, contact us at{' '}
-            <a href="mailto:hello@knefgadgets.com" className="text-blue-600 hover:text-blue-700">
-              hello@knefgadgets.com
+            <a href="mailto:info@knefgadgets.com" className="text-blue-600 hover:text-blue-700">
+              info@knefgadgets.com
             </a>.
           </p>
         </section>
@@ -73,8 +73,8 @@ export default function PrivacyPage() {
           <h2 className="text-lg font-semibold text-gray-900 mb-3">7. Contact</h2>
           <p>
             KNEF Technology &amp; IT Solutions, Lagos, Nigeria.{' '}
-            <a href="mailto:hello@knefgadgets.com" className="text-blue-600 hover:text-blue-700">
-              hello@knefgadgets.com
+            <a href="mailto:info@knefgadgets.com" className="text-blue-600 hover:text-blue-700">
+              info@knefgadgets.com
             </a>
           </p>
         </section>

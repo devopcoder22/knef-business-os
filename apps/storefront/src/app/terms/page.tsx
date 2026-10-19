@@ -82,8 +82,8 @@ export default function TermsPage() {
           <h2 className="text-lg font-semibold text-gray-900 mb-3">8. Contact</h2>
           <p>
             Questions about these terms? Email us at{' '}
-            <a href="mailto:hello@knefgadgets.com" className="text-blue-600 hover:text-blue-700">
-              hello@knefgadgets.com
+            <a href="mailto:info@knefgadgets.com" className="text-blue-600 hover:text-blue-700">
+              info@knefgadgets.com
             </a>.
           </p>
         </section>
