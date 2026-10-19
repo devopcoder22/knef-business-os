@@ -55,6 +55,7 @@ import { BusinessRulesModule } from './modules/business-rules/business-rules.mod
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { StorefrontModule } from './modules/storefront/storefront.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
+import { BackupModule } from './modules/backup/backup.module';
 
 @Module({
   imports: [
@@ -131,6 +132,7 @@ import { UploadsModule } from './modules/uploads/uploads.module';
     DashboardModule,
     StorefrontModule,
     UploadsModule,
+    BackupModule,
   ],
   providers: [
     // Rate limiting — must run before auth so unauthenticated bots are throttled

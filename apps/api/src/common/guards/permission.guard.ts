@@ -6,14 +6,18 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
+import { AuditService } from '../../modules/audit/audit.service';
 import type { AuthUser } from '@knef/types';
 import { Request } from 'express';
 
 @Injectable()
 export class PermissionGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector) {}
+  constructor(
+    private readonly reflector: Reflector,
+    private readonly audit: AuditService,
+  ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const requiredPermissions = this.reflector.getAllAndOverride<string[]>(
       PERMISSIONS_KEY,
       [context.getHandler(), context.getClass()],
@@ -35,6 +39,19 @@ export class PermissionGuard implements CanActivate {
     );
 
     if (!hasAll) {
+      await this.audit.log({
+        organizationId: user.organizationId,
+        userId: user.id,
+        action: 'PERMISSION_DENIED',
+        entity: 'Permission',
+        metadata: {
+          requiredPermissions,
+          userPermissions: user.permissions,
+          path: request.url,
+          method: request.method,
+        },
+      }).catch(() => {});
+
       throw new ForbiddenException(
         `Insufficient permissions. Required: ${requiredPermissions.join(', ')}`,
       );

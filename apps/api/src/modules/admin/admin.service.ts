@@ -46,6 +46,10 @@ export class AdminService {
         action: {
           in: [
             'LOGIN_FAILED',
+            'LOGIN',
+            'LOGOUT',
+            'PERMISSION_DENIED',
+            'SUSPICIOUS_ACTIVITY',
             'API_KEY_REVOKED',
             'API_KEY_ROTATED',
             'AGENT_SUSPENDED',

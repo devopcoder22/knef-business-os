@@ -15,6 +15,7 @@ import * as qrcode from 'qrcode';
 import { createId } from '@paralleldrive/cuid2';
 import { PrismaService } from '../../common/services/prisma.service';
 import { RedisService } from '../../common/services/redis.service';
+import { AuditService } from '../audit/audit.service';
 import { hashToken, generateSecureToken } from '@knef/utils';
 import type { JwtPayload, AuthUser, LoginResponse, RefreshResponse } from '@knef/types';
 import { EVENTS } from '@knef/constants';
@@ -38,6 +39,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly audit: AuditService,
   ) {}
 
   // ─── Validate local strategy ────────────────────────────────────────────────
@@ -68,6 +70,15 @@ export class AuthService {
       const newAttempts = await this.redis.incr(lockoutKey);
       await this.redis.expire(lockoutKey, LOCKOUT_TTL_SECONDS);
       this.logger.warn(`Failed login attempt ${newAttempts} for ${email}`);
+
+      await this.audit.log({
+        organizationId: user.organizationId,
+        userId: user.id,
+        action: 'LOGIN_FAILED',
+        entity: 'User',
+        entityId: user.id,
+        metadata: { email: user.email, attemptCount: newAttempts },
+      }).catch(() => {});
 
       if (newAttempts >= LOCKOUT_MAX_ATTEMPTS) {
         this.eventEmitter.emit(EVENTS.USER.LOCKED, { userId: user.id, email });
@@ -199,6 +210,15 @@ export class AuthService {
 
     this.eventEmitter.emit(EVENTS.USER.LOGIN, { userId: user.id, email: user.email });
 
+    this.audit.log({
+      organizationId: user.organizationId,
+      userId: user.id,
+      action: 'LOGIN',
+      entity: 'User',
+      entityId: user.id,
+      metadata: { email: user.email },
+    }).catch(() => {});
+
     return {
       user,
       accessToken,
@@ -259,9 +279,24 @@ export class AuthService {
 
   async logout(rawToken: string): Promise<void> {
     const tokenHash = hashToken(rawToken);
+    const stored = await this.prisma.refreshToken
+      .findUnique({ where: { tokenHash }, include: { user: { select: { id: true, organizationId: true, email: true } } } })
+      .catch(() => null);
+
     await this.prisma.refreshToken
       .delete({ where: { tokenHash } })
       .catch(() => {}); // Ignore if already deleted
+
+    if (stored?.user) {
+      this.audit.log({
+        organizationId: stored.user.organizationId,
+        userId: stored.user.id,
+        action: 'LOGOUT',
+        entity: 'User',
+        entityId: stored.user.id,
+        metadata: { email: stored.user.email },
+      }).catch(() => {});
+    }
   }
 
   async logoutAll(userId: string): Promise<void> {

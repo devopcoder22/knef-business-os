@@ -79,4 +79,18 @@ export class StorefrontAuthController {
   postOrderRegister(@Body() dto: PostOrderRegisterDto) {
     return this.authService.postOrderRegister(getOrgId(), dto);
   }
+
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Request a password reset email' })
+  forgotPassword(@Body() body: { email: string }) {
+    return this.authService.forgotPassword(getOrgId(), body.email);
+  }
+
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Reset password using a token from email' })
+  resetPassword(@Body() body: { token: string; newPassword: string }) {
+    return this.authService.resetPassword(body.token, body.newPassword);
+  }
 }

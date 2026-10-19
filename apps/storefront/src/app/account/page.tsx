@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { User, Package, LogOut } from 'lucide-react';
@@ -10,10 +10,17 @@ import { customerLogout } from '@/lib/api';
 export default function AccountPage() {
   const router = useRouter();
   const { customer, accessToken, refreshToken, isAuthenticated, clearAuth } = useCustomerStore();
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    if (!isAuthenticated) router.replace('/login?from=/account');
-  }, [isAuthenticated, router]);
+    const unsub = useCustomerStore.persist.onFinishHydration(() => setHydrated(true));
+    if (useCustomerStore.persist.hasHydrated()) setHydrated(true);
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    if (hydrated && !isAuthenticated) router.replace('/login?from=/account');
+  }, [hydrated, isAuthenticated, router]);
 
   async function handleLogout() {
     if (accessToken && refreshToken) {
@@ -23,7 +30,7 @@ export default function AccountPage() {
     router.push('/');
   }
 
-  if (!customer) return null;
+  if (!hydrated || !customer) return null;
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-10">

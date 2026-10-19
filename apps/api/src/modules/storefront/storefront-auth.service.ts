@@ -12,6 +12,7 @@ import { createId } from '@paralleldrive/cuid2';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../common/services/prisma.service';
 import { RedisService } from '../../common/services/redis.service';
+import { EmailService } from '../communications/email.service';
 import type { CustomerRegisterDto } from './dto/customer-register.dto';
 import type { CustomerLoginDto } from './dto/customer-login.dto';
 
@@ -28,6 +29,7 @@ export class StorefrontAuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly redis: RedisService,
+    private readonly emailService: EmailService,
   ) {}
 
   async register(organizationId: string, dto: CustomerRegisterDto) {
@@ -248,6 +250,54 @@ export class StorefrontAuthService {
         lastName: account.lastName,
       },
     };
+  }
+
+  async forgotPassword(organizationId: string, email: string): Promise<void> {
+    const account = await this.prisma.customerAccount.findFirst({
+      where: { organizationId, email: email.toLowerCase().trim(), isActive: true },
+    });
+
+    // Return silently if account not found — don't reveal whether email exists
+    if (!account) return;
+
+    const token = randomBytes(32).toString('hex');
+    const key = `customer-pw-reset:${token}`;
+    await this.redis.set(key, account.id, 3600);
+
+    const baseUrl =
+      this.configService.get<string>('STOREFRONT_URL') ?? 'http://localhost:3001';
+
+    await this.emailService
+      .sendEmail({
+        organizationId,
+        to: account.email,
+        subject: 'Reset your password',
+        html: `<p>You requested a password reset for your account.</p><p><a href="${baseUrl}/reset-password?token=${token}">Reset password</a></p><p>This link expires in 1 hour. If you did not request this, you can safely ignore this email.</p>`,
+        text: `You requested a password reset. Visit ${baseUrl}/reset-password?token=${token} to reset your password. This link expires in 1 hour.`,
+      })
+      .catch(() => {});
+  }
+
+  async resetPassword(token: string, newPassword: string): Promise<void> {
+    const key = `customer-pw-reset:${token}`;
+    const accountId = await this.redis.get(key);
+
+    if (!accountId) {
+      throw new BadRequestException('Reset link is invalid or has expired');
+    }
+
+    const account = await this.prisma.customerAccount.findFirst({
+      where: { id: accountId, isActive: true },
+    });
+    if (!account) throw new NotFoundException('Account not found');
+
+    const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+    await this.prisma.customerAccount.update({
+      where: { id: account.id },
+      data: { passwordHash },
+    });
+
+    await this.redis.del(key);
   }
 
   async logout(accountId: string, rawRefreshToken: string) {

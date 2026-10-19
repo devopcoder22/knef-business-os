@@ -2631,3 +2631,18 @@ model Integration {
   @@unique([organizationId, type])
   @@index([organizationId])
 }
+
+model SystemBackup {
+  id           String    @id @default(cuid())
+  filename     String
+  sizeBytes    BigInt?
+  status       String    @default("COMPLETED")
+  startedAt    DateTime  @default(now())
+  completedAt  DateTime?
+  errorMessage String?
+  triggeredBy  String?
+  createdAt    DateTime  @default(now())
+
+  @@index([createdAt])
+  @@map("system_backups")
+}

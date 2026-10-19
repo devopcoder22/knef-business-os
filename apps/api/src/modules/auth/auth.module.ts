@@ -8,6 +8,7 @@ import { LocalStrategy } from './strategies/local.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { AuthEventsListener } from './auth-events.listener';
 import { TurnstileGuard } from '../../common/guards/turnstile.guard';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { TurnstileGuard } from '../../common/guards/turnstile.guard';
       }),
       inject: [ConfigService],
     }),
+    AuditModule,
   ],
   providers: [AuthService, LocalStrategy, JwtStrategy, AuthEventsListener, TurnstileGuard],
   controllers: [AuthController],
