@@ -73,9 +73,11 @@ export default function CalendarPage() {
     isAllDay: false,
   });
 
+  const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+
   const { data: connectionsData } = useQuery({
     queryKey: ['calendar-connections'],
-    queryFn: () => api().get('/calendar/connections').then((r) => r.data.data),
+    queryFn: () => api().get('/calendar/connections').then((r) => (r.data as any)?.data ?? r.data),
   });
   const connections: CalendarConnection[] = connectionsData ?? [];
   const activeConnection = connections.find((c) => c.isActive);
@@ -99,10 +101,14 @@ export default function CalendarPage() {
   }, [currentDate, viewMode]);
 
   const { data: eventsData, isLoading: eventsLoading } = useQuery({
-    queryKey: ['calendar-events', timeMin, timeMax],
-    queryFn: () =>
-      api().get('/calendar/events', { params: { timeMin, timeMax } }).then((r) => r.data.data),
-    enabled: true,
+    queryKey: ['calendar-events', connectionId, timeMin, timeMax],
+    queryFn: async () => {
+      if (!connectionId) return [];
+      const r = await api().get(`/calendar/events/sync/${connectionId}`, { params: { timeMin, timeMax } });
+      const payload = (r.data as any)?.data ?? r.data;
+      return Array.isArray(payload) ? payload : (payload?.data ?? []);
+    },
+    enabled: !!connectionId,
   });
   const events: CalendarEvent[] = eventsData ?? [];
 
@@ -277,17 +283,24 @@ export default function CalendarPage() {
             {calendarDays.map((day, i) => {
               const dayEvents = day ? getEventsForDay(day) : [];
               const isToday = day?.toDateString() === new Date().toDateString();
+              const isSelected = day && selectedDay?.toDateString() === day.toDateString();
               return (
                 <div
                   key={i}
-                  className={cn('bg-white min-h-[100px] p-1.5', !day && 'bg-gray-50')}
+                  onClick={() => day && setSelectedDay(isSelected ? null : day)}
+                  className={cn(
+                    'bg-white min-h-[100px] p-1.5 transition-colors',
+                    !day && 'bg-gray-50',
+                    day && 'cursor-pointer hover:bg-blue-50',
+                    isSelected && 'bg-blue-50 ring-2 ring-inset ring-blue-400',
+                  )}
                 >
                   {day && (
                     <>
                       <span
                         className={cn(
                           'text-sm font-medium inline-flex items-center justify-center w-7 h-7 rounded-full',
-                          isToday ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100',
+                          isToday ? 'bg-blue-600 text-white' : 'text-gray-700',
                         )}
                       >
                         {day.getDate()}
@@ -296,7 +309,7 @@ export default function CalendarPage() {
                         {dayEvents.slice(0, 3).map((e) => (
                           <button
                             key={e.id}
-                            onClick={() => setSelectedEvent(e)}
+                            onClick={(ev) => { ev.stopPropagation(); setSelectedEvent(e); }}
                             className={cn(
                               'w-full text-left text-xs px-1.5 py-0.5 rounded truncate text-white',
                               providerColor(e.provider),
@@ -379,6 +392,52 @@ export default function CalendarPage() {
                 </button>
               ))
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Day detail panel */}
+      {selectedDay && !selectedEvent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/40" onClick={() => setSelectedDay(null)} />
+          <div className="relative bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
+            <button onClick={() => setSelectedDay(null)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+              <X size={18} />
+            </button>
+            <h3 className="text-lg font-semibold text-gray-900 mb-1">
+              {selectedDay.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+            </h3>
+            {(() => {
+              const dayEvents = getEventsForDay(selectedDay);
+              return dayEvents.length === 0 ? (
+                <p className="text-sm text-gray-500 mt-4">No events scheduled for this day.</p>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {dayEvents.map((e) => (
+                    <button
+                      key={e.id}
+                      onClick={() => { setSelectedDay(null); setSelectedEvent(e); }}
+                      className="w-full text-left flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 border border-gray-100"
+                    >
+                      <div className={cn('w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0', providerColor(e.provider))} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{e.title}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {e.isAllDay ? 'All day' : `${new Date(e.startAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} – ${new Date(e.endAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`}
+                        </p>
+                        {e.location && <p className="text-xs text-gray-400 truncate mt-0.5">{e.location}</p>}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
+            <button
+              onClick={() => { setSelectedDay(null); setShowCreateForm(true); }}
+              className="mt-4 w-full flex items-center justify-center gap-2 px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              <Plus size={14} /> New Event on this day
+            </button>
           </div>
         </div>
       )}
