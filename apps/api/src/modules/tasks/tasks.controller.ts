@@ -9,6 +9,7 @@ import {
   Query,
   HttpCode,
   HttpStatus,
+  Header,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { TasksService } from './tasks.service';
@@ -30,6 +31,7 @@ export class TasksController {
 
   @Get()
   @Permissions(PERMISSIONS.TASKS.VIEW)
+  @Header('Cache-Control', 'no-store')
   @ApiOperation({ summary: 'List tasks (paginated)' })
   findAll(@CurrentUser() user: AuthUser, @Query() query: ListTasksDto) {
     return this.tasksService.findAll(user.organizationId, query, user.id);
