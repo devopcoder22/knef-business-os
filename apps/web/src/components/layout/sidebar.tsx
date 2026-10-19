@@ -127,6 +127,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Dashboard', href: '/finance', icon: BarChart3, permission: PERMISSIONS.FINANCE.VIEW },
       { label: 'Bank Accounts', href: '/finance/bank-accounts', icon: Banknote, permission: PERMISSIONS.FINANCE.BANK_ACCOUNTS },
       { label: 'Expenses', href: '/finance/expenses', icon: Receipt, permission: PERMISSIONS.FINANCE.EXPENSES.VIEW },
+      { label: 'Expense Categories', href: '/finance/expense-categories', icon: Tag, permission: PERMISSIONS.FINANCE.MANAGE },
       { label: 'Tax Rates', href: '/finance/tax-rates', icon: ListOrdered, permission: PERMISSIONS.FINANCE.MANAGE },
     ],
   },

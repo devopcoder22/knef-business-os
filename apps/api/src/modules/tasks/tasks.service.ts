@@ -2,11 +2,15 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ConfigService } from '@nestjs/config';
 import { Prisma, TaskStatus } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
+import { EmailService } from '../communications/email.service';
+import { TelegramBotService } from '../telegram-bot/telegram-bot.service';
 import type { CreateTaskDto } from './dto/create-task.dto';
 import type { UpdateTaskDto } from './dto/update-task.dto';
 import type { ListTasksDto } from './dto/list-tasks.dto';
@@ -15,9 +19,14 @@ import type { CreateChecklistDto, UpdateChecklistDto } from './dto/create-checkl
 
 @Injectable()
 export class TasksService {
+  private readonly logger = new Logger(TasksService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly emailService: EmailService,
+    private readonly telegramService: TelegramBotService,
+    private readonly config: ConfigService,
   ) {}
 
   async findAll(organizationId: string, query: ListTasksDto) {
@@ -117,7 +126,61 @@ export class TasksService {
       dueDate: task.dueDate?.toISOString() ?? null,
     });
 
+    if (task.assigneeId && dto.notifyVia?.length) {
+      this.sendTaskAssignmentNotifications(organizationId, task, dto.notifyVia).catch((err) =>
+        this.logger.warn('Task assignment notification failed', err),
+      );
+    }
+
     return task;
+  }
+
+  private async sendTaskAssignmentNotifications(
+    organizationId: string,
+    task: { id: string; title: string; description: string | null; priority: string; dueDate: Date | null; assigneeId: string | null },
+    channels: string[],
+  ): Promise<void> {
+    if (!task.assigneeId) return;
+
+    const assignee = await this.prisma.user.findUnique({
+      where: { id: task.assigneeId },
+      select: { id: true, firstName: true, lastName: true, email: true, phone: true },
+    });
+    if (!assignee) return;
+
+    const dueDateStr = task.dueDate
+      ? new Date(task.dueDate).toLocaleDateString('en-NG', { dateStyle: 'medium' })
+      : 'No due date';
+    const message = `You have been assigned a task: "${task.title}" (${task.priority} priority). Due: ${dueDateStr}.`;
+
+    if (channels.includes('email') && assignee.email) {
+      await this.emailService.sendEmail({
+        organizationId,
+        to: assignee.email,
+        subject: `New Task Assigned: ${task.title}`,
+        html: `<p>Hi ${assignee.firstName},</p><p>${message}</p>`,
+        text: message,
+      }).catch((err) => this.logger.warn('Task email notification failed', err));
+    }
+
+    if (channels.includes('sms') && assignee.phone) {
+      await this.emailService.sendSms(organizationId, assignee.phone, message)
+        .catch((err) => this.logger.warn('Task SMS notification failed', err));
+    }
+
+    if (channels.includes('telegram')) {
+      const link = await this.prisma.telegramBotLink.findFirst({
+        where: { userId: task.assigneeId, organizationId, isVerified: true },
+        select: { telegramChatId: true },
+      });
+      if (link?.telegramChatId) {
+        const botToken = this.config.get<string>('TELEGRAM_BOT_TOKEN') ?? '';
+        if (botToken) {
+          await this.telegramService.sendMessage(botToken, link.telegramChatId, message)
+            .catch((err) => this.logger.warn('Task Telegram notification failed', err));
+        }
+      }
+    }
   }
 
   async update(organizationId: string, id: string, dto: UpdateTaskDto) {

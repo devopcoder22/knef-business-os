@@ -2,7 +2,7 @@
 
 import { useState, Suspense } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, X, CheckSquare, MessageSquare, Calendar } from 'lucide-react';
+import { Plus, X, CheckSquare, MessageSquare, Calendar, Bell } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -111,7 +111,7 @@ function TaskPanel({ taskId, onClose }: { taskId: string; onClose: () => void })
     queryKey: ['task-detail', taskId],
     queryFn: async () => {
       const res = await api().get<TaskDetail>(`/tasks/${taskId}`);
-      return res.data;
+      return ((res.data as any)?.data ?? res.data) as TaskDetail;
     },
   });
 
@@ -267,6 +267,8 @@ function TaskPanel({ taskId, onClose }: { taskId: string; onClose: () => void })
   );
 }
 
+interface OrgUser { id: string; firstName: string; lastName: string; email: string; }
+
 function TasksContent() {
   const queryClient = useQueryClient();
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -277,27 +279,42 @@ function TasksContent() {
     priority: 'MEDIUM' as TaskPriority,
     status: 'TODO' as TaskStatus,
     dueDate: '',
+    assigneeId: '',
   });
+  const [notifyVia, setNotifyVia] = useState<string[]>([]);
 
   const { data, isLoading } = useQuery<TasksResponse>({
     queryKey: ['tasks'],
     queryFn: async () => {
       const res = await api().get<TasksResponse>('/tasks?limit=200');
-      return res.data;
+      return ((res.data as any)?.data ?? res.data) as TasksResponse;
     },
   });
+
+  const { data: usersData } = useQuery<OrgUser[]>({
+    queryKey: ['users-list'],
+    queryFn: async () => {
+      const res = await api().get('/users?limit=200');
+      const raw = (res.data as any)?.data ?? res.data;
+      return (Array.isArray(raw) ? raw : raw?.data ?? []) as OrgUser[];
+    },
+  });
+  const users = usersData ?? [];
 
   const createMutation = useMutation({
     mutationFn: async () => {
       await api().post('/tasks', {
         ...createForm,
         dueDate: createForm.dueDate || undefined,
+        assigneeId: createForm.assigneeId || undefined,
+        notifyVia: notifyVia.length ? notifyVia : undefined,
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       setShowCreateTask(false);
-      setCreateForm({ title: '', description: '', priority: 'MEDIUM', status: 'TODO', dueDate: '' });
+      setCreateForm({ title: '', description: '', priority: 'MEDIUM', status: 'TODO', dueDate: '', assigneeId: '' });
+      setNotifyVia([]);
     },
   });
 
@@ -409,15 +426,50 @@ function TasksContent() {
                   </select>
                 </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
-                <input
-                  type="date"
-                  value={createForm.dueDate}
-                  onChange={e => setCreateForm(f => ({ ...f, dueDate: e.target.value }))}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
+                  <input
+                    type="date"
+                    value={createForm.dueDate}
+                    onChange={e => setCreateForm(f => ({ ...f, dueDate: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Assignee</label>
+                  <select
+                    value={createForm.assigneeId}
+                    onChange={e => setCreateForm(f => ({ ...f, assigneeId: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Unassigned</option>
+                    {users.map(u => (
+                      <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
+              {createForm.assigneeId && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-1.5">
+                    <Bell size={13} /> Notify assignee via
+                  </label>
+                  <div className="flex flex-wrap gap-3">
+                    {(['email', 'sms', 'telegram'] as const).map(ch => (
+                      <label key={ch} className="flex items-center gap-1.5 text-sm text-gray-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={notifyVia.includes(ch)}
+                          onChange={e => setNotifyVia(v => e.target.checked ? [...v, ch] : v.filter(x => x !== ch))}
+                          className="rounded"
+                        />
+                        {ch.charAt(0).toUpperCase() + ch.slice(1)}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="flex gap-3">
               <button onClick={() => setShowCreateTask(false)} className="flex-1 px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-700">Cancel</button>

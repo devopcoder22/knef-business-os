@@ -66,4 +66,10 @@ export class CreateTaskDto {
   @IsOptional()
   @IsString()
   customerId?: string;
+
+  @ApiPropertyOptional({ type: [String], description: 'Notification channels: email, sms, telegram' })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  notifyVia?: string[];
 }

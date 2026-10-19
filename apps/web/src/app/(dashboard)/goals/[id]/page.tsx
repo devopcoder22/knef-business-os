@@ -80,7 +80,7 @@ function GoalDetailContent() {
     queryKey: ['goal', id],
     queryFn: async () => {
       const res = await api().get<Goal>(`/goals/${id}`);
-      return res.data;
+      return ((res.data as any)?.data ?? res.data) as Goal;
     },
   });
 
