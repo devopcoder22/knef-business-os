@@ -91,13 +91,27 @@ export function Footer() {
                   View Cart
                 </Link>
               </li>
+              <li>
+                <Link href="/contact" className="hover:text-white transition-colors">
+                  Contact Us
+                </Link>
+              </li>
+              <li>
+                <Link href="/returns" className="hover:text-white transition-colors">
+                  Returns Policy
+                </Link>
+              </li>
             </ul>
           </div>
         </div>
 
         <div className="mt-10 pt-6 border-t border-blue-800 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-blue-300">
           <p>&copy; {YEAR} {STORE_NAME}. All rights reserved.</p>
-          <p>Powered by KNEF Business OS</p>
+          <div className="flex items-center gap-4">
+            <Link href="/privacy" className="hover:text-white transition-colors">Privacy Policy</Link>
+            <span className="text-blue-700">·</span>
+            <Link href="/terms" className="hover:text-white transition-colors">Terms &amp; Conditions</Link>
+          </div>
         </div>
       </div>
     </footer>
