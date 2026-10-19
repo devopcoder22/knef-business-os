@@ -578,23 +578,37 @@ export default function CheckoutPage() {
 
               <div className="grid grid-cols-2 gap-3 mb-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
-                  <input
-                    {...register('deliveryCity')}
-                    type="text"
-                    placeholder="e.g. Lagos"
-                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary transition-colors"
-                  />
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Country</label>
+                  <div className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm bg-gray-50 text-gray-500 flex items-center gap-2">
+                    <span>🇳🇬</span> Nigeria
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">State</label>
-                  <input
+                  <select
                     {...register('deliveryState')}
-                    type="text"
-                    placeholder="e.g. Lagos State"
-                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary transition-colors"
-                  />
+                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary transition-colors bg-white"
+                  >
+                    <option value="">Select state…</option>
+                    {['Abia','Adamawa','Akwa Ibom','Anambra','Bauchi','Bayelsa','Benue','Borno',
+                      'Cross River','Delta','Ebonyi','Edo','Ekiti','Enugu','FCT (Abuja)','Gombe',
+                      'Imo','Jigawa','Kaduna','Kano','Katsina','Kebbi','Kogi','Kwara','Lagos',
+                      'Nasarawa','Niger','Ogun','Ondo','Osun','Oyo','Plateau','Rivers','Sokoto',
+                      'Taraba','Yobe','Zamfara'].map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
                 </div>
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">City / LGA</label>
+                <input
+                  {...register('deliveryCity')}
+                  type="text"
+                  placeholder="e.g. Ikeja"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary transition-colors"
+                />
               </div>
 
               <div>

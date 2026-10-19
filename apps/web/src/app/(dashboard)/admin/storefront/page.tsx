@@ -243,8 +243,8 @@ export default function StorefrontSettingsPage() {
       <div className="flex items-center gap-2 text-xs text-gray-400 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
         <ImageIcon size={14} />
         Changes are reflected on the storefront immediately after saving. Open{' '}
-        <a href="http://localhost:3001" target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">
-          localhost:3001
+        <a href="https://knefgadgets.com" target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">
+          knefgadgets.com
         </a>{' '}
         to preview.
       </div>
