@@ -441,6 +441,7 @@ export class AuthService {
         resetPasswordToken: null,
         resetPasswordExpires: null,
         passwordChangedAt: new Date(),
+        mustChangePassword: false,
       },
     });
 
