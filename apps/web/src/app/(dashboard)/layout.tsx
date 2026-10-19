@@ -16,7 +16,8 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const { isAuthenticated, user, _hasHydrated } = useAuthStore();
+  const { isAuthenticated, user } = useAuthStore();
+  const [hydrated, setHydrated] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -31,12 +32,23 @@ export default function DashboardLayout({
     enabled: !!user?.id,
   });
 
+  // Wait for Zustand to rehydrate from localStorage before checking auth.
+  // Without this, isAuthenticated is briefly false on every page refresh
+  // and the layout redirects to /login before localStorage is read.
   useEffect(() => {
-    if (!_hasHydrated) return;
+    if (useAuthStore.persist.hasHydrated()) {
+      setHydrated(true);
+    } else {
+      return useAuthStore.persist.onFinishHydration(() => setHydrated(true));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
     if (!isAuthenticated) {
       router.replace('/login');
     }
-  }, [isAuthenticated, _hasHydrated, router]);
+  }, [isAuthenticated, hydrated, router]);
 
   // Global ⌘K / Ctrl+K opens the search palette
   useEffect(() => {
@@ -50,7 +62,7 @@ export default function DashboardLayout({
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  if (!_hasHydrated || !isAuthenticated || !user) {
+  if (!hydrated || !isAuthenticated || !user) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
