@@ -75,6 +75,12 @@ const COMM_CHANNELS = [
     desc: 'Resend, SendGrid and other providers',
   },
   {
+    label: 'SMS',
+    icon: MessageSquare,
+    href: '/communications/sms-providers',
+    desc: 'Termii SMS gateway for OTP & campaigns',
+  },
+  {
     label: 'Telegram',
     icon: MessageSquare,
     href: '/communications/telegram',
@@ -194,7 +200,7 @@ export default function IntegrationsPage() {
       {/* Communication Channels */}
       <div className="bg-white rounded-xl border border-gray-200 p-5">
         <SectionHeader title="Communication" />
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {COMM_CHANNELS.map((ch) => (
             <Link
               key={ch.href}
