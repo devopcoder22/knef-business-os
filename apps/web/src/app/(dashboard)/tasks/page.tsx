@@ -111,7 +111,7 @@ function TaskPanel({ taskId, onClose }: { taskId: string; onClose: () => void })
     queryKey: ['task-detail', taskId],
     queryFn: async () => {
       const res = await api().get<TaskDetail>(`/tasks/${taskId}`);
-      return ((res.data as any)?.data ?? res.data) as TaskDetail;
+      return res.data as TaskDetail;
     },
   });
 
@@ -289,7 +289,7 @@ function TasksContent() {
     queryFn: async () => {
       const params = myTasksOnly ? '/tasks?limit=200&mine=true' : '/tasks?limit=200';
       const res = await api().get<TasksResponse>(params);
-      return ((res.data as any)?.data ?? res.data) as TasksResponse;
+      return res.data as TasksResponse;
     },
   });
 
