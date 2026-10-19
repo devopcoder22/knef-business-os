@@ -68,8 +68,8 @@ function EmployeeDetailContent() {
   const { data: employee, isLoading } = useQuery<Employee>({
     queryKey: ['employee', id],
     queryFn: async () => {
-      const res = await api().get<Employee>(`/employees/${id}`);
-      return res.data;
+      const res = await api().get(`/employees/${id}`);
+      return ((res.data as any)?.data ?? res.data) as Employee;
     },
   });
 
@@ -85,8 +85,8 @@ function EmployeeDetailContent() {
   const { data: duties = [] } = useQuery<Duty[]>({
     queryKey: ['employee-duties', id],
     queryFn: async () => {
-      const res = await api().get<Duty[]>(`/employees/${id}/duties`);
-      return res.data;
+      const res = await api().get(`/employees/${id}/duties`);
+      return ((res.data as any)?.data ?? res.data) as Duty[];
     },
     enabled: activeTab === 'duties',
   });
