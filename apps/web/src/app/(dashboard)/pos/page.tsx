@@ -539,7 +539,7 @@ export default function POSPage() {
       const res = await api().get(`/customers?search=${customerSearch}&limit=10`);
       return res.data;
     },
-    enabled: !!session && customerSearch.length >= 2,
+    enabled: !!session && customerSearch.length >= 1,
   });
   const customers = customersData?.data ?? [];
 
@@ -1035,7 +1035,7 @@ export default function POSPage() {
               <UserPlus size={14} />
             </button>
           </div>
-          {customers.length > 0 && !selectedCustomerId && customerSearch.length >= 2 && (
+          {customers.length > 0 && !selectedCustomerId && customerSearch.length >= 1 && (
             <div className="mt-1 border border-gray-200 rounded-lg overflow-hidden shadow-sm">
               {customers.map((c) => (
                 <button

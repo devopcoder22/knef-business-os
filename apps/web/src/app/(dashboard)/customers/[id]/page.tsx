@@ -133,50 +133,73 @@ export default function CustomerDetailPage() {
 
   const { data: metrics } = useQuery<Metrics>({
     queryKey: ['customer-metrics', id],
-    queryFn: async () => (await api().get<Metrics>(`/customers/${id}/metrics`)).data,
+    queryFn: async () => {
+      const res = await api().get(`/customers/${id}/metrics`);
+      return ((res.data as any)?.data ?? res.data) as Metrics;
+    },
     enabled: activeTab === 'Overview',
   });
 
   const { data: timeline, isLoading: timelineLoading } = useQuery<{ data: TimelineEvent[] }>({
     queryKey: ['customer-timeline', id],
-    queryFn: async () => (await api().get<{ data: TimelineEvent[] }>(`/customers/${id}/timeline`)).data,
+    queryFn: async () => {
+      const res = await api().get(`/customers/${id}/timeline`);
+      return ((res.data as any)?.data ?? res.data) as { data: TimelineEvent[] };
+    },
     enabled: activeTab === 'Timeline',
   });
 
   const { data: orders, isLoading: ordersLoading } = useQuery<{ data?: unknown[]; length?: number } | unknown[]>({
     queryKey: ['customer-orders', id],
-    queryFn: async () => (await api().get(`/customers/${id}/sales-history`)).data,
+    queryFn: async () => {
+      const res = await api().get(`/customers/${id}/sales-history`);
+      return (res.data as any)?.data ?? res.data;
+    },
     enabled: activeTab === 'Orders',
   });
 
   const { data: invoices } = useQuery<{ data: unknown[] }>({
     queryKey: ['customer-invoices', id],
-    queryFn: async () => (await api().get(`/customers/${id}/invoices`)).data,
+    queryFn: async () => {
+      const res = await api().get(`/customers/${id}/invoices`);
+      return ((res.data as any)?.data ?? res.data) as { data: unknown[] };
+    },
     enabled: activeTab === 'Invoices',
   });
 
   const { data: receipts } = useQuery<{ data: unknown[] }>({
     queryKey: ['customer-receipts', id],
-    queryFn: async () => (await api().get(`/customers/${id}/receipts`)).data,
+    queryFn: async () => {
+      const res = await api().get(`/customers/${id}/receipts`);
+      return ((res.data as any)?.data ?? res.data) as { data: unknown[] };
+    },
     enabled: activeTab === 'Receipts',
   });
 
   const { data: notes, isLoading: notesLoading } = useQuery<{ data: Note[] }>({
     queryKey: ['customer-notes', id],
-    queryFn: async () => (await api().get(`/customers/${id}/notes`)).data,
+    queryFn: async () => {
+      const res = await api().get(`/customers/${id}/notes`);
+      return ((res.data as any)?.data ?? res.data) as { data: Note[] };
+    },
     enabled: activeTab === 'Notes',
   });
 
   const { data: tasks } = useQuery<{ data: unknown[] }>({
     queryKey: ['customer-tasks', id],
-    queryFn: async () => (await api().get(`/tasks?customerId=${id}&limit=50`)).data,
+    queryFn: async () => {
+      const res = await api().get(`/tasks?customerId=${id}&limit=50`);
+      return ((res.data as any)?.data ?? res.data) as { data: unknown[] };
+    },
     enabled: activeTab === 'Follow-ups',
   });
 
   const { data: statement, isLoading: stmtLoading } = useQuery({
     queryKey: ['customer-statement', id, stmtStart, stmtEnd],
-    queryFn: async () =>
-      (await api().get(`/customers/${id}/statement?startDate=${stmtStart}&endDate=${stmtEnd}`)).data,
+    queryFn: async () => {
+      const res = await api().get(`/customers/${id}/statement?startDate=${stmtStart}&endDate=${stmtEnd}`);
+      return (res.data as any)?.data ?? res.data;
+    },
     enabled: activeTab === 'Statement',
   });
 
@@ -281,7 +304,7 @@ export default function CustomerDetailPage() {
             Follow-up
           </Link>
           <Link
-            href={`/sales/new?customerId=${customer.id}`}
+            href={`/sales/orders/new?customerId=${customer.id}`}
             className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
           >
             <ShoppingCart size={14} />
