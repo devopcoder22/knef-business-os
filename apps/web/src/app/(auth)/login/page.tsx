@@ -55,7 +55,7 @@ export default function LoginPage() {
       );
       const { user, accessToken } = res.data.data;
       setAuth(user as AuthUser, accessToken);
-      router.push('/dashboard');
+      router.push(user.mustChangePassword ? '/change-password' : '/dashboard');
     } catch (err: unknown) {
       const error = err as { response?: { data?: { error?: { message?: string } } } };
       setServerError(

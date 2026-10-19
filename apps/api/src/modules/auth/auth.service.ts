@@ -121,15 +121,18 @@ export class AuthService {
     firstName: string,
     lastName: string,
   ): Promise<AuthUser> {
-    // Get roles
-    const userRoles = await this.prisma.userRole.findMany({
-      where: { userId },
-      include: {
-        role: {
-          include: { permissions: true },
-        },
-      },
-    });
+    // Get roles and mustChangePassword flag in parallel
+    const [userRoles, userRecord, overrides] = await Promise.all([
+      this.prisma.userRole.findMany({
+        where: { userId },
+        include: { role: { include: { permissions: true } } },
+      }),
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { mustChangePassword: true },
+      }),
+      this.prisma.userPermissionOverride.findMany({ where: { userId } }),
+    ]);
 
     const roles = [...new Set(userRoles.map((ur) => ur.role.name))];
     const locationIds = userRoles
@@ -143,11 +146,6 @@ export class AuthService {
         rolePerms.add(rp.permission);
       }
     }
-
-    // Get user permission overrides
-    const overrides = await this.prisma.userPermissionOverride.findMany({
-      where: { userId },
-    });
 
     // Apply overrides: granted = add, denied = remove
     const finalPerms = new Set(rolePerms);
@@ -168,6 +166,7 @@ export class AuthService {
       roles,
       permissions: Array.from(finalPerms),
       locationIds: locationIds.length > 0 ? locationIds : null,
+      mustChangePassword: userRecord?.mustChangePassword ?? false,
     };
   }
 
@@ -429,7 +428,7 @@ export class AuthService {
 
     await this.prisma.user.update({
       where: { id: userId },
-      data: { passwordHash, passwordChangedAt: new Date() },
+      data: { passwordHash, passwordChangedAt: new Date(), mustChangePassword: false },
     });
 
     await this.logoutAll(userId);

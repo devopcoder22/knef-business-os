@@ -117,6 +117,15 @@ export class UsersController {
     return this.usersService.removeRole(user.organizationId, userId, userRoleId);
   }
 
+  @Post(':id/set-temp-password')
+  @Permissions(PERMISSIONS.ADMIN.MANAGE_USERS)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Generate and email a temporary password to user (admin)' })
+  setTempPassword(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const appUrl = this.config.get<string>('APP_URL', 'http://localhost:3000');
+    return this.usersService.adminSetTempPassword(user.organizationId, id, appUrl, user);
+  }
+
   @Post(':id/send-password-reset')
   @Permissions(PERMISSIONS.ADMIN.MANAGE_USERS)
   @HttpCode(HttpStatus.OK)

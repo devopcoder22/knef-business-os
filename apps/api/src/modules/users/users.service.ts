@@ -345,6 +345,59 @@ export class UsersService {
     return { message: 'Role removed successfully' };
   }
 
+  async adminSetTempPassword(organizationId: string, userId: string, appUrl: string, requestingUser: AuthUser) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, organizationId },
+      select: { id: true, email: true, firstName: true, isActive: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const tempPassword = `Knef@${Math.random().toString(36).slice(-8)}`;
+    const passwordHash = await bcrypt.hash(tempPassword, TEMP_PASSWORD_HASH_ROUNDS);
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: userId },
+        data: { passwordHash, mustChangePassword: true, passwordChangedAt: new Date() },
+      }),
+      this.prisma.refreshToken.deleteMany({ where: { userId } }),
+    ]);
+
+    await this.redis.del(`perms:${userId}`);
+
+    const firstName = user.firstName ?? 'there';
+    const loginUrl = `${appUrl}/login`;
+    const html = `
+      <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
+        <h2 style="color:#1e40af">Temporary Password — KNEF Business OS</h2>
+        <p>Hi ${firstName},</p>
+        <p>An administrator has reset your password. Use the temporary password below to sign in:</p>
+        <p style="background:#f3f4f6;padding:14px 20px;border-radius:8px;font-size:20px;font-family:monospace;letter-spacing:2px;text-align:center">${tempPassword}</p>
+        <p style="color:#dc2626;font-size:13px;margin-top:4px">You will be required to set a new password immediately after logging in.</p>
+        <p style="margin-top:20px"><a href="${loginUrl}" style="background:#2563eb;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:600">Go to Login</a></p>
+        <p style="color:#9ca3af;font-size:12px;margin-top:24px">If you did not expect this, contact your administrator immediately.</p>
+      </div>`;
+
+    await this.emailService.sendEmail({
+      organizationId,
+      to: user.email,
+      subject: 'Your temporary password — KNEF Business OS',
+      html,
+      text: `Your temporary password is: ${tempPassword}\n\nYou must change it when you log in at ${loginUrl}`,
+    });
+
+    await this.auditService.log({
+      organizationId,
+      userId: requestingUser.id,
+      action: 'USER_TEMP_PASSWORD_SET',
+      entity: 'User',
+      entityId: userId,
+      newValues: { mustChangePassword: true },
+    });
+
+    return { message: 'Temporary password sent to user email' };
+  }
+
   async sendPasswordReset(organizationId: string, userId: string, appUrl: string, requestingUser: AuthUser) {
     const user = await this.prisma.user.findFirst({
       where: { id: userId, organizationId },

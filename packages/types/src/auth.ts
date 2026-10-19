@@ -15,6 +15,7 @@ export interface AuthUser {
   roles: string[];
   permissions: string[];
   locationIds: string[] | null; // null = all locations
+  mustChangePassword?: boolean;
 }
 
 export interface LoginResponse {

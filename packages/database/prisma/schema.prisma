@@ -111,6 +111,7 @@ model User {
   failedLoginAttempts  Int       @default(0)
   lastLoginAt          DateTime?
   lastLoginIp          String?
+  mustChangePassword   Boolean   @default(false)
   passwordChangedAt    DateTime?
   resetPasswordToken   String?
   resetPasswordExpires DateTime?

@@ -404,6 +404,15 @@ export default function UserDetailPage() {
     },
   });
 
+  const setTempPasswordMutation = useMutation({
+    mutationFn: async () => {
+      const res = await api().post(`/users/${id}/set-temp-password`);
+      return (res.data as any)?.data ?? res.data;
+    },
+    onSuccess: () => { setResetMsg('Temporary password generated and sent to user\'s email.'); setTimeout(() => setResetMsg(null), 6000); },
+    onError: () => { setResetMsg('Failed to send temporary password. Please try again.'); setTimeout(() => setResetMsg(null), 5000); },
+  });
+
   const sendPasswordResetMutation = useMutation({
     mutationFn: async () => { await api().post(`/users/${id}/send-password-reset`); },
     onSuccess: () => { setResetMsg('Password reset email sent successfully.'); setTimeout(() => setResetMsg(null), 4000); },
@@ -742,6 +751,17 @@ export default function UserDetailPage() {
                       Activate
                     </button>
                   )}
+                  <button
+                    onClick={() => {
+                      if (confirm('Generate a temporary password and send it to this user\'s email? They will be required to change it on next login.')) {
+                        setTempPasswordMutation.mutate();
+                      }
+                    }}
+                    disabled={setTempPasswordMutation.isPending}
+                    className="text-sm text-orange-600 hover:text-orange-700 font-medium px-3 py-1.5 rounded-lg border border-orange-200 hover:bg-orange-50 whitespace-nowrap"
+                  >
+                    {setTempPasswordMutation.isPending ? 'Sending…' : 'Set Temp Password'}
+                  </button>
                   <button
                     onClick={() => sendPasswordResetMutation.mutate()}
                     disabled={sendPasswordResetMutation.isPending}
