@@ -34,6 +34,7 @@ const schema = z.object({
     .regex(/^\+?[\d\s\-()]+$/, 'Invalid phone number'),
   customerEmail: z.string().email('Valid email required'),
   deliveryAddress: z.string().min(5, 'Delivery address is required'),
+  deliveryCountry: z.string().optional(),
   deliveryCity: z.string().optional(),
   deliveryState: z.string().optional(),
   deliveryPhone: z.string().optional(),
@@ -111,10 +112,11 @@ export default function CheckoutPage() {
     formState: { errors },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: { paymentMethod: 'CASH' },
+    defaultValues: { paymentMethod: 'CASH', deliveryCountry: 'Nigeria' },
   });
 
   const watchEmail = useWatch({ control, name: 'customerEmail' });
+  const watchCountry = useWatch({ control, name: 'deliveryCountry' });
 
   const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(watchEmail ?? '');
 
@@ -176,7 +178,7 @@ export default function CheckoutPage() {
         customerEmail: payload.customerEmail,
         deliveryAddress: payload.deliveryAddress,
         deliveryCity: payload.deliveryCity,
-        deliveryState: payload.deliveryState,
+        deliveryState: payload.deliveryState ? `${payload.deliveryState}${payload.deliveryCountry && payload.deliveryCountry !== 'Nigeria' ? `, ${payload.deliveryCountry}` : ''}` : payload.deliveryCountry,
         deliveryPhone: payload.deliveryPhone,
         paymentMethod: payload.paymentMethod,
         paystackReference: payload.paystackReference,
@@ -579,25 +581,76 @@ export default function CheckoutPage() {
               <div className="grid grid-cols-2 gap-3 mb-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Country</label>
-                  <div className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm bg-gray-50 text-gray-500 flex items-center gap-2">
-                    <span>🇳🇬</span> Nigeria
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">State</label>
                   <select
-                    {...register('deliveryState')}
+                    {...register('deliveryCountry')}
+                    defaultValue="Nigeria"
                     className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary transition-colors bg-white"
                   >
-                    <option value="">Select state…</option>
-                    {['Abia','Adamawa','Akwa Ibom','Anambra','Bauchi','Bayelsa','Benue','Borno',
-                      'Cross River','Delta','Ebonyi','Edo','Ekiti','Enugu','FCT (Abuja)','Gombe',
-                      'Imo','Jigawa','Kaduna','Kano','Katsina','Kebbi','Kogi','Kwara','Lagos',
-                      'Nasarawa','Niger','Ogun','Ondo','Osun','Oyo','Plateau','Rivers','Sokoto',
-                      'Taraba','Yobe','Zamfara'].map((s) => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
+                    <option value="">Select country…</option>
+                    <optgroup label="West Africa">
+                      {['Nigeria','Ghana','Senegal','Côte d\'Ivoire','Mali','Burkina Faso',
+                        'Niger','Guinea','Benin','Sierra Leone','Togo','Liberia',
+                        'Guinea-Bissau','Gambia','Mauritania','Cape Verde'].map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="All Countries">
+                      {['Afghanistan','Albania','Algeria','Andorra','Angola','Antigua and Barbuda',
+                        'Argentina','Armenia','Australia','Austria','Azerbaijan','Bahamas','Bahrain',
+                        'Bangladesh','Barbados','Belarus','Belgium','Belize','Bolivia','Bosnia and Herzegovina',
+                        'Botswana','Brazil','Brunei','Bulgaria','Burundi','Cambodia','Cameroon','Canada',
+                        'Central African Republic','Chad','Chile','China','Colombia','Comoros','Congo',
+                        'Costa Rica','Croatia','Cuba','Cyprus','Czech Republic','Denmark','Djibouti',
+                        'Dominica','Dominican Republic','DR Congo','Ecuador','Egypt','El Salvador',
+                        'Equatorial Guinea','Eritrea','Estonia','Eswatini','Ethiopia','Fiji','Finland',
+                        'France','Gabon','Georgia','Germany','Greece','Grenada','Guatemala','Guyana',
+                        'Haiti','Honduras','Hungary','Iceland','India','Indonesia','Iran','Iraq',
+                        'Ireland','Israel','Italy','Jamaica','Japan','Jordan','Kazakhstan','Kenya',
+                        'Kiribati','Kuwait','Kyrgyzstan','Laos','Latvia','Lebanon','Lesotho','Libya',
+                        'Liechtenstein','Lithuania','Luxembourg','Madagascar','Malawi','Malaysia',
+                        'Maldives','Malta','Marshall Islands','Mexico','Micronesia','Moldova','Monaco',
+                        'Mongolia','Montenegro','Morocco','Mozambique','Myanmar','Namibia','Nauru',
+                        'Nepal','Netherlands','New Zealand','Nicaragua','North Korea','North Macedonia',
+                        'Norway','Oman','Pakistan','Palau','Palestine','Panama','Papua New Guinea',
+                        'Paraguay','Peru','Philippines','Poland','Portugal','Qatar','Romania','Russia',
+                        'Rwanda','Saint Kitts and Nevis','Saint Lucia','Saint Vincent and the Grenadines',
+                        'Samoa','San Marino','Saudi Arabia','Serbia','Seychelles','Slovakia','Slovenia',
+                        'Solomon Islands','Somalia','South Africa','South Korea','South Sudan','Spain',
+                        'Sri Lanka','Sudan','Suriname','Sweden','Switzerland','Syria','Taiwan',
+                        'Tajikistan','Tanzania','Thailand','Timor-Leste','Trinidad and Tobago',
+                        'Tunisia','Turkey','Turkmenistan','Tuvalu','Uganda','Ukraine',
+                        'United Arab Emirates','United Kingdom','United States','Uruguay','Uzbekistan',
+                        'Vanuatu','Vatican City','Venezuela','Vietnam','Yemen','Zambia','Zimbabwe',
+                      ].map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </optgroup>
                   </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">State / Region</label>
+                  {watchCountry === 'Nigeria' ? (
+                    <select
+                      {...register('deliveryState')}
+                      className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary transition-colors bg-white"
+                    >
+                      <option value="">Select state…</option>
+                      {['Abia','Adamawa','Akwa Ibom','Anambra','Bauchi','Bayelsa','Benue','Borno',
+                        'Cross River','Delta','Ebonyi','Edo','Ekiti','Enugu','FCT (Abuja)','Gombe',
+                        'Imo','Jigawa','Kaduna','Kano','Katsina','Kebbi','Kogi','Kwara','Lagos',
+                        'Nasarawa','Niger','Ogun','Ondo','Osun','Oyo','Plateau','Rivers','Sokoto',
+                        'Taraba','Yobe','Zamfara'].map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      {...register('deliveryState')}
+                      type="text"
+                      placeholder="State / Region / Province"
+                      className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary transition-colors"
+                    />
+                  )}
                 </div>
               </div>
 
