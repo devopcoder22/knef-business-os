@@ -3,9 +3,27 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { ArrowLeft, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Sparkles, ChevronDown, RotateCcw, Check, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+
+// ── AI action types ──────────────────────────────────────────────────────────
+type AIAction = 'generate' | 'rewrite' | 'shorten' | 'expand' | 'tone' | 'cta' | 'hashtags' | 'variant';
+
+interface AIResult {
+  body?: string | null;
+  callToAction?: string | null;
+  suggestedBody?: string | null;
+  suggestedCallToAction?: string | null;
+  originalBody?: string | null;
+  options?: string[];
+  hashtags?: string[];
+  platform?: string;
+  model?: string;
+}
+
+const TONES = ['professional', 'casual', 'friendly', 'urgent', 'playful', 'formal', 'empathetic'];
+const AI_PLATFORMS = ['INSTAGRAM', 'FACEBOOK', 'TIKTOK', 'SNAPCHAT', 'WHATSAPP', 'SMS', 'EMAIL', 'WEB_PUSH', 'STOREFRONT', 'TELEGRAM'];
 
 interface Draft {
   id: string;
@@ -48,6 +66,16 @@ export default function ContentDraftDetailPage() {
   const [variantBody, setVariantBody] = useState('');
   const [showScheduleForm, setShowScheduleForm] = useState(false);
   const [scheduledAt, setScheduledAt] = useState('');
+
+  // AI state
+  const [showAiPanel, setShowAiPanel] = useState(false);
+  const [aiAction, setAiAction] = useState<AIAction>('generate');
+  const [aiResult, setAiResult] = useState<AIResult | null>(null);
+  const [aiError, setAiError] = useState('');
+  const [aiTone, setAiTone] = useState('professional');
+  const [aiPlatform, setAiPlatform] = useState('INSTAGRAM');
+  const [aiInstruction, setAiInstruction] = useState('');
+  const [aiSaving, setAiSaving] = useState(false);
 
   const { data: draft, isLoading } = useQuery<Draft>({
     queryKey: ['marketing-draft', id],
@@ -130,6 +158,18 @@ export default function ContentDraftDetailPage() {
         </div>
 
         <div className="flex gap-2 flex-wrap justify-end shrink-0">
+          <button
+            onClick={() => { setShowAiPanel((v) => !v); setAiResult(null); setAiError(''); }}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg font-medium border transition-colors',
+              showAiPanel
+                ? 'bg-violet-600 text-white border-violet-600'
+                : 'bg-white text-violet-700 border-violet-300 hover:bg-violet-50',
+            )}
+          >
+            <Sparkles size={13} />
+            AI Assist
+          </button>
           {draft.status === 'DRAFT' && (
             <button onClick={() => submitMutation.mutate()} disabled={submitMutation.isPending}
               className="px-3 py-1.5 text-xs bg-amber-600 text-white rounded-lg font-medium hover:bg-amber-700 disabled:opacity-50">
@@ -185,6 +225,188 @@ export default function ContentDraftDetailPage() {
               Cancel
             </button>
           </div>
+        </div>
+      )}
+
+      {/* ── AI Assistant Panel ── */}
+      {showAiPanel && (
+        <div className="bg-violet-50 border border-violet-200 rounded-xl p-4 space-y-4">
+          <div className="flex items-center gap-2">
+            <Sparkles size={15} className="text-violet-600" />
+            <p className="text-sm font-semibold text-violet-800">AI Content Assistant</p>
+            <span className="text-xs text-violet-500 bg-violet-100 px-1.5 py-0.5 rounded">DRAFT only — review before applying</span>
+          </div>
+
+          {/* Action selector */}
+          <div className="flex flex-wrap gap-2">
+            {([ ['generate','Generate'], ['rewrite','Rewrite'], ['shorten','Shorten'], ['expand','Expand'],
+               ['tone','Change Tone'], ['cta','CTA Ideas'], ['hashtags','Hashtags'], ['variant','Platform Variant'],
+             ] as [AIAction, string][]).map(([action, label]) => (
+              <button key={action} onClick={() => { setAiAction(action); setAiResult(null); setAiError(''); }}
+                className={cn('px-3 py-1 text-xs rounded-full font-medium border transition-colors',
+                  aiAction === action ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-violet-700 border-violet-200 hover:bg-violet-50',
+                )}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Action-specific options */}
+          <div className="space-y-2">
+            {aiAction === 'tone' && (
+              <div>
+                <label className="block text-xs font-medium text-violet-700 mb-1">Tone</label>
+                <select value={aiTone} onChange={(e) => setAiTone(e.target.value)}
+                  className="w-48 px-2 py-1.5 text-xs border border-violet-200 rounded-lg focus:outline-none bg-white">
+                  {TONES.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+            )}
+            {aiAction === 'variant' && (
+              <div>
+                <label className="block text-xs font-medium text-violet-700 mb-1">Platform</label>
+                <select value={aiPlatform} onChange={(e) => setAiPlatform(e.target.value)}
+                  className="w-48 px-2 py-1.5 text-xs border border-violet-200 rounded-lg focus:outline-none bg-white">
+                  {AI_PLATFORMS.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+            )}
+            {['generate', 'rewrite', 'expand'].includes(aiAction) && (
+              <div>
+                <label className="block text-xs font-medium text-violet-700 mb-1">Additional instruction (optional)</label>
+                <input value={aiInstruction} onChange={(e) => setAiInstruction(e.target.value)}
+                  placeholder="e.g. emphasize limited availability, use a conversational tone..."
+                  className="w-full px-3 py-2 text-xs border border-violet-200 rounded-lg focus:outline-none bg-white" />
+              </div>
+            )}
+          </div>
+
+          {/* Run button */}
+          <button
+            disabled={aiSaving}
+            onClick={async () => {
+              setAiResult(null);
+              setAiError('');
+              setAiSaving(true);
+              try {
+                let res: AIResult;
+                const base = `/marketing/ai/content/${id}`;
+                if (aiAction === 'generate') {
+                  res = await api().post<AIResult>(`${base}/generate`, { instruction: aiInstruction || undefined }).then(r => r.data);
+                } else if (aiAction === 'rewrite') {
+                  res = await api().post<AIResult>(`${base}/rewrite`, { instruction: aiInstruction || undefined }).then(r => r.data);
+                } else if (aiAction === 'shorten') {
+                  res = await api().post<AIResult>(`${base}/shorten`).then(r => r.data);
+                } else if (aiAction === 'expand') {
+                  res = await api().post<AIResult>(`${base}/expand`, { instruction: aiInstruction || undefined }).then(r => r.data);
+                } else if (aiAction === 'tone') {
+                  res = await api().post<AIResult>(`${base}/tone`, { tone: aiTone }).then(r => r.data);
+                } else if (aiAction === 'cta') {
+                  res = await api().post<AIResult>(`${base}/cta`).then(r => r.data);
+                } else if (aiAction === 'hashtags') {
+                  res = await api().post<AIResult>(`${base}/hashtags`).then(r => r.data);
+                } else {
+                  res = await api().post<AIResult>(`${base}/variants`, { platform: aiPlatform, saveToDraft: false }).then(r => r.data);
+                }
+                setAiResult(res);
+              } catch (e: unknown) {
+                const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+                setAiError(typeof msg === 'string' ? msg : 'AI generation failed. Check provider configuration.');
+              } finally {
+                setAiSaving(false);
+              }
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white text-xs rounded-lg font-medium hover:bg-violet-700 disabled:opacity-50"
+          >
+            {aiSaving ? <><RotateCcw size={13} className="animate-spin" /> Generating...</> : <><Sparkles size={13} /> Generate</>}
+          </button>
+
+          {/* Error */}
+          {aiError && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-700">{aiError}</div>
+          )}
+
+          {/* Result preview */}
+          {aiResult && (
+            <div className="bg-white border border-violet-200 rounded-lg p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold text-violet-700 flex items-center gap-1">
+                  <Sparkles size={12} /> AI Suggestion
+                  {aiResult.model && <span className="text-violet-400 font-normal">· {aiResult.model}</span>}
+                </p>
+                <button onClick={() => setAiResult(null)} className="text-gray-400 hover:text-gray-600">
+                  <X size={14} />
+                </button>
+              </div>
+
+              {/* Text suggestions */}
+              {(aiResult.suggestedBody ?? aiResult.body) && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Suggested body:</p>
+                  <p className="text-sm text-gray-800 whitespace-pre-wrap bg-gray-50 rounded p-2">
+                    {aiResult.suggestedBody ?? aiResult.body}
+                  </p>
+                </div>
+              )}
+              {(aiResult.suggestedCallToAction ?? aiResult.callToAction) && (
+                <p className="text-xs text-blue-600 font-medium">
+                  CTA: {aiResult.suggestedCallToAction ?? aiResult.callToAction}
+                </p>
+              )}
+
+              {/* CTA options */}
+              {aiResult.options && aiResult.options.length > 0 && (
+                <div className="space-y-1">
+                  {aiResult.options.map((opt, i) => (
+                    <div key={i} className="flex items-center justify-between bg-gray-50 px-3 py-1.5 rounded text-sm">
+                      <span>{opt}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Hashtags */}
+              {aiResult.hashtags && aiResult.hashtags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {aiResult.hashtags.map((h) => (
+                    <span key={h} className="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full">#{h}</span>
+                  ))}
+                </div>
+              )}
+
+              {/* Apply button — only for body suggestions */}
+              {(aiResult.suggestedBody ?? aiResult.body) && (
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={async () => {
+                      const body = aiResult.suggestedBody ?? aiResult.body;
+                      const cta = aiResult.suggestedCallToAction ?? aiResult.callToAction ?? undefined;
+                      if (!body) return;
+                      try {
+                        await api().post(`/marketing/ai/content/${id}/generate`, {
+                          applyToDraft: true,
+                          instruction: `Apply this exact text: ${body}`,
+                        });
+                        queryClient.invalidateQueries({ queryKey: ['marketing-draft', id] });
+                        setAiResult(null);
+                        setShowAiPanel(false);
+                      } catch {
+                        // If apply fails, user can manually copy — preserve original
+                      }
+                      void cta;
+                    }}
+                    className="flex items-center gap-1 px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700"
+                  >
+                    <Check size={12} /> Apply to Draft
+                  </button>
+                  <button onClick={() => setAiResult(null)}
+                    className="px-3 py-1.5 text-xs text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50">
+                    Discard
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

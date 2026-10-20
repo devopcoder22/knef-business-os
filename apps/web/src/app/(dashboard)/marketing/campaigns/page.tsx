@@ -3,9 +3,19 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useState } from 'react';
-import { Plus, Search, Megaphone } from 'lucide-react';
+import { Plus, Search, Megaphone, Sparkles, RotateCcw, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+
+interface CampaignIdea {
+  name: string;
+  concept: string;
+  objective: string;
+  keyMessage: string;
+  recommendedChannels: string[];
+  contentIdeas: string[];
+  callToAction: string;
+}
 
 interface Campaign {
   id: string;
@@ -38,6 +48,13 @@ export default function CampaignsPage() {
   const [search, setSearch] = useState('');
   const queryClient = useQueryClient();
 
+  // AI ideas state
+  const [showIdeasPanel, setShowIdeasPanel] = useState(false);
+  const [ideasObjective, setIdeasObjective] = useState('');
+  const [ideasLoading, setIdeasLoading] = useState(false);
+  const [ideas, setIdeas] = useState<CampaignIdea[]>([]);
+  const [ideasError, setIdeasError] = useState('');
+
   const { data, isLoading } = useQuery<{ items: Campaign[]; total: number }>({
     queryKey: ['marketing-campaigns', statusFilter],
     queryFn: async () => {
@@ -66,14 +83,112 @@ export default function CampaignsPage() {
           <h1 className="text-2xl font-bold text-gray-900">Campaigns</h1>
           <p className="text-gray-500 text-sm mt-0.5">{data?.total ?? 0} total campaigns</p>
         </div>
-        <Link
-          href="/marketing/campaigns/new"
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
-        >
-          <Plus size={16} />
-          New Campaign
-        </Link>
+        <div className="flex gap-2">
+          <button
+            onClick={() => { setShowIdeasPanel((v) => !v); setIdeas([]); setIdeasError(''); }}
+            className={cn(
+              'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors',
+              showIdeasPanel
+                ? 'bg-violet-600 text-white border-violet-600'
+                : 'bg-white text-violet-700 border-violet-300 hover:bg-violet-50',
+            )}
+          >
+            <Sparkles size={15} />
+            AI Ideas
+          </button>
+          <Link
+            href="/marketing/campaigns/new"
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+          >
+            <Plus size={16} />
+            New Campaign
+          </Link>
+        </div>
       </div>
+
+      {/* ── AI Campaign Ideas Panel ── */}
+      {showIdeasPanel && (
+        <div className="bg-violet-50 border border-violet-200 rounded-xl p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Sparkles size={15} className="text-violet-600" />
+              <p className="text-sm font-semibold text-violet-800">AI Campaign Ideas</p>
+              <span className="text-xs text-violet-500 bg-violet-100 px-1.5 py-0.5 rounded">Suggestions for review — not auto-created</span>
+            </div>
+            <button onClick={() => setShowIdeasPanel(false)} className="text-gray-400 hover:text-gray-600">
+              <X size={15} />
+            </button>
+          </div>
+          <div className="flex gap-3">
+            <input
+              value={ideasObjective}
+              onChange={(e) => setIdeasObjective(e.target.value)}
+              placeholder="Campaign objective (e.g. product launch, seasonal sale, re-engagement...)"
+              className="flex-1 px-3 py-2 text-sm border border-violet-200 rounded-lg focus:outline-none bg-white"
+            />
+            <button
+              disabled={ideasLoading}
+              onClick={async () => {
+                setIdeasError('');
+                setIdeas([]);
+                setIdeasLoading(true);
+                try {
+                  const res = await api().post<{ ideas: CampaignIdea[] }>('/marketing/ai/campaign-ideas', {
+                    objective: ideasObjective || undefined,
+                  });
+                  setIdeas(Array.isArray(res.data.ideas) ? res.data.ideas : []);
+                } catch (e: unknown) {
+                  const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+                  setIdeasError(typeof msg === 'string' ? msg : 'AI unavailable — check provider configuration.');
+                } finally {
+                  setIdeasLoading(false);
+                }
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white text-sm rounded-lg font-medium hover:bg-violet-700 disabled:opacity-50 shrink-0"
+            >
+              {ideasLoading ? <><RotateCcw size={14} className="animate-spin" /> Generating...</> : <><Sparkles size={14} /> Generate</>}
+            </button>
+          </div>
+
+          {ideasError && (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-2">{ideasError}</p>
+          )}
+
+          {ideas.length > 0 && (
+            <div className="space-y-3">
+              {ideas.map((idea, i) => (
+                <div key={i} className="bg-white border border-violet-100 rounded-lg p-4 space-y-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-gray-900 text-sm">{idea.name}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{idea.concept}</p>
+                    </div>
+                    <Link
+                      href={`/marketing/campaigns/new`}
+                      className="shrink-0 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                    >
+                      Use this
+                    </Link>
+                  </div>
+                  <p className="text-xs text-gray-700"><span className="font-medium">Key message:</span> {idea.keyMessage}</p>
+                  {idea.contentIdeas.length > 0 && (
+                    <ul className="text-xs text-gray-600 list-disc list-inside space-y-0.5">
+                      {idea.contentIdeas.slice(0, 3).map((ci, j) => <li key={j}>{ci}</li>)}
+                    </ul>
+                  )}
+                  {idea.recommendedChannels.length > 0 && (
+                    <div className="flex gap-1.5 flex-wrap">
+                      {idea.recommendedChannels.map((ch) => (
+                        <span key={ch} className="text-xs px-1.5 py-0.5 bg-violet-100 text-violet-700 rounded">{ch}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="flex gap-3 flex-wrap">
         <div className="relative flex-1 min-w-48">
