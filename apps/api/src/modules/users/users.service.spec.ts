@@ -6,6 +6,13 @@ import { RedisService } from '../../common/services/redis.service';
 import { AuditService } from '../audit/audit.service';
 import { EmailService } from '../communications/email.service';
 
+// Avoid real bcrypt computation (12 rounds ~300 ms) under parallel Jest worker CPU load
+jest.mock('bcrypt', () => ({
+  hash: jest.fn().mockResolvedValue('mocked-hash'),
+  compare: jest.fn().mockResolvedValue(true),
+  genSalt: jest.fn().mockResolvedValue('mock-salt'),
+}));
+
 const MOCK_ORG = 'org-1';
 const MOCK_USER_ID = 'user-1';
 const MOCK_ROLE_ID = 'role-1';

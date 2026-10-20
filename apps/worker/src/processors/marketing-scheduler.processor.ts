@@ -60,18 +60,21 @@ export class MarketingSchedulerProcessor implements OnModuleInit, OnModuleDestro
         status: 'SCHEDULED',
         scheduledAt: { lte: new Date() },
       },
+      select: { id: true, title: true, targetChannel: true },
     });
 
     if (due.length === 0) return;
 
-    this.logger.log(`[MarketingScheduler] ${due.length} draft(s) due for org ${organizationId}`);
-
+    // Log due drafts but do NOT transition to PUBLISHED. Reaching scheduledAt alone does
+    // not mean content has been published — actual channel delivery and the PUBLISHED
+    // status transition are handled by Phase 24E channel-specific publishers.
+    this.logger.log(
+      `[MarketingScheduler] ${due.length} draft(s) due for publication in org ${organizationId} — awaiting Phase 24E publisher`,
+    );
     for (const draft of due) {
-      await this.prisma.contentDraft.update({
-        where: { id: draft.id },
-        data: { status: 'PUBLISHED', publishedAt: new Date() },
-      });
-      this.logger.log(`[MarketingScheduler] Draft ${draft.id} (${draft.title}) marked PUBLISHED`);
+      this.logger.log(
+        `[MarketingScheduler] Draft ${draft.id} ("${draft.title}", ${draft.targetChannel}) is due — Phase 24E will publish`,
+      );
     }
   }
 }

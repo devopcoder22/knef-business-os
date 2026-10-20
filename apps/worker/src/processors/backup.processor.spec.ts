@@ -42,8 +42,10 @@ function makeSpawnMock(
 
   mockSpawn.mockReturnValue(child as unknown as ReturnType<typeof childProcess.spawn>);
 
-  // Emit stdout lines and then close
-  setImmediate(() => {
+  // Emit stdout lines and then close — use a resolved Promise (microtask) rather than
+  // setImmediate so callbacks drain before Jest moves to the next test phase, avoiding
+  // open-handle false-positives under parallel worker execution.
+  void Promise.resolve().then(() => {
     for (const line of stdoutLines) {
       child.stdout.emit('data', Buffer.from(line + '\n'));
     }
