@@ -75,7 +75,8 @@ export default function ContentDraftDetailPage() {
   const [aiTone, setAiTone] = useState('professional');
   const [aiPlatform, setAiPlatform] = useState('INSTAGRAM');
   const [aiInstruction, setAiInstruction] = useState('');
-  const [aiSaving, setAiSaving] = useState(false);
+  const [aiSaving, setAiSaving] = useState(false);   // generating
+  const [aiApplying, setAiApplying] = useState(false); // persisting exact preview
 
   const { data: draft, isLoading } = useQuery<Draft>({
     queryKey: ['marketing-draft', id],
@@ -374,33 +375,83 @@ export default function ContentDraftDetailPage() {
                 </div>
               )}
 
-              {/* Apply button — only for body suggestions */}
+              {/* Apply button — persists exact preview via PATCH (no second AI call) */}
               {(aiResult.suggestedBody ?? aiResult.body) && (
                 <div className="flex gap-2 pt-1">
                   <button
+                    disabled={aiApplying}
                     onClick={async () => {
-                      const body = aiResult.suggestedBody ?? aiResult.body;
-                      const cta = aiResult.suggestedCallToAction ?? aiResult.callToAction ?? undefined;
-                      if (!body) return;
+                      const exactBody = aiResult.suggestedBody ?? aiResult.body;
+                      const exactCta = aiResult.suggestedCallToAction ?? aiResult.callToAction ?? undefined;
+                      if (!exactBody) return;
+                      setAiApplying(true);
                       try {
-                        await api().post(`/marketing/ai/content/${id}/generate`, {
-                          applyToDraft: true,
-                          instruction: `Apply this exact text: ${body}`,
+                        // PATCH /marketing/content/:id — existing endpoint, no AI involved
+                        await api().patch(`/marketing/content/${id}`, {
+                          body: exactBody,
+                          ...(exactCta !== undefined && { callToAction: exactCta }),
                         });
                         queryClient.invalidateQueries({ queryKey: ['marketing-draft', id] });
                         setAiResult(null);
                         setShowAiPanel(false);
-                      } catch {
-                        // If apply fails, user can manually copy — preserve original
+                      } catch (e: unknown) {
+                        const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+                        setAiError(typeof msg === 'string' ? msg : 'Failed to save — original is unchanged.');
+                      } finally {
+                        setAiApplying(false);
                       }
-                      void cta;
                     }}
-                    className="flex items-center gap-1 px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700"
+                    className="flex items-center gap-1 px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
                   >
-                    <Check size={12} /> Apply to Draft
+                    {aiApplying ? <><RotateCcw size={12} className="animate-spin" /> Saving...</> : <><Check size={12} /> Apply to Draft</>}
                   </button>
-                  <button onClick={() => setAiResult(null)}
-                    className="px-3 py-1.5 text-xs text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50">
+                  <button
+                    disabled={aiApplying}
+                    onClick={() => setAiResult(null)}
+                    className="px-3 py-1.5 text-xs text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Discard
+                  </button>
+                </div>
+              )}
+
+              {/* Apply Variant button — creates/updates exact variant via POST/PATCH (no second AI call) */}
+              {aiResult.platform && aiResult.body && !aiResult.suggestedBody && (
+                <div className="flex gap-2 pt-1">
+                  <button
+                    disabled={aiApplying}
+                    onClick={async () => {
+                      if (!draft || !aiResult.platform || !aiResult.body) return;
+                      setAiApplying(true);
+                      try {
+                        const existing = draft.variants.find((v) => v.platform === aiResult.platform);
+                        if (existing) {
+                          await api().patch(`/marketing/content/${id}/variants/${existing.id}`, {
+                            body: aiResult.body,
+                            callToAction: aiResult.callToAction ?? null,
+                          });
+                        } else {
+                          await api().post(`/marketing/content/${id}/variants`, {
+                            platform: aiResult.platform,
+                            body: aiResult.body,
+                            callToAction: aiResult.callToAction ?? null,
+                          });
+                        }
+                        queryClient.invalidateQueries({ queryKey: ['marketing-draft', id] });
+                        setAiResult(null);
+                      } catch (e: unknown) {
+                        const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+                        setAiError(typeof msg === 'string' ? msg : 'Failed to save variant.');
+                      } finally {
+                        setAiApplying(false);
+                      }
+                    }}
+                    className="flex items-center gap-1 px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                  >
+                    {aiApplying ? <><RotateCcw size={12} className="animate-spin" /> Saving...</> : <><Check size={12} /> Save {aiResult.platform} Variant</>}
+                  </button>
+                  <button disabled={aiApplying} onClick={() => setAiResult(null)}
+                    className="px-3 py-1.5 text-xs text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50">
                     Discard
                   </button>
                 </div>

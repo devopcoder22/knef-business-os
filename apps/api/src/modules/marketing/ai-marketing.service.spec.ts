@@ -190,29 +190,26 @@ describe('AIMarketingService', () => {
       expect(result.callToAction).toBe('Order Now');
     });
 
-    it('generated content is NOT auto-applied — applied=false by default', async () => {
+    it('generate calls complete() exactly once and never writes to contentDraft', async () => {
       mockAiCompletion.complete.mockResolvedValue(
         jsonResponse({ body: 'New body', callToAction: 'Click here' }),
       );
 
       const result = await service.generateDraftContent(ORG_ID, USER_ID, DRAFT_ID, {});
 
-      expect(result.applied).toBe(false);
+      expect(result.body).toBe('New body');
+      expect(mockAiCompletion.complete).toHaveBeenCalledTimes(1);
       expect(mockPrisma.contentDraft.update).not.toHaveBeenCalled();
     });
 
-    it('draft status is never changed to anything other than DRAFT when applyToDraft=true', async () => {
+    it('generateDraftContent never calls contentDraft.update — persist is caller responsibility', async () => {
       mockAiCompletion.complete.mockResolvedValue(
         jsonResponse({ body: 'New body', callToAction: null }),
       );
-      mockPrisma.contentDraft.update.mockResolvedValue({ ...mockDraft, body: 'New body' });
 
-      await service.generateDraftContent(ORG_ID, USER_ID, DRAFT_ID, { applyToDraft: true });
+      await service.generateDraftContent(ORG_ID, USER_ID, DRAFT_ID, {});
 
-      const updateCall = mockPrisma.contentDraft.update.mock.calls[0][0] as {
-        data: { status?: string }
-      };
-      expect(updateCall.data).not.toHaveProperty('status');
+      expect(mockPrisma.contentDraft.update).not.toHaveBeenCalled();
     });
 
     it('throws NotFoundException for draft from another org (IDOR protection)', async () => {
@@ -543,35 +540,25 @@ describe('AIMarketingService', () => {
   // ── Security: AI output cannot change org or status ──────────────────────────
 
   describe('security — AI output cannot elevate status or change org', () => {
-    it('generateDraftContent with applyToDraft never sets status=PUBLISHED', async () => {
+    it('generateDraftContent never writes status — generate is purely read-then-respond', async () => {
       mockAiCompletion.complete.mockResolvedValue(
-        jsonResponse({ body: 'Injected PUBLISHED', callToAction: null }),
+        jsonResponse({ body: 'Some body', callToAction: null }),
       );
-      mockPrisma.contentDraft.update.mockResolvedValue({ ...mockDraft, body: 'Injected PUBLISHED' });
 
-      await service.generateDraftContent(ORG_ID, USER_ID, DRAFT_ID, { applyToDraft: true });
+      await service.generateDraftContent(ORG_ID, USER_ID, DRAFT_ID, {});
 
-      const updateData = (mockPrisma.contentDraft.update.mock.calls[0][0] as {
-        data: Record<string, unknown>
-      }).data;
-      expect(updateData.status).toBeUndefined();
-      expect(updateData).not.toMatchObject({ status: 'PUBLISHED' });
-      expect(updateData).not.toMatchObject({ status: 'APPROVED' });
-      expect(updateData).not.toMatchObject({ status: 'SCHEDULED' });
+      // Generate must never persist anything — applying is caller's responsibility via PATCH
+      expect(mockPrisma.contentDraft.update).not.toHaveBeenCalled();
     });
 
-    it('generateDraftContent with applyToDraft never changes organizationId', async () => {
+    it('generateDraftContent never writes organizationId — no DB mutation on generate', async () => {
       mockAiCompletion.complete.mockResolvedValue(
         jsonResponse({ body: 'Content', callToAction: null }),
       );
-      mockPrisma.contentDraft.update.mockResolvedValue(mockDraft);
 
-      await service.generateDraftContent(ORG_ID, USER_ID, DRAFT_ID, { applyToDraft: true });
+      await service.generateDraftContent(ORG_ID, USER_ID, DRAFT_ID, {});
 
-      const updateData = (mockPrisma.contentDraft.update.mock.calls[0][0] as {
-        data: Record<string, unknown>
-      }).data;
-      expect(updateData.organizationId).toBeUndefined();
+      expect(mockPrisma.contentDraft.update).not.toHaveBeenCalled();
     });
 
     it('generateVariant never writes status=PUBLISHED to content', async () => {

@@ -293,6 +293,72 @@ describe('ContentDraftService', () => {
     });
   });
 
+  // ── apply-semantics (AI content persist) ─────────────────────────────────────
+
+  describe('update — AI apply semantics', () => {
+    const EXACT_BODY = 'Exclusive offer: 30% off all gadgets this weekend only.';
+    const EXACT_CTA = 'Shop the Sale';
+
+    it('persists the exact body passed — no transformation', async () => {
+      mockPrisma.contentDraft.findFirst.mockResolvedValue({ id: 'd-1', status: 'DRAFT' });
+      mockPrisma.contentDraft.update.mockResolvedValue({ id: 'd-1', body: EXACT_BODY });
+
+      await service.update('org-1', 'd-1', { body: EXACT_BODY }, 'user-1');
+
+      const updateArg = mockPrisma.contentDraft.update.mock.calls[0][0] as {
+        data: Record<string, unknown>;
+      };
+      expect(updateArg.data.body).toBe(EXACT_BODY);
+    });
+
+    it('persists exact CTA alongside body without altering status', async () => {
+      mockPrisma.contentDraft.findFirst.mockResolvedValue({ id: 'd-1', status: 'DRAFT' });
+      mockPrisma.contentDraft.update.mockResolvedValue({ id: 'd-1', body: EXACT_BODY, callToAction: EXACT_CTA });
+
+      await service.update('org-1', 'd-1', { body: EXACT_BODY, callToAction: EXACT_CTA }, 'user-1');
+
+      const updateArg = mockPrisma.contentDraft.update.mock.calls[0][0] as {
+        data: Record<string, unknown>;
+      };
+      expect(updateArg.data.body).toBe(EXACT_BODY);
+      expect(updateArg.data.callToAction).toBe(EXACT_CTA);
+      expect(updateArg.data.status).toBeUndefined();
+    });
+
+    it('never changes organizationId during body/CTA update (IDOR protection)', async () => {
+      mockPrisma.contentDraft.findFirst.mockResolvedValue({ id: 'd-1', status: 'DRAFT' });
+      mockPrisma.contentDraft.update.mockResolvedValue({ id: 'd-1', body: EXACT_BODY });
+
+      await service.update('org-1', 'd-1', { body: EXACT_BODY }, 'user-1');
+
+      const updateArg = mockPrisma.contentDraft.update.mock.calls[0][0] as {
+        data: Record<string, unknown>;
+      };
+      expect(updateArg.data.organizationId).toBeUndefined();
+    });
+
+    it('enforces org isolation — throws NotFoundException for cross-org apply', async () => {
+      mockPrisma.contentDraft.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.update('org-evil', 'd-1', { body: EXACT_BODY }, 'attacker'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('status remains DRAFT after body update — apply never auto-promotes', async () => {
+      mockPrisma.contentDraft.findFirst.mockResolvedValue({ id: 'd-1', status: 'DRAFT' });
+      mockPrisma.contentDraft.update.mockResolvedValue({ id: 'd-1', body: EXACT_BODY, status: 'DRAFT' });
+
+      await service.update('org-1', 'd-1', { body: EXACT_BODY }, 'user-1');
+
+      const updateArg = mockPrisma.contentDraft.update.mock.calls[0][0] as {
+        data: Record<string, unknown>;
+      };
+      // status must not be written — it must stay as-is at DB level
+      expect(updateArg.data.status).toBeUndefined();
+    });
+  });
+
   // ── calendar ─────────────────────────────────────────────────────────────────
 
   describe('getCalendar', () => {

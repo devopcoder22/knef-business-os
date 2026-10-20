@@ -57,7 +57,6 @@ export interface GenerateDraftDto {
   desiredLength?: 'SHORT' | 'MEDIUM' | 'LONG';
   callToAction?: string;
   brandVoice?: string;
-  applyToDraft?: boolean;
 }
 
 export interface GenerateVariantDto {
@@ -364,18 +363,6 @@ export class AIMarketingService {
       throw new BadRequestException('AI returned an unrecognized response format. Please retry.');
     }
 
-    // If applyToDraft is true, update draft body but status stays DRAFT
-    if (dto.applyToDraft && parsed.body) {
-      await this.prisma.contentDraft.update({
-        where: { id: draftId },
-        data: {
-          body: parsed.body,
-          callToAction: parsed.callToAction ?? draft.callToAction,
-          // status intentionally NOT changed — must remain DRAFT
-        },
-      });
-    }
-
     await this.auditAI({
       orgId, userId,
       action: 'AI_MARKETING_DRAFT_GENERATED',
@@ -386,10 +373,12 @@ export class AIMarketingService {
       tokens: result.totalTokens,
     });
 
+    // Returns generated content for user preview only.
+    // Persisting the exact preview is done by the caller via PATCH /marketing/content/:id —
+    // no second AI call occurs on apply.
     return {
       body: parsed.body ?? null,
       callToAction: parsed.callToAction ?? null,
-      applied: dto.applyToDraft ?? false,
       model: result.model,
       tokensUsed: result.totalTokens,
     };
