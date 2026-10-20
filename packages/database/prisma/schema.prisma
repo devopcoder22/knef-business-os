@@ -54,6 +54,8 @@ model Organization {
   marketingCampaigns  MarketingCampaign[]
   contentDrafts       ContentDraft[]
   mediaAssets         MediaAsset[]
+  socialAccounts      SocialAccount[]
+  publicationAttempts PublicationAttempt[]
 
   @@index([slug])
 }
@@ -2711,6 +2713,7 @@ model ExternalConnection {
   organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   connectedBy   User?              @relation("ExternalConnectionUser", fields: [connectedByUserId], references: [id])
   syncLogs      IntegrationSyncLog[]
+  socialAccounts SocialAccount[]
 
   @@unique([organizationId, provider, externalAccountId])
   @@index([organizationId, provider])
@@ -2926,6 +2929,7 @@ model ContentDraft {
   organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   campaign     MarketingCampaign? @relation(fields: [campaignId], references: [id])
   variants     ContentVariant[]
+  publicationAttempts PublicationAttempt[]
 
   @@index([organizationId])
   @@index([campaignId])
@@ -2948,6 +2952,7 @@ model ContentVariant {
   updatedAt         DateTime @updatedAt
 
   draft ContentDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  publicationAttempts PublicationAttempt[]
 
   @@unique([draftId, platform])
   @@index([draftId])
@@ -2977,4 +2982,76 @@ model MediaAsset {
   @@index([organizationId])
   @@index([category])
   @@map("media_assets")
+}
+
+// ── Stage 24E — Social Media Publishing ──────────────────────────────────────
+
+// Represents a specific social page/profile/account linked to an ExternalConnection
+model SocialAccount {
+  id                 String    @id @default(cuid())
+  organizationId     String
+  connectionId       String
+  provider           String    // FACEBOOK | INSTAGRAM | TIKTOK | SNAPCHAT
+  providerAccountId  String
+  accountType        String    // PAGE | BUSINESS | CREATOR | PUBLIC_PROFILE
+  displayName        String
+  username           String?
+  avatarUrl          String?
+  externalBusinessId String?
+  capabilities       String[]  @default([])
+  // CONNECTED | SCOPES_INCOMPLETE | APP_REVIEW_PENDING | AUDIT_PENDING | READY | TOKEN_EXPIRED | DISCONNECTED
+  approvalStatus     String    @default("CONNECTED")
+  isActive           Boolean   @default(true)
+  lastSyncedAt       DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connection          ExternalConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  publicationAttempts PublicationAttempt[]
+
+  @@unique([organizationId, provider, providerAccountId])
+  @@index([organizationId])
+  @@index([connectionId])
+  @@index([isActive])
+  @@map("social_accounts")
+}
+
+// Per-platform publication record — never overload ContentDraft with provider operational state
+model PublicationAttempt {
+  id                String    @id @default(cuid())
+  organizationId    String
+  draftId           String
+  variantId         String?
+  socialAccountId   String
+  provider          String
+  externalAccountId String
+  attemptNumber     Int       @default(1)
+  // PENDING | QUEUED | UPLOADING | PROCESSING | PUBLISHED | FAILED | RETRY_PENDING | REQUIRES_USER_ACTION | CANCELLED
+  status            String    @default("PENDING")
+  idempotencyKey    String    @unique
+  externalPostId    String?
+  providerPublishId String?   // TikTok publish_id / Instagram container id
+  providerStatus    String?
+  attemptedAt       DateTime?
+  publishedAt       DateTime?
+  errorCode         String?
+  errorMessage      String?
+  isRetryable       Boolean   @default(false)
+  retryAfter        DateTime?
+  providerEventId   String?   // webhook deduplication
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  organization  Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  draft         ContentDraft    @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  variant       ContentVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  socialAccount SocialAccount   @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([draftId])
+  @@index([socialAccountId])
+  @@index([status, retryAfter])
+  @@index([providerEventId])
+  @@map("publication_attempts")
 }

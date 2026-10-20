@@ -4,11 +4,17 @@ import {
   OnModuleDestroy,
   Logger,
 } from '@nestjs/common';
-import { Worker, Job } from 'bullmq';
+import { Worker, Job, Queue } from 'bullmq';
 import Redis from 'ioredis';
 import { ConfigService } from '@nestjs/config';
-import { QUEUES, JOB_TYPES, type MarketingScheduleCheckJobData } from '@knef/constants';
+import {
+  QUEUES,
+  JOB_TYPES,
+  type MarketingScheduleCheckJobData,
+  type SocialPublishJobData,
+} from '@knef/constants';
 import { PrismaService } from '../services/prisma.service';
+import * as crypto from 'crypto';
 import type { WorkerConfig } from '../config/worker.config';
 
 @Injectable()
@@ -16,6 +22,7 @@ export class MarketingSchedulerProcessor implements OnModuleInit, OnModuleDestro
   private readonly logger = new Logger(MarketingSchedulerProcessor.name);
   private worker!: Worker;
   private connection!: Redis;
+  private marketingQueue!: Queue;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -25,6 +32,9 @@ export class MarketingSchedulerProcessor implements OnModuleInit, OnModuleDestro
   onModuleInit() {
     const redisUrl = this.config.get<string>('REDIS_URL')!;
     this.connection = new Redis(redisUrl, { maxRetriesPerRequest: null });
+    this.marketingQueue = new Queue(QUEUES.MARKETING, {
+      connection: new Redis(redisUrl, { maxRetriesPerRequest: null }),
+    });
 
     this.worker = new Worker(QUEUES.MARKETING, async (job: Job) => this.process(job), {
       connection: new Redis(redisUrl, { maxRetriesPerRequest: null }),
@@ -38,6 +48,7 @@ export class MarketingSchedulerProcessor implements OnModuleInit, OnModuleDestro
 
   async onModuleDestroy() {
     await this.worker?.close();
+    await this.marketingQueue?.close();
     await this.connection?.quit();
   }
 
@@ -65,16 +76,80 @@ export class MarketingSchedulerProcessor implements OnModuleInit, OnModuleDestro
 
     if (due.length === 0) return;
 
-    // Log due drafts but do NOT transition to PUBLISHED. Reaching scheduledAt alone does
-    // not mean content has been published — actual channel delivery and the PUBLISHED
-    // status transition are handled by Phase 24E channel-specific publishers.
     this.logger.log(
-      `[MarketingScheduler] ${due.length} draft(s) due for publication in org ${organizationId} — awaiting Phase 24E publisher`,
+      `[MarketingScheduler] ${due.length} draft(s) due for publication in org ${organizationId}`,
     );
+
     for (const draft of due) {
-      this.logger.log(
-        `[MarketingScheduler] Draft ${draft.id} ("${draft.title}", ${draft.targetChannel}) is due — Phase 24E will publish`,
-      );
+      // Find active social accounts for this org
+      const socialAccounts = await this.prisma.socialAccount.findMany({
+        where: { organizationId, isActive: true },
+        select: { id: true, provider: true },
+      });
+
+      if (socialAccounts.length === 0) {
+        this.logger.log(
+          `[MarketingScheduler] Draft ${draft.id} due — no social accounts connected, skipping`,
+        );
+        continue;
+      }
+
+      for (const account of socialAccounts) {
+        // Check if an attempt is already queued/running/published for this draft+account
+        const existingAttempt = await this.prisma.publicationAttempt.findFirst({
+          where: {
+            organizationId,
+            draftId: draft.id,
+            socialAccountId: account.id,
+            status: { in: ['QUEUED', 'UPLOADING', 'PROCESSING', 'PUBLISHED'] },
+          },
+        });
+
+        if (existingAttempt) {
+          this.logger.debug(
+            `Attempt already exists for draft ${draft.id} + account ${account.id} — skipping`,
+          );
+          continue;
+        }
+
+        const idempotencyKey = crypto
+          .createHash('sha256')
+          .update(`scheduler:${draft.id}:${account.id}:${Date.now()}`)
+          .digest('hex');
+
+        // Create attempt record
+        const attempt = await this.prisma.publicationAttempt.create({
+          data: {
+            organizationId,
+            draftId: draft.id,
+            socialAccountId: account.id,
+            provider: account.provider,
+            externalAccountId: account.id, // will be resolved in executePublish
+            status: 'QUEUED',
+            idempotencyKey,
+            attemptNumber: 1,
+          },
+        });
+
+        const jobData: SocialPublishJobData = {
+          attemptId: attempt.id,
+          organizationId,
+          draftId: draft.id,
+          socialAccountId: account.id,
+          provider: account.provider,
+        };
+
+        await this.marketingQueue.add(JOB_TYPES.SOCIAL_PUBLISH, jobData, {
+          jobId: `social-publish:${attempt.id}`,
+          attempts: 1,
+          removeOnComplete: 100,
+          removeOnFail: 200,
+        });
+
+        this.logger.log(
+          `[MarketingScheduler] Queued SOCIAL_PUBLISH for draft ${draft.id} → ${account.provider} account ${account.id}`,
+        );
+      }
     }
   }
 }

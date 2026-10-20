@@ -11,6 +11,7 @@ import { SmsSenderService } from './services/sms-sender.service';
 import { EmbeddingService } from './services/embedding.service';
 import { ReportDataService } from './services/report-data.service';
 import { ReportExportersService } from './services/report-exporters.service';
+import { SocialPublisherService } from './services/social-publisher.service';
 
 // Processors
 import { EmailProcessor } from './processors/email.processor';
@@ -23,6 +24,7 @@ import { CalendarProcessor } from './processors/calendar.processor';
 import { AutomationProcessor } from './processors/automation.processor';
 import { IntegrationSyncProcessor } from './processors/integration-sync.processor';
 import { MarketingSchedulerProcessor } from './processors/marketing-scheduler.processor';
+import { SocialPublishingProcessor } from './processors/social-publishing.processor';
 
 // Schedulers
 import { CampaignScheduler } from './schedulers/campaign.scheduler';
@@ -49,6 +51,7 @@ import { BackupScheduler } from './schedulers/backup.scheduler';
     EmbeddingService,
     ReportDataService,
     ReportExportersService,
+    SocialPublisherService,
 
     // Processors
     EmailProcessor,
@@ -61,6 +64,7 @@ import { BackupScheduler } from './schedulers/backup.scheduler';
     AutomationProcessor,
     IntegrationSyncProcessor,
     MarketingSchedulerProcessor,
+    SocialPublishingProcessor,
 
     // Schedulers
     CampaignScheduler,

@@ -7,6 +7,13 @@ const makePrisma = () => ({
     findMany: jest.fn(),
     update: jest.fn(),
   },
+  socialAccount: {
+    findMany: jest.fn().mockResolvedValue([]), // no social accounts → no job enqueuing
+  },
+  publicationAttempt: {
+    findFirst: jest.fn().mockResolvedValue(null),
+    create: jest.fn().mockResolvedValue({ id: 'attempt-1' }),
+  },
 });
 
 const makeConfig = () => ({
@@ -21,7 +28,10 @@ function makeJob(data: unknown): Job {
 }
 
 // Prevent the processor from opening real Redis/BullMQ connections in tests
-jest.mock('bullmq', () => ({ Worker: jest.fn().mockImplementation(() => ({ on: jest.fn(), close: jest.fn() })) }));
+jest.mock('bullmq', () => ({
+  Worker: jest.fn().mockImplementation(() => ({ on: jest.fn(), close: jest.fn() })),
+  Queue: jest.fn().mockImplementation(() => ({ add: jest.fn().mockResolvedValue({}), close: jest.fn().mockResolvedValue(undefined) })),
+}));
 jest.mock('ioredis', () => jest.fn().mockImplementation(() => ({ quit: jest.fn() })));
 
 describe('MarketingSchedulerProcessor — scheduling invariant', () => {

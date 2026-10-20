@@ -3,15 +3,23 @@ import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'crypto';
 import type { ExternalProviderInterface, OAuthTokens, ExternalAccountInfo, ProviderCapabilities } from './external-provider.interface';
 
-const AUTH_URL = 'https://www.facebook.com/v19.0/dialog/oauth';
-const TOKEN_URL = 'https://graph.facebook.com/v19.0/oauth/access_token';
-const ME_URL = 'https://graph.facebook.com/v19.0/me';
+const AUTH_URL = 'https://www.facebook.com/v26.0/dialog/oauth';
+const TOKEN_URL = 'https://graph.facebook.com/v26.0/oauth/access_token';
+const ME_URL = 'https://graph.facebook.com/v26.0/me';
 
 const DEFAULT_SCOPES = [
   'email',
   'public_profile',
   'pages_show_list',
   'instagram_basic',
+  'pages_read_engagement',
+];
+
+// Publishing scopes — requested during social publishing OAuth re-auth flow
+// (requires Meta App Review for Advanced Access)
+export const META_PUBLISHING_SCOPES = [
+  'pages_manage_posts',
+  'instagram_content_publish',
 ];
 
 @Injectable()
@@ -112,7 +120,7 @@ export class MetaExternalProvider implements ExternalProviderInterface {
 
     const data = await this.getAccountInfo(accessToken);
     await fetch(
-      `https://graph.facebook.com/v19.0/${data.id}/permissions?access_token=${encodeURIComponent(accessToken)}`,
+      `https://graph.facebook.com/v26.0/${data.id}/permissions?access_token=${encodeURIComponent(accessToken)}`,
       {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${appId}|${appSecret}` },

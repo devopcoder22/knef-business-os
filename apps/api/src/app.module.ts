@@ -57,6 +57,7 @@ import { StorefrontModule } from './modules/storefront/storefront.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { BackupModule } from './modules/backup/backup.module';
 import { MarketingModule } from './modules/marketing/marketing.module';
+import { SocialModule } from './modules/social/social.module';
 
 @Module({
   imports: [
@@ -135,6 +136,7 @@ import { MarketingModule } from './modules/marketing/marketing.module';
     UploadsModule,
     BackupModule,
     MarketingModule,
+    SocialModule,
   ],
   providers: [
     // Rate limiting — must run before auth so unauthenticated bots are throttled

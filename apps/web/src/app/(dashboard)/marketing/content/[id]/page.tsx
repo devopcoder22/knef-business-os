@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { ArrowLeft, Plus, Trash2, Sparkles, ChevronDown, RotateCcw, Check, X } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Sparkles, ChevronDown, RotateCcw, Check, X, Send, RefreshCw, ExternalLink, AlertTriangle } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -44,6 +44,48 @@ interface Draft {
   }>;
 }
 
+interface SocialAccount {
+  id: string;
+  provider: string;
+  displayName: string;
+  avatarUrl: string | null;
+  approvalStatus: string;
+  capabilities: string[];
+}
+
+interface PublicationAttempt {
+  id: string;
+  provider: string;
+  status: string;
+  externalPostId: string | null;
+  errorMessage: string | null;
+  isRetryable: boolean;
+  publishedAt: string | null;
+  attemptedAt: string | null;
+  socialAccount: { provider: string; displayName: string; avatarUrl: string | null };
+}
+
+const APPROVAL_STATUS_COLORS: Record<string, string> = {
+  READY: 'text-green-600 bg-green-50',
+  CONNECTED: 'text-blue-600 bg-blue-50',
+  APP_REVIEW_PENDING: 'text-amber-600 bg-amber-50',
+  AUDIT_PENDING: 'text-amber-600 bg-amber-50',
+  SCOPES_INCOMPLETE: 'text-red-600 bg-red-50',
+  TOKEN_EXPIRED: 'text-red-600 bg-red-50',
+  DISCONNECTED: 'text-gray-500 bg-gray-100',
+};
+
+const ATTEMPT_STATUS_COLORS: Record<string, string> = {
+  PUBLISHED: 'text-green-600 bg-green-50',
+  PROCESSING: 'text-blue-600 bg-blue-50',
+  QUEUED: 'text-blue-600 bg-blue-50',
+  UPLOADING: 'text-blue-600 bg-blue-50',
+  FAILED: 'text-red-600 bg-red-50',
+  REQUIRES_USER_ACTION: 'text-amber-600 bg-amber-50',
+  PENDING: 'text-gray-500 bg-gray-100',
+  CANCELLED: 'text-gray-500 bg-gray-100',
+};
+
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: 'bg-gray-100 text-gray-600',
   REVIEW: 'bg-amber-100 text-amber-700',
@@ -78,12 +120,35 @@ export default function ContentDraftDetailPage() {
   const [aiSaving, setAiSaving] = useState(false);   // generating
   const [aiApplying, setAiApplying] = useState(false); // persisting exact preview
 
+  // Publish panel state
+  const [showPublishPanel, setShowPublishPanel] = useState(false);
+  const [publishError, setPublishError] = useState<Record<string, string>>({});
+
   const { data: draft, isLoading } = useQuery<Draft>({
     queryKey: ['marketing-draft', id],
     queryFn: async () => {
       const res = await api().get<Draft>(`/marketing/content/${id}`);
       return res.data;
     },
+  });
+
+  const { data: socialAccounts = [] } = useQuery<SocialAccount[]>({
+    queryKey: ['social-accounts'],
+    queryFn: async () => {
+      const res = await api().get<SocialAccount[]>('/social/accounts');
+      return res.data;
+    },
+    enabled: showPublishPanel,
+  });
+
+  const { data: attempts = [], refetch: refetchAttempts } = useQuery<PublicationAttempt[]>({
+    queryKey: ['publication-attempts', id],
+    queryFn: async () => {
+      const res = await api().get<PublicationAttempt[]>(`/social/drafts/${id}/attempts`);
+      return res.data;
+    },
+    enabled: showPublishPanel,
+    refetchInterval: showPublishPanel ? 10_000 : false,
   });
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['marketing-draft', id] });
@@ -129,6 +194,28 @@ export default function ContentDraftDetailPage() {
     mutationFn: (variantId: string) =>
       api().delete(`/marketing/content/${id}/variants/${variantId}`),
     onSuccess: invalidate,
+  });
+
+  const publishMutation = useMutation({
+    mutationFn: (socialAccountId: string) =>
+      api().post('/social/publish', { draftId: id, socialAccountId }),
+    onSuccess: () => {
+      refetchAttempts();
+      invalidate();
+      setPublishError({});
+    },
+    onError: (err: { response?: { data?: { message?: string } } }, socialAccountId: string) => {
+      setPublishError((prev) => ({
+        ...prev,
+        [socialAccountId]: err?.response?.data?.message ?? 'Publish failed',
+      }));
+    },
+  });
+
+  const retryMutation = useMutation({
+    mutationFn: (attemptId: string) =>
+      api().post(`/social/attempts/${attemptId}/retry`),
+    onSuccess: () => refetchAttempts(),
   });
 
   if (isLoading) return <div className="text-gray-400 text-sm">Loading...</div>;
@@ -535,6 +622,130 @@ export default function ContentDraftDetailPage() {
               </div>
             ))}
           </div>
+        )}
+      </div>
+
+      {/* ── Publish to Social ─────────────────────────────────────────────────── */}
+      <div className="bg-white border border-gray-200 rounded-xl p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+            <Send size={14} className="text-blue-500" />
+            Publish to Social
+          </h2>
+          <button
+            onClick={() => setShowPublishPanel((v) => !v)}
+            className="text-xs text-blue-600 hover:underline"
+          >
+            {showPublishPanel ? 'Hide' : 'Show'}
+          </button>
+        </div>
+
+        {!['APPROVED', 'SCHEDULED'].includes(draft.status) && (
+          <div className="flex items-center gap-2 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+            <AlertTriangle size={12} />
+            Draft must be APPROVED or SCHEDULED before publishing.
+          </div>
+        )}
+
+        {showPublishPanel && ['APPROVED', 'SCHEDULED'].includes(draft.status) && (
+          <>
+            {/* Available social accounts */}
+            {socialAccounts.length === 0 ? (
+              <p className="text-sm text-gray-400 mb-4">
+                No social accounts connected.{' '}
+                <a href="/social/accounts" className="text-blue-600 underline">Set up accounts</a>
+              </p>
+            ) : (
+              <div className="space-y-2 mb-4">
+                <p className="text-xs text-gray-500 font-medium">Select account to publish:</p>
+                {socialAccounts.map((acct) => (
+                  <div key={acct.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {acct.avatarUrl && (
+                        <img src={acct.avatarUrl} alt="" className="w-7 h-7 rounded-full" />
+                      )}
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">{acct.displayName}</p>
+                        <span className={cn(
+                          'text-xs px-1.5 py-0.5 rounded-full font-medium',
+                          APPROVAL_STATUS_COLORS[acct.approvalStatus] ?? 'text-gray-500 bg-gray-100',
+                        )}>
+                          {acct.approvalStatus.replace(/_/g, ' ').toLowerCase()}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex-shrink-0 flex items-center gap-2">
+                      {publishError[acct.id] && (
+                        <span className="text-xs text-red-600">{publishError[acct.id]}</span>
+                      )}
+                      <button
+                        onClick={() => publishMutation.mutate(acct.id)}
+                        disabled={publishMutation.isPending}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                      >
+                        <Send size={12} />
+                        Publish
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Publication history */}
+            {attempts.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs text-gray-500 font-medium">Publication history:</p>
+                  <button onClick={() => refetchAttempts()} className="text-xs text-gray-400 hover:text-gray-600">
+                    <RefreshCw size={11} />
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {attempts.map((attempt) => (
+                    <div key={attempt.id} className="flex items-start justify-between gap-3 p-3 bg-gray-50 rounded-lg border border-gray-100">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-medium text-gray-700">
+                            {attempt.socialAccount.displayName}
+                          </span>
+                          <span className={cn(
+                            'text-xs px-1.5 py-0.5 rounded-full font-medium',
+                            ATTEMPT_STATUS_COLORS[attempt.status] ?? 'text-gray-500 bg-gray-100',
+                          )}>
+                            {attempt.status}
+                          </span>
+                        </div>
+                        {attempt.externalPostId && (
+                          <a
+                            href={`https://www.facebook.com/${attempt.externalPostId}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                          >
+                            View post <ExternalLink size={10} />
+                          </a>
+                        )}
+                        {attempt.errorMessage && (
+                          <p className="text-xs text-red-600 mt-0.5 truncate">{attempt.errorMessage}</p>
+                        )}
+                      </div>
+                      {attempt.isRetryable && attempt.status === 'FAILED' && (
+                        <button
+                          onClick={() => retryMutation.mutate(attempt.id)}
+                          disabled={retryMutation.isPending}
+                          className="flex-shrink-0 inline-flex items-center gap-1 px-2 py-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 disabled:opacity-50"
+                        >
+                          <RotateCcw size={11} />
+                          Retry
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

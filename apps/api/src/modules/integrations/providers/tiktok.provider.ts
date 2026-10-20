@@ -7,7 +7,7 @@ const AUTH_URL = 'https://www.tiktok.com/v2/auth/authorize/';
 const TOKEN_URL = 'https://open.tiktokapis.com/v2/oauth/token/';
 const USERINFO_URL = 'https://open.tiktokapis.com/v2/user/info/';
 
-const DEFAULT_SCOPES = ['user.info.basic'];
+const DEFAULT_SCOPES = ['user.info.basic', 'video.publish'];
 
 @Injectable()
 export class TikTokExternalProvider implements ExternalProviderInterface {
@@ -18,7 +18,7 @@ export class TikTokExternalProvider implements ExternalProviderInterface {
     supportsOAuth: true,
     supportsApiKey: false,
     supportsRefreshToken: true,
-    supportsWebhook: false,
+    supportsWebhook: true,
     supportsPublishing: true,
     supportsAds: true,
   };

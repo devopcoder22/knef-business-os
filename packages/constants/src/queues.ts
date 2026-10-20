@@ -42,6 +42,9 @@ export const JOB_TYPES = {
   // marketing queue
   MARKETING_SCHEDULE_CHECK: 'marketing-schedule-check',
   MARKETING_AUDIENCE_RESOLVE: 'marketing-audience-resolve',
+  // social publishing queue (Stage 24E)
+  SOCIAL_PUBLISH: 'social-publish',
+  SOCIAL_STATUS_CHECK: 'social-status-check',
 } as const;
 
 // ── Job payload types ─────────────────────────────────────────────────────────
@@ -186,4 +189,20 @@ export interface MarketingAudienceResolveJobData {
   campaignId: string;
   segmentId: string;
   channel: string;
+}
+
+export interface SocialPublishJobData {
+  attemptId: string;
+  organizationId: string;
+  draftId: string;
+  socialAccountId: string;
+  provider: string;
+}
+
+export interface SocialStatusCheckJobData {
+  attemptId: string;
+  organizationId: string;
+  provider: string;
+  providerPublishId: string;
+  socialAccountId: string;
 }

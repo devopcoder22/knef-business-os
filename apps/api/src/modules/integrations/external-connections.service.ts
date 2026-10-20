@@ -383,6 +383,18 @@ export class ExternalConnectionsService {
     });
   }
 
+  // ── Decrypt token for social publishing ───────────────────────────────────
+
+  async decryptConnectionToken(connectionId: string): Promise<string> {
+    const conn = await this.prisma.externalConnection.findUnique({
+      where: { id: connectionId },
+    });
+    if (!conn?.accessTokenEncrypted) {
+      throw new Error('No access token stored for connection');
+    }
+    return decrypt(conn.accessTokenEncrypted, this.encryptionKey);
+  }
+
   // ── Private helpers ────────────────────────────────────────────────────────
 
   private get encryptionKey(): string {
