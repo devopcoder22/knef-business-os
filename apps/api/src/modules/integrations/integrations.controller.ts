@@ -2,12 +2,16 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
   Body,
   Param,
+  Query,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { IsString } from 'class-validator';
 import { MarketplaceService, MarketplaceProvider } from './marketplace.service';
+import { ExternalConnectionsService } from './external-connections.service';
+import { InitiateOAuthDto, DisconnectConnectionDto } from './dto/external-connection.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { PERMISSIONS } from '@knef/constants';
@@ -28,7 +32,12 @@ class ConfigureProviderDto {
 @ApiBearerAuth('JWT')
 @Controller('integrations')
 export class IntegrationsController {
-  constructor(private readonly marketplaceService: MarketplaceService) {}
+  constructor(
+    private readonly marketplaceService: MarketplaceService,
+    private readonly connections: ExternalConnectionsService,
+  ) {}
+
+  // ── Marketplace (existing) ─────────────────────────────────────────────────
 
   @Get('marketplace/status')
   @Permissions(PERMISSIONS.SETTINGS.MANAGE_INTEGRATIONS)
@@ -77,5 +86,55 @@ export class IntegrationsController {
       user.organizationId,
       provider as MarketplaceProvider,
     );
+  }
+
+  // ── External connections (OAuth providers) ─────────────────────────────────
+
+  @Get('providers')
+  @Permissions(PERMISSIONS.INTEGRATIONS.VIEW)
+  @ApiOperation({ summary: 'List supported OAuth providers' })
+  listProviders() {
+    return this.connections.listProviders();
+  }
+
+  @Get('connections')
+  @Permissions(PERMISSIONS.INTEGRATIONS.VIEW)
+  @ApiOperation({ summary: 'List all external connections for the organization' })
+  listConnections(@CurrentUser() user: AuthUser) {
+    return this.connections.listConnections(user.organizationId);
+  }
+
+  @Get('connections/:id')
+  @Permissions(PERMISSIONS.INTEGRATIONS.VIEW)
+  @ApiOperation({ summary: 'Get a single external connection' })
+  getConnection(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.connections.getConnection(user.organizationId, id);
+  }
+
+  @Post('connections/oauth/initiate')
+  @Permissions(PERMISSIONS.INTEGRATIONS.MANAGE)
+  @ApiOperation({ summary: 'Start OAuth flow for a provider' })
+  initiateOAuth(@CurrentUser() user: AuthUser, @Body() dto: InitiateOAuthDto) {
+    return this.connections.initiateOAuth(user.id, user.organizationId, dto);
+  }
+
+  @Delete('connections/:id')
+  @Permissions(PERMISSIONS.INTEGRATIONS.MANAGE)
+  @ApiOperation({ summary: 'Disconnect an external integration' })
+  disconnect(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: DisconnectConnectionDto,
+    @Query('revoke') revoke?: string,
+  ) {
+    const revokeAtProvider = dto.revokeAtProvider ?? revoke === 'true';
+    return this.connections.disconnect(user.organizationId, user.id, id, revokeAtProvider);
+  }
+
+  @Post('connections/:id/health-check')
+  @Permissions(PERMISSIONS.INTEGRATIONS.MANAGE)
+  @ApiOperation({ summary: 'Run a health check on an external connection' })
+  healthCheck(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.connections.runHealthCheck(id);
   }
 }

@@ -5,6 +5,8 @@ import type { Job } from 'bullmq';
 function makePrisma() {
   return {
     notification: { create: jest.fn(async () => ({})) },
+    pushSubscription: { findMany: jest.fn(async () => []), update: jest.fn() },
+    communicationLog: { update: jest.fn() },
   };
 }
 
@@ -37,11 +39,16 @@ function makeNotificationData(overrides: Partial<{
   };
 }
 
+function makeSmsSender() {
+  return { sendSms: jest.fn(async () => ({ success: true })) };
+}
+
 describe('NotificationsProcessor', () => {
   function makeProcessor() {
     const prisma = makePrisma();
+    const smsSender = makeSmsSender();
     const config = makeConfig();
-    const processor = new NotificationsProcessor(prisma as never, config as never);
+    const processor = new NotificationsProcessor(prisma as never, smsSender as never, config as never);
     return { processor, prisma };
   }
 

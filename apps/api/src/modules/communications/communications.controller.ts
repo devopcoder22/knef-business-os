@@ -22,6 +22,9 @@ import { WebhooksService } from './webhooks.service';
 import { EmailService } from './email.service';
 import { EmailSubscriptionService } from './email-subscription.service';
 import { ProviderWebhooksService } from './provider-webhooks.service';
+import { SmsService } from './sms.service';
+import { WebPushService } from './web-push.service';
+import { ChannelPreferenceService } from './channel-preference.service';
 import { TelegramLinkingService } from '../telegram-bot/telegram-linking.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
@@ -614,30 +617,157 @@ export class WebhooksController {
   }
 }
 
-// ── SMS ──────────────────────────────────────────────────────────
+// ── SMS Providers ─────────────────────────────────────────────────
 
 @ApiTags('communications-sms')
 @ApiBearerAuth('JWT')
 @Controller('communications/sms')
 export class SmsController {
-  constructor(private readonly emailService: EmailService) {}
+  constructor(
+    private readonly smsService: SmsService,
+    private readonly emailService: EmailService,
+  ) {}
+
+  @Get('providers')
+  @Permissions(PERMISSIONS.COMMUNICATIONS.SMS)
+  @ApiOperation({ summary: 'List SMS providers' })
+  listProviders(@CurrentUser() user: AuthUser) {
+    return this.smsService.listProviders(user.organizationId);
+  }
+
+  @Post('providers')
+  @Permissions(PERMISSIONS.COMMUNICATIONS.SMS)
+  @ApiOperation({ summary: 'Add an SMS provider' })
+  createProvider(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: { name: string; provider: string; apiKey: string; senderId?: string; isDefault?: boolean },
+  ) {
+    return this.smsService.createProvider(user.organizationId, user.id, dto);
+  }
+
+  @Patch('providers/:id')
+  @Permissions(PERMISSIONS.COMMUNICATIONS.SMS)
+  @ApiOperation({ summary: 'Update an SMS provider' })
+  updateProvider(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: { name?: string; apiKey?: string; senderId?: string; isDefault?: boolean; isActive?: boolean },
+  ) {
+    return this.smsService.updateProvider(user.organizationId, user.id, id, dto);
+  }
+
+  @Delete('providers/:id')
+  @Permissions(PERMISSIONS.COMMUNICATIONS.SMS)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Delete an SMS provider' })
+  deleteProvider(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.smsService.deleteProvider(user.organizationId, user.id, id);
+  }
+
+  @Post('send')
+  @Permissions(PERMISSIONS.COMMUNICATIONS.SMS)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Queue a transactional SMS' })
+  send(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: { to: string; message: string; providerId?: string },
+  ) {
+    return this.smsService.queueSms({
+      organizationId: user.organizationId,
+      to: dto.to,
+      message: dto.message,
+      messageType: 'TRANSACTIONAL',
+      providerId: dto.providerId,
+    });
+  }
 
   @Post('test')
-  @Permissions(PERMISSIONS.COMMUNICATIONS.EMAIL_PROVIDERS)
+  @Permissions(PERMISSIONS.COMMUNICATIONS.SMS)
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Send a test SMS via Termii' })
-  async testSms(
-    @Body() dto: { phone: string },
-    @CurrentUser() _user: AuthUser,
+  @ApiOperation({ summary: 'Send a test SMS' })
+  test(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: { phone: string; providerId?: string },
   ) {
-    const result = await this.emailService.sendSms(
-      _user.organizationId,
-      dto.phone,
-      'This is a test SMS from KNEF Business OS. Your SMS integration is working correctly.',
+    return this.smsService.queueSms({
+      organizationId: user.organizationId,
+      to: dto.phone,
+      message: 'This is a test SMS from KNEF Business OS. Your SMS integration is working correctly.',
+      messageType: 'TRANSACTIONAL',
+      providerId: dto.providerId,
+    });
+  }
+}
+
+// ── Channel Preferences ───────────────────────────────────────────
+
+@ApiTags('communications-preferences')
+@ApiBearerAuth('JWT')
+@Controller('communications/preferences')
+export class ChannelPreferencesController {
+  constructor(private readonly preferenceService: ChannelPreferenceService) {}
+
+  @Get()
+  @ApiOperation({ summary: 'Get my channel communication preferences' })
+  getMyPreferences(@CurrentUser() user: AuthUser) {
+    return this.preferenceService.getPreferences(user.organizationId, user.id);
+  }
+
+  @Patch()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Update a channel communication preference' })
+  updatePreference(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: { channel: string; messageType: string; status: string },
+  ) {
+    return this.preferenceService.upsertPreference(
+      user.organizationId,
+      {
+        userId: user.id,
+        channel: dto.channel as Parameters<typeof this.preferenceService.upsertPreference>[1]['channel'],
+        messageType: dto.messageType as Parameters<typeof this.preferenceService.upsertPreference>[1]['messageType'],
+        status: dto.status as Parameters<typeof this.preferenceService.upsertPreference>[1]['status'],
+        source: 'web',
+      },
+      user.id,
     );
-    if (!result.success) {
-      throw new BadRequestException(result.error ?? 'Failed to send SMS');
-    }
-    return { message: 'Test SMS sent successfully', messageId: (result as any).messageId };
+  }
+}
+
+// ── Web Push ──────────────────────────────────────────────────────
+
+@ApiTags('communications-push')
+@ApiBearerAuth('JWT')
+@Controller('communications/push')
+export class WebPushController {
+  constructor(private readonly webPush: WebPushService) {}
+
+  @Get('vapid-public-key')
+  @ApiOperation({ summary: 'Get VAPID public key for browser push subscription' })
+  getVapidKey(@CurrentUser() user: AuthUser) {
+    return this.webPush.getVapidPublicKey(user.organizationId);
+  }
+
+  @Post('subscribe')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Register a browser push subscription' })
+  subscribe(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: { endpoint: string; p256dhKey: string; authKey: string; userAgent?: string },
+  ) {
+    return this.webPush.subscribe(user.id, user.organizationId, dto);
+  }
+
+  @Delete('unsubscribe')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Remove a push subscription endpoint' })
+  unsubscribe(@CurrentUser() user: AuthUser, @Body() dto: { endpoint: string }) {
+    return this.webPush.unsubscribe(user.id, dto.endpoint);
+  }
+
+  @Get('subscriptions')
+  @ApiOperation({ summary: 'List my active push subscriptions' })
+  listSubscriptions(@CurrentUser() user: AuthUser) {
+    return this.webPush.listSubscriptions(user.id, user.organizationId);
   }
 }

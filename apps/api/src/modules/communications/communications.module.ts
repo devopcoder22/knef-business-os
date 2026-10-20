@@ -7,6 +7,9 @@ import { ProviderWebhooksService } from './provider-webhooks.service';
 import { NotificationsService } from './notifications.service';
 import { TelegramService } from './telegram.service';
 import { WebhooksService } from './webhooks.service';
+import { SmsService } from './sms.service';
+import { WebPushService } from './web-push.service';
+import { ChannelPreferenceService } from './channel-preference.service';
 import { AuditModule } from '../audit/audit.module';
 import { TelegramBotModule } from '../telegram-bot/telegram-bot.module';
 import {
@@ -20,6 +23,8 @@ import {
   TelegramController,
   WebhooksController,
   SmsController,
+  ChannelPreferencesController,
+  WebPushController,
 } from './communications.controller';
 
 @Module({
@@ -33,6 +38,9 @@ import {
     NotificationsService,
     TelegramService,
     WebhooksService,
+    SmsService,
+    WebPushService,
+    ChannelPreferenceService,
   ],
   controllers: [
     EmailProvidersController,
@@ -45,6 +53,8 @@ import {
     TelegramController,
     WebhooksController,
     SmsController,
+    ChannelPreferencesController,
+    WebPushController,
   ],
   exports: [
     EmailService,
@@ -52,6 +62,8 @@ import {
     NotificationsService,
     TelegramService,
     WebhooksService,
+    SmsService,
+    ChannelPreferenceService,
   ],
 })
 export class CommunicationsModule {}
