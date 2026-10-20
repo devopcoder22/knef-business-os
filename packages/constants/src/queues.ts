@@ -7,6 +7,8 @@ export const QUEUES = {
   BACKUP: 'backup',
   CALENDAR: 'calendar',
   AUTOMATION: 'automation',
+  INTEGRATIONS: 'integrations',
+  MARKETING: 'marketing',
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -29,6 +31,17 @@ export const JOB_TYPES = {
   SYNC_CALENDAR: 'sync-calendar',
   // automation queue
   AUTOMATION_EXECUTE: 'automation-execute',
+  // integrations queue
+  INTEGRATION_REFRESH_TOKENS: 'integration-refresh-tokens',
+  INTEGRATION_HEALTH_CHECK: 'integration-health-check',
+  INTEGRATION_SYNC: 'integration-sync',
+  // notifications queue (additional types)
+  SEND_SMS: 'send-sms',
+  SEND_PUSH: 'send-push',
+  SEND_WHATSAPP: 'send-whatsapp',
+  // marketing queue
+  MARKETING_SCHEDULE_CHECK: 'marketing-schedule-check',
+  MARKETING_AUDIENCE_RESOLVE: 'marketing-audience-resolve',
 } as const;
 
 // ── Job payload types ─────────────────────────────────────────────────────────
@@ -97,6 +110,58 @@ export interface SyncCalendarJobData {
   provider: string;
 }
 
+export interface IntegrationRefreshTokensJobData {
+  connectionId: string;
+  organizationId: string;
+  provider: string;
+}
+
+export interface IntegrationHealthCheckJobData {
+  connectionId: string;
+  organizationId: string;
+  provider: string;
+}
+
+export interface IntegrationSyncJobData {
+  connectionId: string;
+  organizationId: string;
+  provider: string;
+  jobType: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface SmsSendJobData {
+  organizationId: string;
+  to: string;
+  message: string;
+  messageType: 'TRANSACTIONAL' | 'MARKETING';
+  providerId?: string;
+  senderId?: string;
+  logId?: string;
+  idempotencyKey?: string;
+}
+
+export interface PushSendJobData {
+  organizationId: string;
+  userId: string;
+  title: string;
+  body: string;
+  url?: string;
+  icon?: string;
+  logId?: string;
+  idempotencyKey?: string;
+}
+
+export interface WhatsAppSendJobData {
+  organizationId: string;
+  to: string;
+  message: string;
+  messageType: 'TRANSACTIONAL' | 'MARKETING';
+  templateName?: string;
+  logId?: string;
+  idempotencyKey?: string;
+}
+
 export interface AutomationExecuteJobData {
   executionId: string;
   ruleId: string;
@@ -110,4 +175,15 @@ export interface AutomationExecuteJobData {
   eventData: Record<string, unknown>;
   automationDepth: number;
   causationId: string | null;
+}
+
+export interface MarketingScheduleCheckJobData {
+  organizationId: string;
+}
+
+export interface MarketingAudienceResolveJobData {
+  organizationId: string;
+  campaignId: string;
+  segmentId: string;
+  channel: string;
 }

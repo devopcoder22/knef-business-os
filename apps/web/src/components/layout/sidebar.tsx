@@ -50,6 +50,8 @@ import {
   Scale,
   ShoppingBag,
   Trash2,
+  Megaphone,
+  Image,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -212,6 +214,20 @@ const NAV_ITEMS: NavItem[] = [
   },
   { label: 'Integrations', href: '/admin/integrations', icon: Plug, adminOnly: true },
   { label: 'Business Rules', href: '/admin/business-rules', icon: Scale, adminOnly: true },
+  {
+    label: 'Marketing',
+    href: '/marketing',
+    icon: Megaphone,
+    permission: PERMISSIONS.MARKETING.VIEW,
+    children: [
+      { label: 'Dashboard', href: '/marketing', icon: LayoutDashboard, permission: PERMISSIONS.MARKETING.VIEW },
+      { label: 'Campaigns', href: '/marketing/campaigns', icon: Megaphone, permission: PERMISSIONS.MARKETING.VIEW },
+      { label: 'Content', href: '/marketing/content', icon: FileText, permission: PERMISSIONS.MARKETING.VIEW },
+      { label: 'Calendar', href: '/marketing/calendar', icon: Calendar, permission: PERMISSIONS.MARKETING.VIEW },
+      { label: 'Audiences', href: '/marketing/audiences', icon: Users, permission: PERMISSIONS.MARKETING.AUDIENCE_VIEW },
+      { label: 'Media', href: '/marketing/media', icon: Image, permission: PERMISSIONS.MARKETING.VIEW },
+    ],
+  },
   {
     label: 'Communications',
     href: '/communications',

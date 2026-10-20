@@ -127,7 +127,18 @@ export const PERMISSIONS = {
     MANAGE: 'ecommerce.manage',
   },
   INTEGRATIONS: {
+    VIEW: 'integrations.view',
     MANAGE: 'integrations.manage',
+  },
+  MARKETING: {
+    VIEW: 'marketing.view',
+    MANAGE: 'marketing.manage',
+    CONTENT_CREATE: 'marketing.content.create',
+    CONTENT_EDIT: 'marketing.content.edit',
+    APPROVE: 'marketing.approve',
+    PUBLISH: 'marketing.publish',
+    AUDIENCE_VIEW: 'marketing.audience.view',
+    AUDIENCE_MANAGE: 'marketing.audience.manage',
   },
   COMMUNICATIONS: {
     EMAIL_PROVIDERS: 'communications.email_providers',
@@ -138,6 +149,8 @@ export const PERMISSIONS = {
     TELEGRAM: 'communications.telegram',
     WEBHOOKS: 'communications.webhooks',
     SUBSCRIPTIONS: 'communications.subscriptions',
+    SMS: 'communications.sms',
+    PUSH: 'communications.push',
   },
   CALENDAR: {
     VIEW: 'calendar.view',

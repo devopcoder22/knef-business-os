@@ -42,8 +42,18 @@ model Organization {
   roles        Role[]
   featureFlags FeatureFlag[]
   settings     SystemSetting[]
-  auditLogs    AuditLog[]
-  apiKeys      APIKey[]
+  auditLogs           AuditLog[]
+  apiKeys             APIKey[]
+  externalConnections ExternalConnection[]
+  integrationSyncLogs IntegrationSyncLog[]
+  smsProviders        SmsProvider[]
+  channelPreferences  ChannelPreference[]
+  pushSubscriptions   PushSubscription[]
+  whatsAppConfig      WhatsAppConfig?
+  communicationLogs   CommunicationLog[]
+  marketingCampaigns  MarketingCampaign[]
+  contentDrafts       ContentDraft[]
+  mediaAssets         MediaAsset[]
 
   @@index([slug])
 }
@@ -130,7 +140,10 @@ model User {
   employee           Employee?
   posSessions        POSSession[]
   salesOrders        SalesOrder[]
-  userFeatureFlags   UserFeatureFlag[]
+  userFeatureFlags             UserFeatureFlag[]
+  externalConnectionsConnected ExternalConnection[] @relation("ExternalConnectionUser")
+  channelPreferences           ChannelPreference[]
+  pushSubscriptions            PushSubscription[]
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -983,7 +996,8 @@ model CustomerSegment {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  members CustomerSegmentMember[]
+  members           CustomerSegmentMember[]
+  marketingCampaigns MarketingCampaign[]
 
   @@index([organizationId])
 }
@@ -2645,4 +2659,322 @@ model SystemBackup {
 
   @@index([createdAt])
   @@map("system_backups")
+}
+
+// ─────────────────────────────────────────────────────────────
+// STAGE 24A — EXTERNAL INTEGRATION CONNECTIONS
+// ─────────────────────────────────────────────────────────────
+
+// Unified provider connection: OAuth (Google/Meta/TikTok/Shopify…)
+// and API-key based providers. One row per connected account/page.
+model ExternalConnection {
+  id                    String    @id @default(cuid())
+  organizationId        String
+  provider              String    // google | meta | tiktok | snapchat | shopify | whatsapp_business | push_vapid
+  displayName           String
+  status                String    @default("pending") // pending | connected | disconnected | error | expired
+  externalAccountId     String?
+  externalAccountName   String?
+  externalAccountEmail  String?
+  externalPageId        String?
+  externalPageName      String?
+
+  // OAuth credentials — encrypted at rest with AES-256-GCM
+  accessTokenEncrypted  String?
+  refreshTokenEncrypted String?
+  tokenExpiresAt        DateTime?
+  tokenRefreshedAt      DateTime?
+  tokenStatus           String?   // active | expired | refresh_failed | revoked
+  scopes                String[]
+
+  // Simple API credentials (non-OAuth)
+  apiKeyEncrypted       String?
+  apiSecretEncrypted    String?
+
+  // Health
+  lastHealthCheckAt     DateTime?
+  healthStatus          String?   // ok | degraded | down
+  errorCount            Int       @default(0)
+  lastErrorAt           DateTime?
+  lastErrorMessage      String?
+
+  // Provider-specific extra data
+  metadata              Json?
+
+  // Audit
+  connectedByUserId     String?
+  connectedAt           DateTime?
+  disconnectedAt        DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectedBy   User?              @relation("ExternalConnectionUser", fields: [connectedByUserId], references: [id])
+  syncLogs      IntegrationSyncLog[]
+
+  @@unique([organizationId, provider, externalAccountId])
+  @@index([organizationId, provider])
+  @@index([organizationId, status])
+  @@map("external_connections")
+}
+
+// Job/sync tracking for every background operation against a provider connection
+model IntegrationSyncLog {
+  id             String    @id @default(cuid())
+  organizationId String
+  connectionId   String
+  provider       String
+  jobType        String    // token-refresh | health-check | sync-products | metrics-pull | …
+  status         String    @default("pending") // pending | running | success | failed | partial
+  startedAt      DateTime  @default(now())
+  completedAt    DateTime?
+  itemsProcessed Int?
+  itemsFailed    Int?
+  errorMessage   String?
+  metadata       Json?
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connection   ExternalConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, connectionId])
+  @@index([organizationId, provider, status])
+  @@index([connectionId, startedAt])
+  @@map("integration_sync_logs")
+}
+
+// ─────────────────────────────────────────────────────────────
+// UNIFIED COMMUNICATIONS — Stage 24B
+// ─────────────────────────────────────────────────────────────
+
+model SmsProvider {
+  id              String   @id @default(cuid())
+  organizationId  String
+  name            String
+  provider        String   // termii | twilio | vonage
+  apiKeyEncrypted String
+  senderId        String?
+  isDefault       Boolean  @default(false)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, provider])
+  @@index([organizationId, isDefault])
+  @@map("sms_providers")
+}
+
+model ChannelPreference {
+  id             String    @id @default(cuid())
+  organizationId String
+  userId         String?
+  email          String?
+  phone          String?
+  channel        String    // EMAIL | SMS | TELEGRAM | WHATSAPP | WEB_PUSH | IN_APP
+  messageType    String    // MARKETING | TRANSACTIONAL | ALL
+  status         String    @default("subscribed") // subscribed | unsubscribed | suppressed
+  consentAt      DateTime?
+  unsubscribedAt DateTime?
+  source         String?   // web | api | import | bot | system
+  metadata       Json?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id])
+
+  @@index([organizationId, channel, status])
+  @@index([organizationId, userId, channel])
+  @@index([organizationId, email, channel])
+  @@index([organizationId, phone, channel])
+  @@map("channel_preferences")
+}
+
+model PushSubscription {
+  id             String    @id @default(cuid())
+  organizationId String
+  userId         String
+  endpoint       String
+  p256dhKey      String
+  authKey        String
+  userAgent      String?
+  isActive       Boolean   @default(true)
+  lastUsedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, endpoint])
+  @@index([organizationId, userId])
+  @@map("push_subscriptions")
+}
+
+model WhatsAppConfig {
+  id                   String   @id @default(cuid())
+  organizationId       String   @unique
+  phoneNumberId        String
+  businessAccountId    String
+  accessTokenEncrypted String
+  webhookVerifyToken   String?
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("whatsapp_configs")
+}
+
+model CommunicationLog {
+  id                String    @id @default(cuid())
+  organizationId    String
+  userId            String?
+  channel           String    // EMAIL | SMS | TELEGRAM | WHATSAPP | WEB_PUSH | IN_APP
+  messageType       String    // TRANSACTIONAL | MARKETING
+  recipient         String
+  subject           String?
+  status            String    @default("queued") // queued | sent | delivered | failed | bounced
+  providerMessageId String?
+  errorMessage      String?
+  attemptCount      Int       @default(0)
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  failedAt          DateTime?
+  metadata          Json?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, channel, status])
+  @@index([organizationId, userId])
+  @@index([organizationId, createdAt])
+  @@map("communication_logs")
+}
+
+// ── Stage 24C: Marketing & Content Management ──────────────────────────────────
+
+enum MarketingCampaignStatus {
+  DRAFT
+  REVIEW
+  APPROVED
+  SCHEDULED
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum ContentDraftStatus {
+  DRAFT
+  REVIEW
+  APPROVED
+  SCHEDULED
+  PUBLISHED
+  ARCHIVED
+}
+
+model MarketingCampaign {
+  id              String                  @id @default(cuid())
+  organizationId  String
+  name            String
+  description     String?
+  objective       String                  @default("GENERIC")
+  status          MarketingCampaignStatus @default(DRAFT)
+  channels        String[]                @default([])
+  startDate       DateTime?
+  endDate         DateTime?
+  budgetMetadata  Json?
+  notes           String?
+  targetSegmentId String?
+  createdById     String?
+  approvedById    String?
+  approvedAt      DateTime?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  organization  Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  targetSegment CustomerSegment? @relation(fields: [targetSegmentId], references: [id])
+  contentDrafts ContentDraft[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@map("marketing_campaigns")
+}
+
+model ContentDraft {
+  id             String             @id @default(cuid())
+  organizationId String
+  campaignId     String?
+  title          String
+  body           String?
+  callToAction   String?
+  destinationUrl String?
+  targetChannel  String             @default("SOCIAL")
+  status         ContentDraftStatus @default(DRAFT)
+  ownerId        String?
+  scheduledAt    DateTime?
+  timezone       String             @default("UTC")
+  approvedById   String?
+  approvedAt     DateTime?
+  publishedAt    DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  campaign     MarketingCampaign? @relation(fields: [campaignId], references: [id])
+  variants     ContentVariant[]
+
+  @@index([organizationId])
+  @@index([campaignId])
+  @@index([status])
+  @@map("content_drafts")
+}
+
+model ContentVariant {
+  id                String   @id @default(cuid())
+  draftId           String
+  platform          String
+  body              String?
+  callToAction      String?
+  mediaAssetIds     Json     @default("[]")
+  providerName      String?
+  externalAccountId String?
+  externalPostId    String?
+  externalStatus    String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  draft ContentDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+
+  @@unique([draftId, platform])
+  @@index([draftId])
+  @@map("content_variants")
+}
+
+model MediaAsset {
+  id             String   @id @default(cuid())
+  organizationId String
+  uploadedById   String?
+  filename       String
+  originalName   String
+  mimeType       String
+  size           Int
+  width          Int?
+  height         Int?
+  url            String
+  altText        String?
+  tags           Json     @default("[]")
+  category       String   @default("CAMPAIGN_IMAGE")
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([category])
+  @@map("media_assets")
 }

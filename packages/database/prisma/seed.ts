@@ -25,6 +25,10 @@ const ALL_PERMISSIONS = [
   'automation.view', 'automation.create', 'automation.edit', 'automation.delete', 'automation.activate', 'automation.execute', 'automation.history.view',
   'communications.email_providers', 'communications.campaigns', 'communications.campaigns.approve', 'communications.campaigns.send',
   'communications.templates', 'communications.telegram', 'communications.webhooks', 'communications.subscriptions',
+  'communications.sms', 'communications.push',
+  'integrations.view', 'integrations.manage',
+  'marketing.view', 'marketing.manage', 'marketing.content.create', 'marketing.content.edit',
+  'marketing.approve', 'marketing.publish', 'marketing.audience.view', 'marketing.audience.manage',
 ];
 
 const ROLE_PERMISSIONS: Record<string, string[]> = {
@@ -44,6 +48,9 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'ai.access', 'ai.view_usage',
     'settings.view', 'admin.view_audit',
     'automation.view', 'automation.create', 'automation.edit', 'automation.activate', 'automation.execute', 'automation.history.view',
+    'integrations.view',
+    'marketing.view', 'marketing.manage', 'marketing.content.create', 'marketing.content.edit',
+    'marketing.approve', 'marketing.publish', 'marketing.audience.view', 'marketing.audience.manage',
   ],
   SALES_MANAGER: [
     'products.view', 'products.export',
@@ -101,6 +108,9 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'tasks.view', 'tasks.create',
     'settings.view', 'settings.manage_integrations',
     'ai.access',
+    'integrations.view', 'integrations.manage',
+    'marketing.view', 'marketing.manage', 'marketing.content.create', 'marketing.content.edit',
+    'marketing.approve', 'marketing.publish', 'marketing.audience.view', 'marketing.audience.manage',
   ],
   CUSTOMER_SERVICE: [
     'products.view',
