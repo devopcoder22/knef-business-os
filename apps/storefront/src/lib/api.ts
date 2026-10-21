@@ -214,7 +214,8 @@ export async function fetchStorefrontSettings(): Promise<StorefrontSettings> {
     const res: { data: Array<{ key: string; value: string }> } = await apiFetch('/api/storefront-settings');
     const settings: StorefrontSettings = {};
     for (const item of res.data ?? []) {
-      const shortKey = item.key.replace('storefront.', '') as keyof StorefrontSettings;
+      const rawKey = item.key.replace('storefront.', '');
+      const shortKey = rawKey.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()) as keyof StorefrontSettings;
       const booleanKeys: Array<keyof StorefrontSettings> = [
         'announcementEnabled',
         'socialInstagramEnabled',
