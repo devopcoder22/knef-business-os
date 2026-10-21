@@ -1,0 +1,65 @@
+# Stage 24 Validation environment — fully isolated from production and UAT
+# Usage: docker compose -f docker-compose.yml -f docker-compose.stage-validation.yml \
+#          --project-name knef-stage-validation up -d --build
+#
+# Port assignments (no overlap with production or UAT):
+#   DB       host 5434 → container 5432
+#   Redis    host 6381 → container 6379
+#   API      host 4001 → container 4000
+#   Web      host 3003 → container 3000
+#   Storefront host 3004 → container 3001
+#   MCP      host 4102 → container 4100
+
+services:
+  caddy:
+    profiles: ["caddy"]   # disabled — access services directly by port
+
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: knef_stage_validation
+      POSTGRES_USER: knef
+      POSTGRES_PASSWORD: stage_validation_password
+    ports:
+      - "5434:5432"
+
+  redis:
+    ports:
+      - "6381:6379"
+
+  api:
+    image: knef-business-os-api:latest
+    env_file:
+      - apps/api/.env.stage-validation
+    ports:
+      - "4001:4000"
+
+  worker:
+    image: knef-business-os-worker:latest
+    env_file:
+      - apps/api/.env.stage-validation
+
+  web:
+    image: knef-business-os-web:latest
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:4001/api/v1
+      - INTERNAL_API_URL=http://api:4000/api/v1
+    ports:
+      - "3003:3000"
+
+  storefront:
+    image: knef-business-os-storefront:latest
+    env_file:
+      - apps/storefront/.env.stage-validation
+    ports:
+      - "3004:3001"
+
+  mcp-server:
+    image: knef-business-os-mcp-server:latest
+    env_file:
+      - apps/api/.env.stage-validation
+    environment:
+      - MCP_SERVER_PORT=4100
+      - KNEF_API_URL=http://api:4000
+    ports:
+      - "4102:4100"

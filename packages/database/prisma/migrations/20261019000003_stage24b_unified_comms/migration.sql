@@ -87,13 +87,13 @@ CREATE TABLE "communication_logs" (
 );
 
 -- Foreign keys
-ALTER TABLE "sms_providers"       ADD CONSTRAINT "sms_providers_organizationId_fkey"       FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "channel_preferences" ADD CONSTRAINT "channel_preferences_organizationId_fkey"  FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "channel_preferences" ADD CONSTRAINT "channel_preferences_userId_fkey"          FOREIGN KEY ("userId")         REFERENCES "users"("id")         ON DELETE SET NULL ON UPDATE CASCADE;
-ALTER TABLE "push_subscriptions"  ADD CONSTRAINT "push_subscriptions_organizationId_fkey"   FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "push_subscriptions"  ADD CONSTRAINT "push_subscriptions_userId_fkey"           FOREIGN KEY ("userId")         REFERENCES "users"("id")         ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "whatsapp_configs"    ADD CONSTRAINT "whatsapp_configs_organizationId_fkey"     FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "communication_logs"  ADD CONSTRAINT "communication_logs_organizationId_fkey"   FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "sms_providers"       ADD CONSTRAINT "sms_providers_organizationId_fkey"       FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "channel_preferences" ADD CONSTRAINT "channel_preferences_organizationId_fkey"  FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "channel_preferences" ADD CONSTRAINT "channel_preferences_userId_fkey"          FOREIGN KEY ("userId")         REFERENCES "User"("id")         ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "push_subscriptions"  ADD CONSTRAINT "push_subscriptions_organizationId_fkey"   FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "push_subscriptions"  ADD CONSTRAINT "push_subscriptions_userId_fkey"           FOREIGN KEY ("userId")         REFERENCES "User"("id")         ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "whatsapp_configs"    ADD CONSTRAINT "whatsapp_configs_organizationId_fkey"     FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "communication_logs"  ADD CONSTRAINT "communication_logs_organizationId_fkey"   FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- Unique constraints
 CREATE UNIQUE INDEX "sms_providers_organizationId_provider_key"    ON "sms_providers"("organizationId", "provider");

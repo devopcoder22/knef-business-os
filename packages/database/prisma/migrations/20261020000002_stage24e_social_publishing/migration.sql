@@ -67,13 +67,13 @@ CREATE INDEX "publication_attempts_providerEventId_idx" ON "publication_attempts
 
 -- Foreign keys
 ALTER TABLE "social_accounts" ADD CONSTRAINT "social_accounts_organizationId_fkey"
-    FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE "social_accounts" ADD CONSTRAINT "social_accounts_connectionId_fkey"
     FOREIGN KEY ("connectionId") REFERENCES "external_connections"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE "publication_attempts" ADD CONSTRAINT "publication_attempts_organizationId_fkey"
-    FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE "publication_attempts" ADD CONSTRAINT "publication_attempts_draftId_fkey"
     FOREIGN KEY ("draftId") REFERENCES "content_drafts"("id") ON DELETE CASCADE ON UPDATE CASCADE;
