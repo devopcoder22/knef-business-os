@@ -205,7 +205,7 @@ export class EmailService {
         select: { value: true },
       });
       const apiKey = dbApiKey?.value || process.env.TERMII_API_KEY;
-      const senderId = dbSenderId?.value || 'N-Alert';
+      const senderId = dbSenderId?.value || 'OE Alert';
 
       if (!apiKey) {
         this.logger.warn('SMS: TERMII_API_KEY not set');
