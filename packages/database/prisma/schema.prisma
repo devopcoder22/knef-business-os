@@ -44,6 +44,7 @@ model Organization {
   settings     SystemSetting[]
   auditLogs    AuditLog[]
   apiKeys      APIKey[]
+  testimonials StorefrontTestimonial[]
 
   @@index([slug])
 }
@@ -2645,4 +2646,26 @@ model SystemBackup {
 
   @@index([createdAt])
   @@map("system_backups")
+}
+
+model StorefrontTestimonial {
+  id             String   @id @default(cuid())
+  organizationId String
+  customerName   String
+  quote          String
+  rating         Int?
+  location       String?
+  productName    String?
+  avatarUrl      String?
+  isActive       Boolean  @default(true)
+  displayOrder   Int      @default(0)
+  createdBy      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, isActive])
+  @@index([organizationId, displayOrder])
+  @@map("storefront_testimonials")
 }

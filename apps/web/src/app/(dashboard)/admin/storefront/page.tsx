@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Save, Upload, Monitor, Globe, Type, Bell, Image as ImageIcon, Phone } from 'lucide-react';
+import { Save, Upload, Monitor, Globe, Type, Bell, Image as ImageIcon, Phone, Share2, MessageCircle } from 'lucide-react';
 import { api } from '@/lib/api';
 
 interface StorefrontSetting {
@@ -31,15 +31,45 @@ const SETTING_DEFS = [
   { key: 'storefront.footerEmail',       label: 'Email Address',        type: 'text',     placeholder: 'info@knef.ng',                section: 'contact' },
 ] as const;
 
+const SOCIAL_PLATFORMS = [
+  { id: 'instagram', label: 'Instagram', placeholder: 'https://instagram.com/your-handle' },
+  { id: 'facebook',  label: 'Facebook',  placeholder: 'https://facebook.com/your-page' },
+  { id: 'tiktok',    label: 'TikTok',    placeholder: 'https://tiktok.com/@your-handle' },
+  { id: 'twitter',   label: 'X / Twitter', placeholder: 'https://x.com/your-handle' },
+  { id: 'youtube',   label: 'YouTube',   placeholder: 'https://youtube.com/@your-channel' },
+  { id: 'linkedin',  label: 'LinkedIn',  placeholder: 'https://linkedin.com/company/your-company' },
+  { id: 'snapchat',  label: 'Snapchat',  placeholder: 'https://snapchat.com/add/your-handle' },
+] as const;
+
 const SECTIONS = [
   { id: 'brand',        label: 'Brand & Logo',    icon: Globe },
   { id: 'hero',         label: 'Hero Section',     icon: Monitor },
   { id: 'sections',     label: 'Page Sections',    icon: Type },
   { id: 'announcement', label: 'Announcement',     icon: Bell },
   { id: 'contact',      label: 'Footer & Contact', icon: Phone },
+  { id: 'social',       label: 'Social Media',     icon: Share2 },
+  { id: 'whatsapp',     label: 'WhatsApp CTA',     icon: MessageCircle },
 ] as const;
 
 type SectionId = typeof SECTIONS[number]['id'];
+
+function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!value)}
+      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+        value ? 'bg-blue-600' : 'bg-gray-200'
+      }`}
+    >
+      <span
+        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+          value ? 'translate-x-6' : 'translate-x-1'
+        }`}
+      />
+    </button>
+  );
+}
 
 export default function StorefrontSettingsPage() {
   const queryClient = useQueryClient();
@@ -48,6 +78,8 @@ export default function StorefrontSettingsPage() {
   const [saved, setSaved] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [formError, setFormError] = useState('');
+  const [urlErrors, setUrlErrors] = useState<Record<string, string>>({});
+  const [waNumError, setWaNumError] = useState('');
   const logoFileRef = useRef<HTMLInputElement>(null);
 
   const { data, isLoading } = useQuery<{ data: StorefrontSetting[] }>({
@@ -69,13 +101,52 @@ export default function StorefrontSettingsPage() {
     }
   }, [data]);
 
+  // Collect ALL setting keys to save (original + social + whatsapp)
+  const getAllSettings = () => {
+    const settings = SETTING_DEFS.map((def) => ({
+      key: def.key,
+      value: form[def.key] ?? '',
+      label: def.label,
+    }));
+
+    // Social platforms
+    for (const p of SOCIAL_PLATFORMS) {
+      settings.push({ key: `social_${p.id}_url`,     value: form[`social_${p.id}_url`] ?? '',     label: `${p.label} URL` });
+      settings.push({ key: `social_${p.id}_enabled`, value: form[`social_${p.id}_enabled`] ?? 'false', label: `${p.label} Enabled` });
+    }
+
+    // WhatsApp
+    settings.push({ key: 'whatsapp_number',  value: form['whatsapp_number'] ?? '',  label: 'WhatsApp Number' });
+    settings.push({ key: 'whatsapp_message', value: form['whatsapp_message'] ?? '', label: 'WhatsApp Prefilled Message' });
+    settings.push({ key: 'whatsapp_enabled', value: form['whatsapp_enabled'] ?? 'false', label: 'WhatsApp Enabled' });
+
+    return settings;
+  };
+
+  const validateBeforeSave = (): boolean => {
+    const newUrlErrors: Record<string, string> = {};
+    for (const p of SOCIAL_PLATFORMS) {
+      const val = form[`social_${p.id}_url`] ?? '';
+      if (val && !val.startsWith('https://')) {
+        newUrlErrors[`social_${p.id}_url`] = 'URL must start with https://';
+      }
+    }
+    setUrlErrors(newUrlErrors);
+
+    const rawNum = (form['whatsapp_number'] ?? '').replace(/[\s+\-]/g, '');
+    let waErr = '';
+    if (rawNum && !/^\d{7,15}$/.test(rawNum)) {
+      waErr = 'WhatsApp number must be 7–15 digits (include country code, digits only).';
+    }
+    setWaNumError(waErr);
+
+    return Object.keys(newUrlErrors).length === 0 && !waErr;
+  };
+
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const settings = SETTING_DEFS.map((def) => ({
-        key: def.key,
-        value: form[def.key] ?? '',
-        label: def.label,
-      }));
+      if (!validateBeforeSave()) throw new Error('Validation failed');
+      const settings = getAllSettings();
       await api().post('/settings/storefront', { settings });
     },
     onSuccess: () => {
@@ -84,6 +155,7 @@ export default function StorefrontSettingsPage() {
       setTimeout(() => setSaved(false), 2500);
     },
     onError: (err: any) => {
+      if (err.message === 'Validation failed') return;
       setFormError(err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to save');
     },
   });
@@ -104,6 +176,13 @@ export default function StorefrontSettingsPage() {
   };
 
   const sectionDefs = SETTING_DEFS.filter((d) => d.section === activeSection);
+
+  // WhatsApp preview URL
+  const waNum = (form['whatsapp_number'] ?? '').replace(/[\s+\-]/g, '');
+  const waMsg = form['whatsapp_message'] ?? '';
+  const waPreviewUrl = waNum
+    ? `wa.me/${waNum}${waMsg ? `?text=${encodeURIComponent(waMsg)}` : ''}`
+    : '';
 
   return (
     <div className="space-y-6 max-w-4xl">
@@ -153,25 +232,121 @@ export default function StorefrontSettingsPage() {
                 <div key={i} className="h-12 bg-gray-100 rounded-lg animate-pulse" />
               ))}
             </div>
+          ) : activeSection === 'social' ? (
+            /* ── Social Media Links ── */
+            <div className="space-y-5">
+              <p className="text-sm text-gray-500">
+                Enter your brand's social media profile URLs. Toggle each platform on to display its icon in the storefront footer.
+              </p>
+              {SOCIAL_PLATFORMS.map((p) => {
+                const urlKey = `social_${p.id}_url`;
+                const enabledKey = `social_${p.id}_enabled`;
+                const enabled = form[enabledKey] === 'true';
+                const urlVal = form[urlKey] ?? '';
+                const urlErr = urlErrors[urlKey];
+                return (
+                  <div key={p.id} className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-sm font-medium text-gray-700">{p.label} URL</label>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500">Enabled</span>
+                        <Toggle
+                          value={enabled}
+                          onChange={(v) => setForm((f) => ({ ...f, [enabledKey]: String(v) }))}
+                        />
+                      </div>
+                    </div>
+                    <input
+                      type="url"
+                      value={urlVal}
+                      onChange={(e) => {
+                        setForm((f) => ({ ...f, [urlKey]: e.target.value }));
+                        if (urlErrors[urlKey]) setUrlErrors((prev) => { const n = { ...prev }; delete n[urlKey]; return n; });
+                      }}
+                      placeholder={p.placeholder}
+                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                        urlErr ? 'border-red-400 bg-red-50' : 'border-gray-200'
+                      }`}
+                    />
+                    {urlErr && <p className="text-xs text-red-600">{urlErr}</p>}
+                  </div>
+                );
+              })}
+            </div>
+          ) : activeSection === 'whatsapp' ? (
+            /* ── WhatsApp CTA ── */
+            <div className="space-y-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">Show WhatsApp button in storefront header</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Displays a floating WhatsApp contact button for customers.</p>
+                </div>
+                <Toggle
+                  value={form['whatsapp_enabled'] === 'true'}
+                  onChange={(v) => setForm((f) => ({ ...f, whatsapp_enabled: String(v) }))}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-sm font-medium text-gray-700">International Phone Number</label>
+                <input
+                  type="text"
+                  value={form['whatsapp_number'] ?? ''}
+                  onChange={(e) => {
+                    setForm((f) => ({ ...f, whatsapp_number: e.target.value }));
+                    if (waNumError) setWaNumError('');
+                  }}
+                  placeholder="2348012345678"
+                  className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                    waNumError ? 'border-red-400 bg-red-50' : 'border-gray-200'
+                  }`}
+                />
+                {waNumError ? (
+                  <p className="text-xs text-red-600">{waNumError}</p>
+                ) : (
+                  <p className="text-xs text-gray-500">
+                    Include country code, digits only. Example: <strong>2348012345678</strong> for +234 (Nigeria)
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-sm font-medium text-gray-700">Prefilled Message</label>
+                <textarea
+                  value={form['whatsapp_message'] ?? ''}
+                  onChange={(e) => setForm((f) => ({ ...f, whatsapp_message: e.target.value }))}
+                  placeholder="Hello KNEF Gadgets, I would like to make an enquiry."
+                  rows={3}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                />
+                <p className="text-xs text-gray-500">This message will be pre-filled when a customer taps the WhatsApp button.</p>
+              </div>
+
+              {waPreviewUrl && (
+                <div className="rounded-lg bg-green-50 border border-green-200 px-4 py-3 space-y-1">
+                  <p className="text-xs font-medium text-green-700">Link Preview</p>
+                  <a
+                    href={`https://${waPreviewUrl}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-green-600 break-all hover:underline font-mono"
+                  >
+                    {waPreviewUrl}
+                  </a>
+                </div>
+              )}
+            </div>
           ) : (
+            /* ── Standard setting fields ── */
             sectionDefs.map((def) => (
               <div key={def.key}>
                 <label className="block text-sm font-medium text-gray-700 mb-1">{def.label}</label>
 
                 {def.type === 'toggle' ? (
-                  <button
-                    type="button"
-                    onClick={() => setForm((f) => ({ ...f, [def.key]: f[def.key] === 'true' ? 'false' : 'true' }))}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      form[def.key] === 'true' ? 'bg-blue-600' : 'bg-gray-200'
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                        form[def.key] === 'true' ? 'translate-x-6' : 'translate-x-1'
-                      }`}
-                    />
-                  </button>
+                  <Toggle
+                    value={form[def.key] === 'true'}
+                    onChange={(v) => setForm((f) => ({ ...f, [def.key]: String(v) }))}
+                  />
                 ) : def.type === 'select' ? (
                   <select
                     value={form[def.key] ?? ''}

@@ -88,6 +88,25 @@ export function Header() {
 
           {/* Right actions */}
           <div className="flex items-center gap-2">
+            {/* WhatsApp CTA */}
+            {settings.whatsappEnabled && settings.whatsappNumber && (() => {
+              const digits = settings.whatsappNumber.replace(/\D/g, '');
+              const msg = settings.whatsappMessage ? `?text=${encodeURIComponent(settings.whatsappMessage)}` : '';
+              const href = `https://wa.me/${digits}${msg}`;
+              return (
+                <a
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Contact KNEF Gadgets on WhatsApp"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-500 text-white text-sm font-semibold hover:bg-green-600 transition-colors"
+                >
+                  <span className="hidden sm:inline">WhatsApp Us</span>
+                  <span className="sm:hidden font-bold">WA</span>
+                </a>
+              );
+            })()}
+
             {/* Search toggle */}
             <button
               onClick={() => setSearchOpen((v) => !v)}

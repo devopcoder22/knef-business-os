@@ -188,6 +188,25 @@ export interface StorefrontSettings {
   footerAddress?: string;
   footerPhone?: string;
   footerEmail?: string;
+  // Social media links
+  socialInstagramUrl?: string;
+  socialFacebookUrl?: string;
+  socialTiktokUrl?: string;
+  socialTwitterUrl?: string;
+  socialYoutubeUrl?: string;
+  socialLinkedinUrl?: string;
+  socialSnapchatUrl?: string;
+  socialInstagramEnabled?: boolean;
+  socialFacebookEnabled?: boolean;
+  socialTiktokEnabled?: boolean;
+  socialTwitterEnabled?: boolean;
+  socialYoutubeEnabled?: boolean;
+  socialLinkedinEnabled?: boolean;
+  socialSnapchatEnabled?: boolean;
+  // WhatsApp CTA
+  whatsappNumber?: string;
+  whatsappMessage?: string;
+  whatsappEnabled?: boolean;
 }
 
 export async function fetchStorefrontSettings(): Promise<StorefrontSettings> {
@@ -196,7 +215,18 @@ export async function fetchStorefrontSettings(): Promise<StorefrontSettings> {
     const settings: StorefrontSettings = {};
     for (const item of res.data ?? []) {
       const shortKey = item.key.replace('storefront.', '') as keyof StorefrontSettings;
-      if (shortKey === 'announcementEnabled') {
+      const booleanKeys: Array<keyof StorefrontSettings> = [
+        'announcementEnabled',
+        'socialInstagramEnabled',
+        'socialFacebookEnabled',
+        'socialTiktokEnabled',
+        'socialTwitterEnabled',
+        'socialYoutubeEnabled',
+        'socialLinkedinEnabled',
+        'socialSnapchatEnabled',
+        'whatsappEnabled',
+      ];
+      if (booleanKeys.includes(shortKey)) {
         (settings as any)[shortKey] = item.value === 'true';
       } else {
         (settings as any)[shortKey] = item.value;
