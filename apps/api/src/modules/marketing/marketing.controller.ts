@@ -250,6 +250,13 @@ export class MarketingContentController {
     return this.drafts.archive(user.organizationId, id, user.id);
   }
 
+  @Get(':id/targets')
+  @Permissions(PERMISSIONS.MARKETING.VIEW)
+  @ApiOperation({ summary: 'List publication targets for a scheduled draft' })
+  getTargets(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.drafts.getPublicationTargets(user.organizationId, id);
+  }
+
   @Get(':id/variants')
   @Permissions(PERMISSIONS.MARKETING.VIEW)
   @ApiOperation({ summary: 'List variants for a draft' })

@@ -81,20 +81,46 @@ export class MarketingSchedulerProcessor implements OnModuleInit, OnModuleDestro
     );
 
     for (const draft of due) {
-      // Find active social accounts for this org
-      const socialAccounts = await this.prisma.socialAccount.findMany({
-        where: { organizationId, isActive: true },
-        select: { id: true, provider: true },
+      // Load explicit publication targets (only non-cancelled)
+      const targets = await this.prisma.socialPublicationTarget.findMany({
+        where: { draftId: draft.id, organizationId, isCancelled: false },
+        include: {
+          socialAccount: {
+            include: { connection: true },
+          },
+        },
       });
 
-      if (socialAccounts.length === 0) {
-        this.logger.log(
-          `[MarketingScheduler] Draft ${draft.id} due — no social accounts connected, skipping`,
+      if (targets.length === 0) {
+        this.logger.warn(
+          `[MarketingScheduler] Draft ${draft.id} is due but has no explicit publication targets — skipping`,
         );
         continue;
       }
 
-      for (const account of socialAccounts) {
+      for (const target of targets) {
+        const account = target.socialAccount;
+
+        // Re-validate target at execution time
+        if (!account.isActive) {
+          this.logger.warn(
+            `[MarketingScheduler] Target account ${account.id} is inactive — skipping for draft ${draft.id}`,
+          );
+          continue;
+        }
+        if (account.connection.status !== 'active') {
+          this.logger.warn(
+            `[MarketingScheduler] Connection for account ${account.id} is not active (${account.connection.status}) — skipping`,
+          );
+          continue;
+        }
+        if (account.organizationId !== organizationId) {
+          this.logger.error(
+            `[MarketingScheduler] Cross-org target detected: account ${account.id} does not belong to org ${organizationId} — skipping`,
+          );
+          continue;
+        }
+
         // Check if an attempt is already queued/running/published for this draft+account
         const existingAttempt = await this.prisma.publicationAttempt.findFirst({
           where: {
@@ -117,14 +143,14 @@ export class MarketingSchedulerProcessor implements OnModuleInit, OnModuleDestro
           .update(`scheduler:${draft.id}:${account.id}:${Date.now()}`)
           .digest('hex');
 
-        // Create attempt record
         const attempt = await this.prisma.publicationAttempt.create({
           data: {
             organizationId,
             draftId: draft.id,
+            variantId: target.variantId ?? null,
             socialAccountId: account.id,
             provider: account.provider,
-            externalAccountId: account.id, // will be resolved in executePublish
+            externalAccountId: account.providerAccountId,
             status: 'QUEUED',
             idempotencyKey,
             attemptNumber: 1,

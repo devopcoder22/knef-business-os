@@ -433,6 +433,31 @@ export class PublicationService {
     }
   }
 
+  async listTargets(organizationId: string, draftId: string) {
+    const draft = await this.prisma.contentDraft.findFirst({
+      where: { id: draftId, organizationId },
+    });
+    if (!draft) throw new NotFoundException('Content draft not found.');
+
+    return this.prisma.socialPublicationTarget.findMany({
+      where: { draftId, organizationId, isCancelled: false },
+      include: {
+        socialAccount: {
+          select: {
+            id: true,
+            provider: true,
+            displayName: true,
+            username: true,
+            avatarUrl: true,
+            approvalStatus: true,
+            capabilities: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
   async listAttempts(organizationId: string, draftId: string) {
     return this.prisma.publicationAttempt.findMany({
       where: { organizationId, draftId },

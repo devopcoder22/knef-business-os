@@ -55,7 +55,8 @@ model Organization {
   contentDrafts       ContentDraft[]
   mediaAssets         MediaAsset[]
   socialAccounts      SocialAccount[]
-  publicationAttempts PublicationAttempt[]
+  publicationAttempts      PublicationAttempt[]
+  socialPublicationTargets SocialPublicationTarget[]
 
   @@index([slug])
 }
@@ -2926,10 +2927,11 @@ model ContentDraft {
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
 
-  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  campaign     MarketingCampaign? @relation(fields: [campaignId], references: [id])
-  variants     ContentVariant[]
+  organization        Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  campaign            MarketingCampaign?      @relation(fields: [campaignId], references: [id])
+  variants            ContentVariant[]
   publicationAttempts PublicationAttempt[]
+  publicationTargets  SocialPublicationTarget[]
 
   @@index([organizationId])
   @@index([campaignId])
@@ -2951,8 +2953,9 @@ model ContentVariant {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  draft ContentDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  draft               ContentDraft            @relation(fields: [draftId], references: [id], onDelete: Cascade)
   publicationAttempts PublicationAttempt[]
+  publicationTargets  SocialPublicationTarget[]
 
   @@unique([draftId, platform])
   @@index([draftId])
@@ -3006,9 +3009,10 @@ model SocialAccount {
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
-  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  connection          ExternalConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  organization        Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connection          ExternalConnection      @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   publicationAttempts PublicationAttempt[]
+  publicationTargets  SocialPublicationTarget[]
 
   @@unique([organizationId, provider, providerAccountId])
   @@index([organizationId])
@@ -3054,4 +3058,27 @@ model PublicationAttempt {
   @@index([status, retryAfter])
   @@index([providerEventId])
   @@map("publication_attempts")
+}
+
+// Explicit publication destinations — user must select which accounts receive each draft
+model SocialPublicationTarget {
+  id              String          @id @default(cuid())
+  organizationId  String
+  draftId         String
+  socialAccountId String
+  provider        String
+  variantId       String?
+  isCancelled     Boolean         @default(false)
+  createdBy       String
+  createdAt       DateTime        @default(now())
+
+  organization  Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  draft         ContentDraft    @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  socialAccount SocialAccount   @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  variant       ContentVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  @@unique([draftId, socialAccountId])
+  @@index([organizationId, draftId])
+  @@index([organizationId, socialAccountId])
+  @@map("social_publication_targets")
 }

@@ -48,6 +48,7 @@ interface SocialAccount {
   id: string;
   provider: string;
   displayName: string;
+  username: string | null;
   avatarUrl: string | null;
   approvalStatus: string;
   capabilities: string[];
@@ -108,6 +109,7 @@ export default function ContentDraftDetailPage() {
   const [variantBody, setVariantBody] = useState('');
   const [showScheduleForm, setShowScheduleForm] = useState(false);
   const [scheduledAt, setScheduledAt] = useState('');
+  const [selectedTargetIds, setSelectedTargetIds] = useState<string[]>([]);
 
   // AI state
   const [showAiPanel, setShowAiPanel] = useState(false);
@@ -138,7 +140,7 @@ export default function ContentDraftDetailPage() {
       const res = await api().get<SocialAccount[]>('/social/accounts');
       return res.data;
     },
-    enabled: showPublishPanel,
+    enabled: showPublishPanel || showScheduleForm,
   });
 
   const { data: attempts = [], refetch: refetchAttempts } = useQuery<PublicationAttempt[]>({
@@ -149,6 +151,27 @@ export default function ContentDraftDetailPage() {
     },
     enabled: showPublishPanel,
     refetchInterval: showPublishPanel ? 10_000 : false,
+  });
+
+  const { data: publicationTargets = [] } = useQuery<Array<{
+    id: string;
+    provider: string;
+    isCancelled: boolean;
+    socialAccount: {
+      id: string;
+      provider: string;
+      displayName: string;
+      username: string | null;
+      avatarUrl: string | null;
+      approvalStatus: string;
+    };
+  }>>({
+    queryKey: ['publication-targets', id],
+    queryFn: async () => {
+      const res = await api().get(`/marketing/content/${id}/targets`);
+      return res.data;
+    },
+    enabled: draft?.status === 'SCHEDULED',
   });
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['marketing-draft', id] });
@@ -170,8 +193,16 @@ export default function ContentDraftDetailPage() {
 
   const scheduleMutation = useMutation({
     mutationFn: () =>
-      api().post(`/marketing/content/${id}/schedule`, { scheduledAt, timezone: 'UTC' }),
-    onSuccess: () => { invalidate(); setShowScheduleForm(false); },
+      api().post(`/marketing/content/${id}/schedule`, {
+        scheduledAt,
+        timezone: 'UTC',
+        targetAccountIds: selectedTargetIds,
+      }),
+    onSuccess: () => {
+      invalidate();
+      setShowScheduleForm(false);
+      setSelectedTargetIds([]);
+    },
   });
 
   const cancelScheduleMutation = useMutation({
@@ -304,14 +335,90 @@ export default function ContentDraftDetailPage() {
             onChange={(e) => setScheduledAt(e.target.value)}
             className="px-3 py-2 text-sm border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400"
           />
+
+          {/* Target account selection */}
+          {socialAccounts.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-purple-700">Publish to (select at least one):</p>
+              <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                {socialAccounts.map((account) => (
+                  <label
+                    key={account.id}
+                    className="flex items-center gap-2 cursor-pointer group"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedTargetIds.includes(account.id)}
+                      onChange={(e) => {
+                        setSelectedTargetIds((prev) =>
+                          e.target.checked
+                            ? [...prev, account.id]
+                            : prev.filter((aid) => aid !== account.id),
+                        );
+                      }}
+                      className="rounded border-purple-300 text-purple-600 focus:ring-purple-500"
+                    />
+                    <span className="text-xs text-gray-700 group-hover:text-gray-900">
+                      <span className="font-medium">{account.displayName}</span>
+                      {account.username && <span className="text-gray-400 ml-1">@{account.username}</span>}
+                      <span className="ml-1.5 text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">
+                        {account.provider}
+                      </span>
+                      {account.approvalStatus !== 'READY' && account.approvalStatus !== 'CONNECTED' && (
+                        <span className="ml-1 text-amber-600 text-xs">({account.approvalStatus})</span>
+                      )}
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {selectedTargetIds.length === 0 && (
+                <p className="text-xs text-red-500">Please select at least one account</p>
+              )}
+            </div>
+          )}
+          {socialAccounts.length === 0 && (
+            <p className="text-xs text-amber-600">
+              No connected social accounts found. Connect accounts in{' '}
+              <a href="/social/accounts" className="underline">Social Accounts</a> first.
+            </p>
+          )}
+
           <div className="flex gap-2">
-            <button onClick={() => scheduledAt && scheduleMutation.mutate()} disabled={!scheduledAt || scheduleMutation.isPending}
-              className="px-4 py-1.5 text-xs bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50">
+            <button
+              onClick={() => scheduledAt && selectedTargetIds.length > 0 && scheduleMutation.mutate()}
+              disabled={!scheduledAt || selectedTargetIds.length === 0 || scheduleMutation.isPending}
+              className="px-4 py-1.5 text-xs bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
+            >
               Confirm
             </button>
-            <button onClick={() => setShowScheduleForm(false)} className="px-3 py-1.5 text-xs text-gray-500">
+            <button
+              onClick={() => { setShowScheduleForm(false); setSelectedTargetIds([]); }}
+              className="px-3 py-1.5 text-xs text-gray-500"
+            >
               Cancel
             </button>
+          </div>
+        </div>
+      )}
+
+      {draft.status === 'SCHEDULED' && publicationTargets.length > 0 && (
+        <div className="bg-purple-50 border border-purple-200 rounded-xl p-4">
+          <p className="text-sm font-medium text-purple-800 mb-2">
+            Scheduled targets ({publicationTargets.length})
+          </p>
+          <div className="space-y-1.5">
+            {publicationTargets.map((target) => (
+              <div key={target.id} className="flex items-center gap-2 text-xs text-gray-700">
+                <span className="w-2 h-2 rounded-full bg-purple-400" />
+                <span className="font-medium">{target.socialAccount.displayName}</span>
+                {target.socialAccount.username && (
+                  <span className="text-gray-400">@{target.socialAccount.username}</span>
+                )}
+                <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">
+                  {target.provider}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       )}

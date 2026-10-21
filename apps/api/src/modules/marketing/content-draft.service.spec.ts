@@ -22,6 +22,16 @@ const mockPrisma = {
   marketingCampaign: {
     findFirst: jest.fn(),
   },
+  socialAccount: {
+    findMany: jest.fn(),
+  },
+  socialPublicationTarget: {
+    findMany: jest.fn(),
+    createMany: jest.fn(),
+    deleteMany: jest.fn(),
+    updateMany: jest.fn(),
+  },
+  $transaction: jest.fn(),
 };
 
 const mockAudit = { log: jest.fn().mockResolvedValue(undefined) };
@@ -31,6 +41,9 @@ describe('ContentDraftService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    // Restore $transaction implementation after clearAllMocks wipes it
+    mockPrisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(mockPrisma));
+    mockPrisma.socialPublicationTarget.updateMany.mockResolvedValue({ count: 0 });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -166,10 +179,16 @@ describe('ContentDraftService', () => {
         status: 'APPROVED',
         timezone: 'UTC',
       });
+      mockPrisma.socialAccount.findMany.mockResolvedValue([
+        { id: 'acct-1', provider: 'FACEBOOK', connection: { status: 'active' } },
+      ]);
+      mockPrisma.contentVariant.findMany.mockResolvedValue([]);
+      mockPrisma.socialPublicationTarget.deleteMany.mockResolvedValue({ count: 0 });
+      mockPrisma.socialPublicationTarget.createMany.mockResolvedValue({ count: 1 });
       mockPrisma.contentDraft.update.mockResolvedValue({ id: 'd-1', status: 'SCHEDULED' });
 
       const futureDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-      await service.schedule('org-1', 'd-1', { scheduledAt: futureDate }, 'user-1');
+      await service.schedule('org-1', 'd-1', { scheduledAt: futureDate, targetAccountIds: ['acct-1'] }, 'user-1');
 
       expect(mockPrisma.contentDraft.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -182,7 +201,7 @@ describe('ContentDraftService', () => {
       mockPrisma.contentDraft.findFirst.mockResolvedValue({ id: 'd-1', status: 'APPROVED', timezone: 'UTC' });
 
       await expect(
-        service.schedule('org-1', 'd-1', { scheduledAt: '2020-01-01T00:00:00Z' }, 'user-1'),
+        service.schedule('org-1', 'd-1', { scheduledAt: '2020-01-01T00:00:00Z', targetAccountIds: ['acct-1'] }, 'user-1'),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -193,7 +212,20 @@ describe('ContentDraftService', () => {
         service.schedule(
           'org-1',
           'd-1',
-          { scheduledAt: new Date(Date.now() + 86400000).toISOString() },
+          { scheduledAt: new Date(Date.now() + 86400000).toISOString(), targetAccountIds: ['acct-1'] },
+          'user-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects scheduling with no target accounts', async () => {
+      mockPrisma.contentDraft.findFirst.mockResolvedValue({ id: 'd-1', status: 'APPROVED', timezone: 'UTC' });
+
+      await expect(
+        service.schedule(
+          'org-1',
+          'd-1',
+          { scheduledAt: new Date(Date.now() + 86400000).toISOString(), targetAccountIds: [] },
           'user-1',
         ),
       ).rejects.toThrow(BadRequestException);

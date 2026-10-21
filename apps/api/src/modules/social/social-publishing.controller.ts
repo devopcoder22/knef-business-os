@@ -92,6 +92,15 @@ export class SocialPublishingController {
   }
 
   @Permissions(PERMISSIONS.MARKETING.VIEW)
+  @Get('drafts/:draftId/targets')
+  listTargets(
+    @Req() req: { user: { organizationId: string } },
+    @Param('draftId') draftId: string,
+  ) {
+    return this.publication.listTargets(req.user.organizationId, draftId);
+  }
+
+  @Permissions(PERMISSIONS.MARKETING.VIEW)
   @Get('drafts/:draftId/attempts')
   listAttempts(
     @Req() req: { user: { organizationId: string } },

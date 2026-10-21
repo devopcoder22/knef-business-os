@@ -42,6 +42,7 @@ export interface UpdateDraftDto {
 export interface ScheduleDraftDto {
   scheduledAt: string;
   timezone?: string;
+  targetAccountIds: string[]; // required, min 1 account
 }
 
 export interface CreateVariantDto {
@@ -247,13 +248,63 @@ export class ContentDraftService {
       throw new BadRequestException('Scheduled time must be in the future');
     }
 
-    const updated = await this.prisma.contentDraft.update({
-      where: { id },
-      data: {
-        status: 'SCHEDULED',
-        scheduledAt,
-        timezone: dto.timezone ?? draft.timezone,
+    const rawIds: unknown = dto.targetAccountIds;
+    if (!Array.isArray(rawIds) || (rawIds as unknown[]).length === 0) {
+      throw new BadRequestException('At least one target social account must be selected');
+    }
+    const targetAccountIds = rawIds as string[];
+
+    // Validate all target accounts belong to this org and are active
+    const accounts = await this.prisma.socialAccount.findMany({
+      where: { id: { in: targetAccountIds }, organizationId, isActive: true },
+      include: {
+        connection: { select: { status: true } },
       },
+    });
+
+    if (accounts.length !== targetAccountIds.length) {
+      const foundIds = new Set(accounts.map((a) => a.id));
+      const missing = targetAccountIds.filter((aid) => !foundIds.has(aid));
+      throw new BadRequestException(
+        `Social account(s) not found or inactive: ${missing.join(', ')}`,
+      );
+    }
+
+    // Fetch available variants for this draft
+    const variants = await this.prisma.contentVariant.findMany({
+      where: { draftId: id },
+      select: { id: true, platform: true },
+    });
+    const variantByPlatform = new Map(variants.map((v) => [v.platform, v.id]));
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      // Remove old targets (clean slate on re-schedule)
+      await tx.socialPublicationTarget.deleteMany({ where: { draftId: id } });
+
+      // Create new targets
+      const now = new Date();
+      await tx.socialPublicationTarget.createMany({
+        data: accounts.map((account) => ({
+          id: createId(),
+          organizationId,
+          draftId: id,
+          socialAccountId: account.id,
+          provider: account.provider,
+          variantId: variantByPlatform.get(account.provider) ?? null,
+          isCancelled: false,
+          createdBy: userId,
+          createdAt: now,
+        })),
+      });
+
+      return tx.contentDraft.update({
+        where: { id },
+        data: {
+          status: 'SCHEDULED',
+          scheduledAt,
+          timezone: dto.timezone ?? draft.timezone,
+        },
+      });
     });
 
     await this.audit.log({
@@ -262,7 +313,11 @@ export class ContentDraftService {
       action: 'CONTENT_DRAFT_SCHEDULED',
       entity: 'ContentDraft',
       entityId: id,
-      metadata: { scheduledAt: dto.scheduledAt },
+      metadata: {
+        scheduledAt: dto.scheduledAt,
+        targetAccountIds,
+        targetCount: targetAccountIds.length,
+      },
     });
 
     return updated;
@@ -272,9 +327,15 @@ export class ContentDraftService {
     const draft = await this.assertExists(organizationId, id);
     this.assertStatus(draft.status as DraftStatus, ['SCHEDULED']);
 
-    const updated = await this.prisma.contentDraft.update({
-      where: { id },
-      data: { status: 'APPROVED', scheduledAt: null },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.socialPublicationTarget.updateMany({
+        where: { draftId: id, isCancelled: false },
+        data: { isCancelled: true },
+      });
+      return tx.contentDraft.update({
+        where: { id },
+        data: { status: 'APPROVED', scheduledAt: null },
+      });
     });
 
     await this.audit.log({
@@ -286,6 +347,27 @@ export class ContentDraftService {
     });
 
     return updated;
+  }
+
+  async getPublicationTargets(organizationId: string, draftId: string) {
+    await this.assertExists(organizationId, draftId);
+    return this.prisma.socialPublicationTarget.findMany({
+      where: { draftId, organizationId, isCancelled: false },
+      include: {
+        socialAccount: {
+          select: {
+            id: true,
+            provider: true,
+            displayName: true,
+            username: true,
+            avatarUrl: true,
+            approvalStatus: true,
+            capabilities: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
   }
 
   async archive(organizationId: string, id: string, userId: string) {
