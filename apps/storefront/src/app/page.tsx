@@ -8,6 +8,75 @@ import { fetchProducts, fetchCategories, fetchStorefrontSettings } from '@/lib/a
 import { ProductGrid } from '@/components/product/product-grid';
 import type { Category } from '@/types';
 
+interface PublicTestimonial {
+  id: string;
+  customerName: string;
+  quote: string;
+  rating?: number;
+  location?: string;
+  productName?: string;
+  avatarUrl?: string;
+  displayOrder: number;
+}
+
+async function fetchTestimonials(): Promise<PublicTestimonial[]> {
+  try {
+    const res = await fetch('/api/testimonials', { next: { revalidate: 60 } } as RequestInit);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : (data?.data ?? []);
+  } catch {
+    return [];
+  }
+}
+
+function StarRating({ rating }: { rating: number }) {
+  const clamped = Math.max(1, Math.min(5, Math.round(rating)));
+  return (
+    <span aria-label={`${clamped} out of 5 stars`} className="text-amber-400 text-sm">
+      {'★'.repeat(clamped)}{'☆'.repeat(5 - clamped)}
+    </span>
+  );
+}
+
+function TestimonialCard({ testimonial: t }: { testimonial: PublicTestimonial }) {
+  const initials = t.customerName.trim().charAt(0).toUpperCase();
+  const bgColors = ['bg-blue-500', 'bg-purple-500', 'bg-green-500', 'bg-rose-500', 'bg-amber-500'];
+  const colorIdx = t.customerName.charCodeAt(0) % bgColors.length;
+
+  return (
+    <div className="flex flex-col gap-3 rounded-2xl bg-white border border-gray-100 shadow-sm p-6">
+      <div className="flex items-center gap-3">
+        {t.avatarUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={t.avatarUrl}
+            alt={t.customerName}
+            className="w-10 h-10 rounded-full object-cover"
+          />
+        ) : (
+          <span
+            className={`flex w-10 h-10 rounded-full items-center justify-center text-white font-bold text-sm ${bgColors[colorIdx]}`}
+          >
+            {initials}
+          </span>
+        )}
+        <div>
+          <p className="font-semibold text-gray-900 text-sm">{t.customerName}</p>
+          {t.location && <p className="text-xs text-gray-400">{t.location}</p>}
+        </div>
+      </div>
+      {t.rating != null && t.rating >= 1 && t.rating <= 5 && (
+        <StarRating rating={t.rating} />
+      )}
+      <p className="text-gray-600 text-sm italic leading-relaxed">&ldquo;{t.quote}&rdquo;</p>
+      {t.productName && (
+        <p className="text-xs text-gray-400 mt-auto">Re: {t.productName}</p>
+      )}
+    </div>
+  );
+}
+
 const FEATURES = [
   { icon: Shield, title: 'Genuine Products', desc: '100% authentic smartphones and electronics from verified sources.' },
   { icon: Zap, title: 'Fast Checkout', desc: 'Simple, streamlined ordering — no account required.' },
@@ -41,6 +110,12 @@ export default function HomePage() {
     staleTime: 60_000,
   });
 
+  const { data: testimonials = [] } = useQuery<PublicTestimonial[]>({
+    queryKey: ['testimonials'],
+    queryFn: fetchTestimonials,
+    staleTime: 60_000,
+  });
+
   const products = productsData?.data ?? [];
   const categories = (categoriesData?.data ?? []).slice(0, 6);
 
@@ -53,6 +128,18 @@ export default function HomePage() {
   const ctaTitle    = settings.ctaBannerTitle || "Ready to order? It's quick and easy.";
   const ctaText     = settings.ctaBannerText  || "No account needed. Browse, add to cart, and place your order in minutes. We'll handle the rest.";
   const annColor    = ANNOUNCEMENT_COLORS[settings.announcementColor ?? 'blue'] ?? ANNOUNCEMENT_COLORS.blue;
+
+  const STORE_NAME = settings.storeName || 'KNEF Gadgets';
+
+  const socialLinks = [
+    { key: 'Instagram', letter: 'IG', url: settings.socialInstagramUrl, enabled: settings.socialInstagramEnabled },
+    { key: 'Facebook',  letter: 'FB', url: settings.socialFacebookUrl,  enabled: settings.socialFacebookEnabled  },
+    { key: 'TikTok',   letter: 'TT', url: settings.socialTiktokUrl,    enabled: settings.socialTiktokEnabled    },
+    { key: 'Twitter',  letter: '𝕏',  url: settings.socialTwitterUrl,   enabled: settings.socialTwitterEnabled   },
+    { key: 'YouTube',  letter: 'YT', url: settings.socialYoutubeUrl,   enabled: settings.socialYoutubeEnabled   },
+    { key: 'LinkedIn', letter: 'in', url: settings.socialLinkedinUrl,  enabled: settings.socialLinkedinEnabled  },
+    { key: 'Snapchat', letter: 'SC', url: settings.socialSnapchatUrl,  enabled: settings.socialSnapchatEnabled  },
+  ].filter((s) => s.enabled && s.url);
 
   return (
     <div>
@@ -174,6 +261,45 @@ export default function HomePage() {
           </Link>
         </div>
       </section>
+
+      {/* Testimonials */}
+      {testimonials.length > 0 && (
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+          <div className="text-center mb-10">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">What Our Customers Say</h2>
+            <p className="text-gray-500 max-w-md mx-auto">Real experiences from customers who shop with {STORE_NAME}.</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {testimonials.map((t) => (
+              <TestimonialCard key={t.id} testimonial={t} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Social follow */}
+      {socialLinks.length > 0 && (
+        <section className="bg-gray-50 border-t border-gray-100 py-12">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <h2 className="text-xl font-bold text-gray-900 mb-2">Follow {STORE_NAME}</h2>
+            <p className="text-gray-500 text-sm mb-6">Stay connected for new arrivals, offers and tech updates.</p>
+            <div className="flex gap-3 justify-center flex-wrap">
+              {socialLinks.map((s) => (
+                <a
+                  key={s.key}
+                  href={s.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`Follow ${STORE_NAME} on ${s.key}`}
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-knef-primary text-sm font-semibold text-white hover:bg-opacity-80 transition-colors"
+                >
+                  {s.letter}
+                </a>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

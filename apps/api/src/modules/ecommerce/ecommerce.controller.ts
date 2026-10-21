@@ -13,6 +13,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiSecurity } from '@nestjs/swagg
 import { Request } from 'express';
 import { EcommerceService } from './ecommerce.service';
 import { SettingsService } from '../settings/settings.service';
+import { TestimonialService } from '../testimonials/testimonial.service';
 import { ApiKeyGuard } from '../../common/guards/api-key.guard';
 import { ApiKeyScopeGuard } from '../../common/guards/api-key-scope.guard';
 import { RequireApiScope } from '../../common/decorators/require-api-scope.decorator';
@@ -42,6 +43,7 @@ export class EcommercePublicController {
   constructor(
     private readonly ecommerceService: EcommerceService,
     private readonly settingsService: SettingsService,
+    private readonly testimonialService: TestimonialService,
   ) {}
 
   @Get('products')
@@ -125,6 +127,13 @@ export class EcommercePublicController {
   @ApiOperation({ summary: 'Get public storefront settings' })
   getStorefrontSettings(@Req() req: ApiKeyRequest) {
     return this.settingsService.findByGroup(req.organizationId, 'storefront');
+  }
+
+  @Get('testimonials')
+  @RequireApiScope('products:read')
+  @ApiOperation({ summary: 'Get active testimonials (public)' })
+  getTestimonials(@Req() req: ApiKeyRequest) {
+    return this.testimonialService.listPublic(req.organizationId);
   }
 }
 

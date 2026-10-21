@@ -8,6 +8,14 @@ import { fetchStorefrontSettings } from '@/lib/api';
 const DEFAULT_STORE_NAME = process.env.NEXT_PUBLIC_STORE_NAME ?? 'KNEF Gadgets';
 const YEAR = new Date().getFullYear();
 
+function SocialIcon({ letter }: { letter: string }) {
+  return (
+    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-sm font-semibold text-white hover:bg-white/20 transition-colors">
+      {letter}
+    </span>
+  );
+}
+
 export function Footer() {
   const { data: settings = {} } = useQuery({
     queryKey: ['storefront-settings'],
@@ -21,6 +29,16 @@ export function Footer() {
   const address = settings.footerAddress || 'Lagos, Nigeria';
   const phone = settings.footerPhone || '+234 800 000 0000';
   const email = settings.footerEmail || 'info@knefgadgets.com';
+
+  const socialLinks = [
+    { key: 'Instagram', letter: 'IG', url: settings.socialInstagramUrl, enabled: settings.socialInstagramEnabled },
+    { key: 'Facebook',  letter: 'FB', url: settings.socialFacebookUrl,  enabled: settings.socialFacebookEnabled  },
+    { key: 'TikTok',   letter: 'TT', url: settings.socialTiktokUrl,    enabled: settings.socialTiktokEnabled    },
+    { key: 'Twitter',  letter: '𝕏',  url: settings.socialTwitterUrl,   enabled: settings.socialTwitterEnabled   },
+    { key: 'YouTube',  letter: 'YT', url: settings.socialYoutubeUrl,   enabled: settings.socialYoutubeEnabled   },
+    { key: 'LinkedIn', letter: 'in', url: settings.socialLinkedinUrl,  enabled: settings.socialLinkedinEnabled  },
+    { key: 'Snapchat', letter: 'SC', url: settings.socialSnapchatUrl,  enabled: settings.socialSnapchatEnabled  },
+  ].filter((s) => s.enabled && s.url);
 
   return (
     <footer className="bg-knef-primary text-white mt-16">
@@ -53,6 +71,27 @@ export function Footer() {
                 </a>
               </div>
             </div>
+
+            {socialLinks.length > 0 && (
+              <div className="mt-6">
+                <p className="text-xs font-semibold text-blue-300 uppercase tracking-wider mb-3">
+                  Follow {STORE_NAME}
+                </p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {socialLinks.map((s) => (
+                    <a
+                      key={s.key}
+                      href={s.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`Follow ${STORE_NAME} on ${s.key}`}
+                    >
+                      <SocialIcon letter={s.letter} />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Shop */}

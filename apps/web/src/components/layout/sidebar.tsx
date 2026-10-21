@@ -52,6 +52,7 @@ import {
   Trash2,
   Megaphone,
   Image,
+  Star,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -210,6 +211,7 @@ const NAV_ITEMS: NavItem[] = [
     children: [
       { label: 'E-commerce', href: '/ecommerce', icon: Globe, permission: PERMISSIONS.ECOMMERCE.MANAGE },
       { label: 'Storefront', href: '/admin/storefront', icon: ShoppingBag, adminOnly: true },
+      { label: 'Testimonials', href: '/admin/storefront/testimonials', icon: Star, adminOnly: true },
     ],
   },
   { label: 'Integrations', href: '/admin/integrations', icon: Plug, adminOnly: true },
