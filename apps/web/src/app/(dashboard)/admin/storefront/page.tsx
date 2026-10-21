@@ -103,10 +103,10 @@ export default function StorefrontSettingsPage() {
 
   // Collect ALL setting keys to save (original + social + whatsapp)
   const getAllSettings = () => {
-    const settings = SETTING_DEFS.map((def) => ({
-      key: def.key,
+    const settings: Array<{ key: string; value: string; label: string }> = SETTING_DEFS.map((def) => ({
+      key: def.key as string,
       value: form[def.key] ?? '',
-      label: def.label,
+      label: def.label as string,
     }));
 
     // Social platforms
