@@ -65,7 +65,7 @@ export class StorefrontOtpService {
     const record: OtpRecord = { code, attempts: 0, verified: false };
     await this.redis.setJson(key, record, OTP_TTL_SECONDS);
 
-    const smsBody = `Your KNEF verification code: ${code}. Expires in 10 minutes.`;
+    const smsBody = `Your KNEF Gadgets verification code is ${code}. Valid for 10 minutes. Do not share this code with anyone.`;
     const result = await this.email.sendSms(organizationId, phone, smsBody);
     if (!result.success) {
       this.logger.error(`SMS OTP send failed for ${phone}: ${result.error}`);
