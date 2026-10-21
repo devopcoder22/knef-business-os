@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { fetchProducts, fetchCategories, fetchStorefrontSettings } from '@/lib/api';
 import { ProductGrid } from '@/components/product/product-grid';
 import type { Category } from '@/types';
+import { SOCIAL_SVGS } from '@/components/social-icons';
 
 interface PublicTestimonial {
   id: string;
@@ -132,13 +133,13 @@ export default function HomePage() {
   const STORE_NAME = settings.storeName || 'KNEF Gadgets';
 
   const socialLinks = [
-    { key: 'Instagram', letter: 'IG', url: settings.socialInstagramUrl, enabled: settings.socialInstagramEnabled },
-    { key: 'Facebook',  letter: 'FB', url: settings.socialFacebookUrl,  enabled: settings.socialFacebookEnabled  },
-    { key: 'TikTok',   letter: 'TT', url: settings.socialTiktokUrl,    enabled: settings.socialTiktokEnabled    },
-    { key: 'Twitter',  letter: '𝕏',  url: settings.socialTwitterUrl,   enabled: settings.socialTwitterEnabled   },
-    { key: 'YouTube',  letter: 'YT', url: settings.socialYoutubeUrl,   enabled: settings.socialYoutubeEnabled   },
-    { key: 'LinkedIn', letter: 'in', url: settings.socialLinkedinUrl,  enabled: settings.socialLinkedinEnabled  },
-    { key: 'Snapchat', letter: 'SC', url: settings.socialSnapchatUrl,  enabled: settings.socialSnapchatEnabled  },
+    { key: 'Instagram', url: settings.socialInstagramUrl, enabled: settings.socialInstagramEnabled },
+    { key: 'Facebook',  url: settings.socialFacebookUrl,  enabled: settings.socialFacebookEnabled  },
+    { key: 'TikTok',   url: settings.socialTiktokUrl,    enabled: settings.socialTiktokEnabled    },
+    { key: 'Twitter',  url: settings.socialTwitterUrl,   enabled: settings.socialTwitterEnabled   },
+    { key: 'YouTube',  url: settings.socialYoutubeUrl,   enabled: settings.socialYoutubeEnabled   },
+    { key: 'LinkedIn', url: settings.socialLinkedinUrl,  enabled: settings.socialLinkedinEnabled  },
+    { key: 'Snapchat', url: settings.socialSnapchatUrl,  enabled: settings.socialSnapchatEnabled  },
   ].filter((s) => s.enabled && s.url);
 
   return (
@@ -291,9 +292,9 @@ export default function HomePage() {
                   target="_blank"
                   rel="noopener noreferrer"
                   aria-label={`Follow ${STORE_NAME} on ${s.key}`}
-                  className="flex h-10 w-10 items-center justify-center rounded-full bg-knef-primary text-sm font-semibold text-white hover:bg-opacity-80 transition-colors"
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-knef-primary text-white hover:bg-opacity-80 transition-colors"
                 >
-                  {s.letter}
+                  {SOCIAL_SVGS[s.key] ?? null}
                 </a>
               ))}
             </div>
