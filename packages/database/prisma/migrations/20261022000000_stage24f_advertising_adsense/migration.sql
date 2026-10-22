@@ -194,7 +194,7 @@ CREATE INDEX "advertising_actions_advertisingAccountId_idx"
 
 ALTER TABLE "advertising_accounts"
     ADD CONSTRAINT "advertising_accounts_organizationId_fkey"
-    FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE "advertising_accounts"
     ADD CONSTRAINT "advertising_accounts_connectionId_fkey"
@@ -202,7 +202,7 @@ ALTER TABLE "advertising_accounts"
 
 ALTER TABLE "advertising_campaigns"
     ADD CONSTRAINT "advertising_campaigns_organizationId_fkey"
-    FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE "advertising_campaigns"
     ADD CONSTRAINT "advertising_campaigns_advertisingAccountId_fkey"
@@ -210,7 +210,7 @@ ALTER TABLE "advertising_campaigns"
 
 ALTER TABLE "advertising_ad_groups"
     ADD CONSTRAINT "advertising_ad_groups_organizationId_fkey"
-    FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE "advertising_ad_groups"
     ADD CONSTRAINT "advertising_ad_groups_campaignId_fkey"
@@ -218,7 +218,7 @@ ALTER TABLE "advertising_ad_groups"
 
 ALTER TABLE "advertising_ads"
     ADD CONSTRAINT "advertising_ads_organizationId_fkey"
-    FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE "advertising_ads"
     ADD CONSTRAINT "advertising_ads_adGroupId_fkey"
@@ -226,7 +226,7 @@ ALTER TABLE "advertising_ads"
 
 ALTER TABLE "advertising_metric_snapshots"
     ADD CONSTRAINT "advertising_metric_snapshots_organizationId_fkey"
-    FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE "advertising_metric_snapshots"
     ADD CONSTRAINT "advertising_metric_snapshots_advertisingAccountId_fkey"
@@ -238,7 +238,7 @@ ALTER TABLE "advertising_metric_snapshots"
 
 ALTER TABLE "advertising_actions"
     ADD CONSTRAINT "advertising_actions_organizationId_fkey"
-    FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE "advertising_actions"
     ADD CONSTRAINT "advertising_actions_advertisingAccountId_fkey"
@@ -250,8 +250,8 @@ ALTER TABLE "advertising_actions"
 
 ALTER TABLE "advertising_actions"
     ADD CONSTRAINT "advertising_actions_requestedById_fkey"
-    FOREIGN KEY ("requestedById") REFERENCES "users"("id") ON UPDATE CASCADE;
+    FOREIGN KEY ("requestedById") REFERENCES "User"("id") ON UPDATE CASCADE;
 
 ALTER TABLE "advertising_actions"
     ADD CONSTRAINT "advertising_actions_approvedById_fkey"
-    FOREIGN KEY ("approvedById") REFERENCES "users"("id") ON UPDATE CASCADE;
+    FOREIGN KEY ("approvedById") REFERENCES "User"("id") ON UPDATE CASCADE;
