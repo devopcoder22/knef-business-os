@@ -59,6 +59,7 @@ import { BackupModule } from './modules/backup/backup.module';
 import { MarketingModule } from './modules/marketing/marketing.module';
 import { SocialModule } from './modules/social/social.module';
 import { TestimonialsModule } from './modules/testimonials/testimonials.module';
+import { AdvertisingModule } from './modules/advertising/advertising.module';
 
 @Module({
   imports: [
@@ -139,6 +140,7 @@ import { TestimonialsModule } from './modules/testimonials/testimonials.module';
     MarketingModule,
     SocialModule,
     TestimonialsModule,
+    AdvertisingModule,
   ],
   providers: [
     // Rate limiting — must run before auth so unauthenticated bots are throttled

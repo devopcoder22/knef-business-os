@@ -9,6 +9,7 @@ export const QUEUES = {
   AUTOMATION: 'automation',
   INTEGRATIONS: 'integrations',
   MARKETING: 'marketing',
+  ADVERTISING: 'advertising',
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -45,6 +46,11 @@ export const JOB_TYPES = {
   // social publishing queue (Stage 24E)
   SOCIAL_PUBLISH: 'social-publish',
   SOCIAL_STATUS_CHECK: 'social-status-check',
+  // advertising queue (Stage 24F)
+  ADVERTISING_ACCOUNT_SYNC: 'advertising-account-sync',
+  ADVERTISING_CAMPAIGN_SYNC: 'advertising-campaign-sync',
+  ADVERTISING_METRICS_SYNC: 'advertising-metrics-sync',
+  ADVERTISING_ACTION_SUBMIT: 'advertising-action-submit',
 } as const;
 
 // ── Job payload types ─────────────────────────────────────────────────────────
@@ -205,4 +211,29 @@ export interface SocialStatusCheckJobData {
   provider: string;
   providerPublishId: string;
   socialAccountId: string;
+}
+
+export interface AdvertisingAccountSyncJobData {
+  organizationId: string;
+  advertisingAccountId: string;
+  provider: string;
+}
+
+export interface AdvertisingCampaignSyncJobData {
+  organizationId: string;
+  advertisingAccountId: string;
+  provider: string;
+}
+
+export interface AdvertisingMetricsSyncJobData {
+  organizationId: string;
+  advertisingAccountId: string;
+  provider: string;
+  fromDate: string;
+  toDate: string;
+}
+
+export interface AdvertisingActionSubmitJobData {
+  organizationId: string;
+  actionId: string;
 }

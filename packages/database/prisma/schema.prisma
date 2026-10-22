@@ -58,6 +58,12 @@ model Organization {
   publicationAttempts      PublicationAttempt[]
   socialPublicationTargets SocialPublicationTarget[]
   testimonials StorefrontTestimonial[]
+  advertisingAccounts      AdvertisingAccount[]
+  advertisingCampaigns     AdvertisingCampaign[]
+  advertisingAdGroups      AdvertisingAdGroup[]
+  advertisingAds           AdvertisingAd[]
+  advertisingMetricSnapshots AdvertisingMetricSnapshot[]
+  advertisingActions       AdvertisingAction[]
 
   @@index([slug])
 }
@@ -148,6 +154,8 @@ model User {
   externalConnectionsConnected ExternalConnection[] @relation("ExternalConnectionUser")
   channelPreferences           ChannelPreference[]
   pushSubscriptions            PushSubscription[]
+  advertisingActionsRequested  AdvertisingAction[] @relation("AdvertisingActionRequester")
+  advertisingActionsApproved   AdvertisingAction[] @relation("AdvertisingActionApprover")
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -2716,6 +2724,7 @@ model ExternalConnection {
   connectedBy   User?              @relation("ExternalConnectionUser", fields: [connectedByUserId], references: [id])
   syncLogs      IntegrationSyncLog[]
   socialAccounts SocialAccount[]
+  advertisingAccounts AdvertisingAccount[]
 
   @@unique([organizationId, provider, externalAccountId])
   @@index([organizationId, provider])
@@ -3104,4 +3113,178 @@ model StorefrontTestimonial {
   @@index([organizationId, isActive])
   @@index([organizationId, displayOrder])
   @@map("storefront_testimonials")
+}
+
+// ── Stage 24F — Advertising Integrations ─────────────────────────────────────
+
+model AdvertisingAccount {
+  id                  String    @id @default(cuid())
+  organizationId      String
+  connectionId        String
+  provider            String    // GOOGLE_ADS | META | TIKTOK
+  providerAccountId   String
+  displayName         String
+  currency            String    @default("USD")
+  timezone            String    @default("UTC")
+  accountStatus       String    @default("UNKNOWN") // ENABLED | PAUSED | SUSPENDED | CLOSED | UNKNOWN
+  capabilities        Json      @default("[]")
+  approvalStatus      String    @default("PENDING_PROVIDER_REVIEW") // PENDING_PROVIDER_REVIEW | APPROVED | REJECTED | NOT_REQUIRED
+  lastSyncedAt        DateTime?
+  isActive            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connection          ExternalConnection @relation(fields: [connectionId], references: [id])
+  campaigns           AdvertisingCampaign[]
+  metricSnapshots     AdvertisingMetricSnapshot[]
+  actions             AdvertisingAction[]
+
+  @@unique([organizationId, provider, providerAccountId])
+  @@index([organizationId, provider])
+  @@index([connectionId])
+  @@map("advertising_accounts")
+}
+
+model AdvertisingCampaign {
+  id                   String    @id @default(cuid())
+  organizationId       String
+  advertisingAccountId String
+  provider             String
+  providerCampaignId   String
+  name                 String
+  status               String    @default("UNKNOWN") // ACTIVE | PAUSED | REMOVED | ARCHIVED | UNKNOWN
+  objective            String?
+  budgetType           String?   // DAILY | LIFETIME
+  budgetAmountMicros   BigInt?
+  currency             String?
+  startDate            DateTime?
+  endDate              DateTime?
+  providerStatus       String?
+  lastSyncedAt         DateTime?
+  rawMeta              Json      @default("{}")
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  advertisingAccount  AdvertisingAccount  @relation(fields: [advertisingAccountId], references: [id], onDelete: Cascade)
+  adGroups            AdvertisingAdGroup[]
+  metricSnapshots     AdvertisingMetricSnapshot[]
+  actions             AdvertisingAction[]
+
+  @@unique([advertisingAccountId, providerCampaignId])
+  @@index([organizationId, provider])
+  @@index([advertisingAccountId])
+  @@map("advertising_campaigns")
+}
+
+model AdvertisingAdGroup {
+  id                String    @id @default(cuid())
+  organizationId    String
+  campaignId        String
+  provider          String
+  providerAdGroupId String
+  name              String
+  status            String    @default("UNKNOWN")
+  bidAmountMicros   BigInt?
+  rawMeta           Json      @default("{}")
+  lastSyncedAt      DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  organization  Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  campaign      AdvertisingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  ads           AdvertisingAd[]
+
+  @@unique([campaignId, providerAdGroupId])
+  @@index([organizationId])
+  @@index([campaignId])
+  @@map("advertising_ad_groups")
+}
+
+model AdvertisingAd {
+  id             String    @id @default(cuid())
+  organizationId String
+  adGroupId      String
+  provider       String
+  providerAdId   String
+  name           String?
+  status         String    @default("UNKNOWN")
+  rawMeta        Json      @default("{}")
+  lastSyncedAt   DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  adGroup       AdvertisingAdGroup @relation(fields: [adGroupId], references: [id], onDelete: Cascade)
+
+  @@unique([adGroupId, providerAdId])
+  @@index([organizationId])
+  @@index([adGroupId])
+  @@map("advertising_ads")
+}
+
+model AdvertisingMetricSnapshot {
+  id                   String   @id @default(cuid())
+  organizationId       String
+  advertisingAccountId String
+  campaignId           String?
+  date                 DateTime @db.Date
+  provider             String
+  impressions          Int      @default(0)
+  clicks               Int      @default(0)
+  spend                Decimal  @default(0) @db.Decimal(18, 6)
+  currency             String
+  conversions          Decimal? @db.Decimal(18, 6)
+  conversionValue      Decimal? @db.Decimal(18, 6)
+  reach                Int?
+  cpc                  Decimal? @db.Decimal(18, 6)
+  cpm                  Decimal? @db.Decimal(18, 6)
+  ctr                  Decimal? @db.Decimal(10, 6)
+  cpa                  Decimal? @db.Decimal(18, 6)
+  roas                 Decimal? @db.Decimal(10, 4)
+  createdAt            DateTime @default(now())
+
+  organization      Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  account           AdvertisingAccount  @relation(fields: [advertisingAccountId], references: [id], onDelete: Cascade)
+  campaign          AdvertisingCampaign? @relation(fields: [campaignId], references: [id])
+
+  @@unique([advertisingAccountId, campaignId, date, provider])
+  @@index([organizationId, provider, date])
+  @@index([advertisingAccountId, date])
+  @@map("advertising_metric_snapshots")
+}
+
+model AdvertisingAction {
+  id                   String    @id @default(cuid())
+  organizationId       String
+  provider             String
+  advertisingAccountId String
+  campaignId           String?
+  actionType           String    // CAMPAIGN_ENABLE | CAMPAIGN_PAUSE | CAMPAIGN_CREATE | BUDGET_INCREASE | BUDGET_DECREASE | AD_ENABLE | AD_PAUSE | BID_CHANGE
+  status               String    @default("DRAFT") // DRAFT|APPROVAL_REQUIRED|APPROVED|QUEUED|SUBMITTED|APPLIED|FAILED|REJECTED|CANCELLED
+  requestPayload       Json
+  previousValue        Json?
+  proposedValue        Json?
+  approvalId           String?
+  providerRequestId    String?
+  providerResult       Json?
+  errorMessage         String?
+  requestedById        String
+  approvedById         String?
+  submittedAt          DateTime?
+  appliedAt            DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  organization      Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  account           AdvertisingAccount  @relation(fields: [advertisingAccountId], references: [id])
+  campaign          AdvertisingCampaign? @relation(fields: [campaignId], references: [id])
+  requestedBy       User                @relation("AdvertisingActionRequester", fields: [requestedById], references: [id])
+  approvedBy        User?               @relation("AdvertisingActionApprover", fields: [approvedById], references: [id])
+
+  @@index([organizationId, status])
+  @@index([organizationId, provider])
+  @@index([advertisingAccountId])
+  @@map("advertising_actions")
 }

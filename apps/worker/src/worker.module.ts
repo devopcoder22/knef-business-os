@@ -25,12 +25,14 @@ import { AutomationProcessor } from './processors/automation.processor';
 import { IntegrationSyncProcessor } from './processors/integration-sync.processor';
 import { MarketingSchedulerProcessor } from './processors/marketing-scheduler.processor';
 import { SocialPublishingProcessor } from './processors/social-publishing.processor';
+import { AdvertisingSyncProcessor } from './processors/advertising-sync.processor';
 
 // Schedulers
 import { CampaignScheduler } from './schedulers/campaign.scheduler';
 import { AIAgentScheduler } from './schedulers/ai-agent.scheduler';
 import { CalendarSyncScheduler } from './schedulers/calendar-sync.scheduler';
 import { BackupScheduler } from './schedulers/backup.scheduler';
+import { AdvertisingScheduler } from './schedulers/advertising-scheduler';
 
 @Module({
   imports: [
@@ -65,12 +67,14 @@ import { BackupScheduler } from './schedulers/backup.scheduler';
     IntegrationSyncProcessor,
     MarketingSchedulerProcessor,
     SocialPublishingProcessor,
+    AdvertisingSyncProcessor,
 
     // Schedulers
     CampaignScheduler,
     AIAgentScheduler,
     CalendarSyncScheduler,
     BackupScheduler,
+    AdvertisingScheduler,
   ],
 })
 export class WorkerModule {}

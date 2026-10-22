@@ -194,6 +194,14 @@ export const PERMISSIONS = {
     MANAGE_API_KEYS: 'admin.manage_api_keys',
     VIEW_SECURITY: 'admin.view_security',
   },
+  ADVERTISING: {
+    VIEW:             'advertising.view',
+    MANAGE_ACCOUNTS:  'advertising.manage_accounts',
+    VIEW_ANALYTICS:   'advertising.view_analytics',
+    REQUEST_ACTION:   'advertising.request_action',
+    APPROVE_ACTION:   'advertising.approve_action',
+    MANAGE_ADSENSE:   'advertising.manage_adsense',
+  },
 } as const;
 
 type PermissionsType = typeof PERMISSIONS;
