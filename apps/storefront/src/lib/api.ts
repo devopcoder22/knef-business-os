@@ -207,6 +207,12 @@ export interface StorefrontSettings {
   whatsappNumber?: string;
   whatsappMessage?: string;
   whatsappEnabled?: boolean;
+  // AdSense — stored as adsense.* keys in the raw settings array
+  adsenseEnabled?: boolean;
+  adsensePublisherId?: string;
+  adsenseAutoAdsEnabled?: boolean;
+  adsenseApprovalStatus?: string;
+  adsenseExcludedRoutes?: string[];
 }
 
 export async function fetchStorefrontSettings(): Promise<StorefrontSettings> {
@@ -214,6 +220,27 @@ export async function fetchStorefrontSettings(): Promise<StorefrontSettings> {
     const res: { data: Array<{ key: string; value: string }> } = await apiFetch('/api/storefront-settings');
     const settings: StorefrontSettings = {};
     for (const item of res.data ?? []) {
+      // Handle adsense.* keys separately (they have a different prefix)
+      if (item.key.startsWith('adsense.')) {
+        const subKey = item.key.slice('adsense.'.length); // e.g. "enabled", "publisherId"
+        const camelKey = subKey.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+        const fullKey = `adsense${camelKey.charAt(0).toUpperCase()}${camelKey.slice(1)}` as keyof StorefrontSettings;
+        const boolAdsenseKeys: Array<keyof StorefrontSettings> = ['adsenseEnabled', 'adsenseAutoAdsEnabled'];
+        if (boolAdsenseKeys.includes(fullKey)) {
+          (settings as any)[fullKey] = item.value === 'true';
+        } else if (fullKey === 'adsenseExcludedRoutes') {
+          try {
+            const parsed = JSON.parse(item.value);
+            settings.adsenseExcludedRoutes = Array.isArray(parsed) ? parsed.map(String) : [];
+          } catch {
+            settings.adsenseExcludedRoutes = [];
+          }
+        } else {
+          (settings as any)[fullKey] = item.value;
+        }
+        continue;
+      }
+
       const rawKey = item.key.replace('storefront.', '');
       const shortKey = rawKey.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()) as keyof StorefrontSettings;
       const booleanKeys: Array<keyof StorefrontSettings> = [

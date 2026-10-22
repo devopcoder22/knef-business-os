@@ -53,6 +53,9 @@ import {
   Megaphone,
   Image,
   Star,
+  TrendingUp,
+  Clock,
+  DollarSign,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -212,10 +215,24 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'E-commerce', href: '/ecommerce', icon: Globe, permission: PERMISSIONS.ECOMMERCE.MANAGE },
       { label: 'Storefront', href: '/admin/storefront', icon: ShoppingBag, adminOnly: true },
       { label: 'Testimonials', href: '/admin/storefront/testimonials', icon: Star, adminOnly: true },
+      { label: 'Monetization', href: '/admin/storefront/monetization', icon: DollarSign, adminOnly: true },
     ],
   },
   { label: 'Integrations', href: '/admin/integrations', icon: Plug, adminOnly: true },
   { label: 'Business Rules', href: '/admin/business-rules', icon: Scale, adminOnly: true },
+  {
+    label: 'Advertising',
+    href: '/admin/advertising',
+    icon: TrendingUp,
+    adminOnly: true,
+    children: [
+      { label: 'Overview', href: '/admin/advertising', icon: LayoutDashboard, adminOnly: true },
+      { label: 'Accounts', href: '/admin/advertising/accounts', icon: Target, adminOnly: true },
+      { label: 'Campaigns', href: '/admin/advertising/campaigns', icon: Megaphone, adminOnly: true },
+      { label: 'Analytics', href: '/admin/advertising/analytics', icon: BarChart3, adminOnly: true },
+      { label: 'Actions', href: '/admin/advertising/actions', icon: Clock, adminOnly: true },
+    ],
+  },
   {
     label: 'Marketing',
     href: '/marketing',

@@ -4,6 +4,7 @@ import { Providers } from '@/components/providers';
 import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
 import { ToastProvider } from '@/components/ui/toast';
+import { AdSenseScript } from '@/components/adsense/AdSenseScript';
 
 const BACKEND = process.env.STOREFRONT_INTERNAL_URL ?? 'http://localhost:4000';
 const STORE_NAME = process.env.NEXT_PUBLIC_STORE_NAME ?? 'KNEF Gadgets';
@@ -62,6 +63,7 @@ export default async function RootLayout({
           <main className="flex-1">{children}</main>
           <Footer />
           <ToastProvider />
+          <AdSenseScript />
         </Providers>
       </body>
     </html>
