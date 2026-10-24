@@ -8,8 +8,10 @@ import { GoogleExternalProvider } from './providers/google.provider';
 import { MetaExternalProvider } from './providers/meta.provider';
 import { TikTokExternalProvider } from './providers/tiktok.provider';
 import { ShopifyExternalProvider } from './providers/shopify.provider';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
+  imports: [AuditModule],
   providers: [
     MarketplaceService,
     ExternalConnectionsService,
