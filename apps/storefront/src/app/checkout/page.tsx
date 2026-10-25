@@ -40,6 +40,7 @@ const schema = z.object({
   deliveryCity: z.string().optional(),
   deliveryState: z.string().optional(),
   deliveryPhone: z.string().optional(),
+  deliveryLandmark: z.string().max(200, 'Landmark too long').optional(),
   paymentMethod: z.enum(['CASH', 'BANK_TRANSFER', 'PAYSTACK']),
   notes: z.string().max(500, 'Notes too long').optional(),
 });
@@ -66,14 +67,22 @@ declare global {
         places?: {
           Autocomplete: new (
             input: HTMLInputElement,
-            opts?: { componentRestrictions?: { country: string }; fields?: string[] },
+            opts?: { componentRestrictions?: { country?: string }; fields?: string[] },
           ) => {
             addListener: (event: string, handler: () => void) => void;
             getPlace: () => {
               formatted_address?: string;
+              place_id?: string;
               address_components?: Array<{ long_name: string; types: string[] }>;
+              geometry?: {
+                location: {
+                  lat: () => number;
+                  lng: () => number;
+                };
+              };
             };
           };
+          AutocompleteSessionToken: new () => object;
         };
       };
     };
@@ -109,6 +118,11 @@ export default function CheckoutPage() {
   const [registered, setRegistered] = useState(false);
 
   const addressInputRef = useRef<HTMLInputElement | null>(null);
+  const placeIdRef = useRef<string | null>(null);
+  const latitudeRef = useRef<number | null>(null);
+  const longitudeRef = useRef<number | null>(null);
+  const addressSourceRef = useRef<'GOOGLE_PLACE' | 'MANUAL'>('MANUAL');
+  const [mapsError, setMapsError] = useState(false);
 
   const {
     register,
@@ -133,14 +147,18 @@ export default function CheckoutPage() {
   const initAutocomplete = useCallback(() => {
     if (!addressInputRef.current || !window.google?.maps?.places) return;
     const ac = new window.google.maps.places.Autocomplete(addressInputRef.current, {
-      componentRestrictions: { country: 'ng' },
-      fields: ['formatted_address', 'address_components'],
+      componentRestrictions: { country: watchCountry === 'Nigeria' ? 'ng' : undefined },
+      fields: ['formatted_address', 'address_components', 'place_id', 'geometry'],
     });
     ac.addListener('place_changed', () => {
       const place = ac.getPlace();
       if (place.formatted_address) {
         setValue('deliveryAddress', place.formatted_address, { shouldValidate: true });
       }
+      placeIdRef.current = place.place_id ?? null;
+      latitudeRef.current = place.geometry?.location.lat() ?? null;
+      longitudeRef.current = place.geometry?.location.lng() ?? null;
+      addressSourceRef.current = 'GOOGLE_PLACE';
       const comps = place.address_components ?? [];
       const city =
         comps.find((c) => c.types.includes('locality'))?.long_name ??
@@ -150,7 +168,15 @@ export default function CheckoutPage() {
       if (city) setValue('deliveryCity', city);
       if (state) setValue('deliveryState', state);
     });
-  }, [setValue]);
+  }, [setValue, watchCountry]);
+
+  const handleAddressInputChange = useCallback(() => {
+    // When user types manually, clear Google-sourced data
+    addressSourceRef.current = 'MANUAL';
+    placeIdRef.current = null;
+    latitudeRef.current = null;
+    longitudeRef.current = null;
+  }, []);
 
   // Phone OTP
   async function sendPhoneOtp() {
@@ -216,6 +242,12 @@ export default function CheckoutPage() {
         deliveryCity: payload.deliveryCity,
         deliveryState: payload.deliveryState ? `${payload.deliveryState}${payload.deliveryCountry && payload.deliveryCountry !== 'Nigeria' ? `, ${payload.deliveryCountry}` : ''}` : payload.deliveryCountry,
         deliveryPhone: payload.deliveryPhone,
+        deliveryLandmark: payload.deliveryLandmark || undefined,
+        deliveryCountry: payload.deliveryCountry || undefined,
+        deliveryPlaceId: placeIdRef.current || undefined,
+        deliveryLatitude: latitudeRef.current ?? undefined,
+        deliveryLongitude: longitudeRef.current ?? undefined,
+        deliveryAddressSource: addressSourceRef.current,
         paymentMethod: payload.paymentMethod,
         paystackReference: payload.paystackReference,
         notes: payload.notes || undefined,
@@ -446,8 +478,15 @@ export default function CheckoutPage() {
         <Script
           src={`https://maps.googleapis.com/maps/api/js?key=${MAPS_KEY}&libraries=places`}
           onLoad={initAutocomplete}
+          onError={() => setMapsError(true)}
           strategy="lazyOnload"
         />
+      )}
+
+      {mapsError && (
+        <div className="mb-4 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
+          Address suggestions are temporarily unavailable. Please enter your address manually.
+        </div>
       )}
 
       <Link
@@ -667,9 +706,18 @@ export default function CheckoutPage() {
                     errors.deliveryAddress ? 'border-red-300' : 'border-gray-200',
                   )}
                   autoComplete="off"
+                  onChange={(e) => {
+                    void addressField.onChange(e);
+                    handleAddressInputChange();
+                  }}
+                  aria-label="Street address"
+                  aria-describedby={MAPS_KEY ? 'address-hint' : undefined}
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded="false"
                 />
                 {MAPS_KEY && (
-                  <p className="mt-1 text-xs text-gray-400">Start typing — select from suggestions</p>
+                  <p id="address-hint" className="mt-1 text-xs text-gray-400">Start typing — select from suggestions</p>
                 )}
                 {errors.deliveryAddress && (
                   <p className="mt-1 text-xs text-red-600">{errors.deliveryAddress.message}</p>
@@ -758,6 +806,19 @@ export default function CheckoutPage() {
                   {...register('deliveryCity')}
                   type="text"
                   placeholder="e.g. Ikeja"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary transition-colors"
+                />
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Landmark{' '}
+                  <span className="text-gray-400 font-normal">(optional — helps the delivery driver find you)</span>
+                </label>
+                <input
+                  {...register('deliveryLandmark')}
+                  type="text"
+                  placeholder="e.g. Beside First Bank, opposite Chicken Republic"
                   className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary transition-colors"
                 />
               </div>

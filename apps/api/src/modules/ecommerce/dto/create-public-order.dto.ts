@@ -5,7 +5,9 @@ import {
   IsArray,
   ValidateNested,
   IsInt,
+  IsNumber,
   Min,
+  Max,
   IsIn,
   MaxLength,
 } from 'class-validator';
@@ -65,6 +67,37 @@ export class CreatePublicOrderDto {
   @IsString()
   @MaxLength(20)
   deliveryPhone?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  deliveryLandmark?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  deliveryCountry?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  deliveryPlaceId?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  deliveryLatitude?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  deliveryLongitude?: number;
+
+  @IsOptional()
+  @IsIn(['GOOGLE_PLACE', 'MANUAL', 'SAVED_ADDRESS'])
+  deliveryAddressSource?: string;
 
   @IsIn(['CASH', 'BANK_TRANSFER', 'OTHER', 'PAYSTACK'])
   paymentMethod!: string;

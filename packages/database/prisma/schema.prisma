@@ -1050,6 +1050,7 @@ model CustomerAccount {
   customer      Customer?                    @relation(fields: [customerId], references: [id], onDelete: SetNull)
   refreshTokens CustomerAccountRefreshToken[]
   salesOrders   SalesOrder[]
+  savedAddresses    SavedAddress[]
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -1069,6 +1070,36 @@ model CustomerAccountRefreshToken {
 
   @@index([customerAccountId])
   @@index([tokenHash])
+}
+
+model SavedAddress {
+  id                String        @id @default(cuid())
+  customerAccountId String
+  organizationId    String
+  label             String?
+  fullName          String?
+  phone             String?
+  addressLine1      String
+  addressLine2      String?
+  landmark          String?
+  city              String?
+  state             String?
+  postalCode        String?
+  country           String        @default("Nigeria")
+  countryCode       String?       @default("NG")
+  placeId           String?
+  formattedAddress  String?
+  latitude          Decimal?      @db.Decimal(10, 7)
+  longitude         Decimal?      @db.Decimal(10, 7)
+  addressSource     AddressSource @default(MANUAL)
+  isDefault         Boolean       @default(false)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  customerAccount   CustomerAccount @relation(fields: [customerAccountId], references: [id], onDelete: Cascade)
+
+  @@index([customerAccountId])
+  @@index([organizationId])
 }
 
 model SalesOrder {
@@ -1097,6 +1128,12 @@ model SalesOrder {
   deliveryCity     String?
   deliveryState    String?
   deliveryPhone    String?
+  deliveryLandmark      String?
+  deliveryCountry       String?
+  deliveryPlaceId       String?
+  deliveryLatitude      Decimal?      @db.Decimal(10, 7)
+  deliveryLongitude     Decimal?      @db.Decimal(10, 7)
+  deliveryAddressSource AddressSource?
   idempotencyKey   String?
   customerAccountId String?
   createdAt        DateTime      @default(now())
@@ -1139,6 +1176,14 @@ enum SalesChannel {
   WHATSAPP
   INSTAGRAM
   OTHER
+}
+
+enum AddressSource {
+  GOOGLE_PLACE
+  MANUAL
+  SAVED_ADDRESS
+  ADMIN
+  IMPORTED
 }
 
 model SalesOrderItem {

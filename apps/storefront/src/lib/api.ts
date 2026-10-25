@@ -90,6 +90,12 @@ export interface CheckoutPayload {
   turnstileToken?: string;
   // NOTE: delivery fee is server-authoritative — never sent from the client.
   customerAccountId?: string;
+  deliveryLandmark?: string;
+  deliveryCountry?: string;
+  deliveryPlaceId?: string;
+  deliveryLatitude?: number;
+  deliveryLongitude?: number;
+  deliveryAddressSource?: 'GOOGLE_PLACE' | 'MANUAL' | 'SAVED_ADDRESS';
 }
 
 export async function createOrder(
@@ -295,4 +301,75 @@ export async function postOrderRegister(body: {
   phone?: string;
 }): Promise<AuthResult> {
   return apiFetch('/api/auth/post-order-register', { method: 'POST', body: JSON.stringify(body) });
+}
+
+// ─── Saved addresses ──────────────────────────────────────────────────────────
+
+export interface SavedAddress {
+  id: string;
+  label?: string;
+  fullName?: string;
+  phone?: string;
+  addressLine1: string;
+  addressLine2?: string;
+  landmark?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country: string;
+  countryCode?: string;
+  placeId?: string;
+  formattedAddress?: string;
+  latitude?: string;
+  longitude?: string;
+  addressSource: 'GOOGLE_PLACE' | 'MANUAL' | 'SAVED_ADDRESS' | 'ADMIN' | 'IMPORTED';
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function listSavedAddresses(token: string): Promise<SavedAddress[]> {
+  return apiFetch('/api/account/addresses', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function createSavedAddress(
+  token: string,
+  dto: Omit<SavedAddress, 'id' | 'addressSource' | 'isDefault' | 'createdAt' | 'updatedAt'> & {
+    addressSource?: 'GOOGLE_PLACE' | 'MANUAL' | 'SAVED_ADDRESS';
+    isDefault?: boolean;
+  },
+): Promise<SavedAddress> {
+  return apiFetch('/api/account/addresses', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(dto),
+  });
+}
+
+export async function updateSavedAddress(
+  token: string,
+  id: string,
+  dto: Partial<Omit<SavedAddress, 'id' | 'createdAt' | 'updatedAt'>>,
+): Promise<SavedAddress> {
+  return apiFetch(`/api/account/addresses/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(dto),
+  });
+}
+
+export async function deleteSavedAddress(token: string, id: string): Promise<void> {
+  await apiFetch(`/api/account/addresses/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function setDefaultAddress(token: string, id: string): Promise<SavedAddress> {
+  return apiFetch(`/api/account/addresses/${encodeURIComponent(id)}/default`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}` },
+  });
 }

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { ArrowLeft, CheckCircle, XCircle, RotateCcw, FileText } from 'lucide-react';
+import { ArrowLeft, CheckCircle, XCircle, RotateCcw, FileText, MapPin } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -58,6 +58,16 @@ interface SalesOrder {
   location: { id: string; name: string; code: string };
   items: OrderItem[];
   invoices: Array<{ id: string; reference: string; status: string; totalAmount: string }>;
+  deliveryAddress?: string | null;
+  deliveryCity?: string | null;
+  deliveryState?: string | null;
+  deliveryCountry?: string | null;
+  deliveryPhone?: string | null;
+  deliveryLandmark?: string | null;
+  deliveryPlaceId?: string | null;
+  deliveryLatitude?: string | null;
+  deliveryLongitude?: string | null;
+  deliveryAddressSource?: string | null;
   payments: Payment[];
 }
 
@@ -351,6 +361,45 @@ export default function SalesOrderDetailPage() {
             <div className="bg-white rounded-xl border border-gray-200 p-4">
               <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-2">Notes</h3>
               <p className="text-sm text-gray-600">{order.notes}</p>
+            </div>
+          )}
+
+          {order.deliveryAddress && (
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                <MapPin size={14} />
+                Delivery Address
+              </h3>
+              <div className="space-y-1 text-sm text-gray-700">
+                <p>{order.deliveryAddress}</p>
+                {order.deliveryLandmark && (
+                  <p className="text-gray-500 text-xs">Landmark: {order.deliveryLandmark}</p>
+                )}
+                {(order.deliveryCity || order.deliveryState || order.deliveryCountry) && (
+                  <p className="text-gray-500 text-xs">
+                    {[order.deliveryCity, order.deliveryState, order.deliveryCountry].filter(Boolean).join(', ')}
+                  </p>
+                )}
+                {order.deliveryPhone && (
+                  <p className="text-gray-500 text-xs">Phone: {order.deliveryPhone}</p>
+                )}
+                {order.deliveryAddressSource && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    Source: <span className="font-mono">{order.deliveryAddressSource}</span>
+                  </p>
+                )}
+                {order.deliveryLatitude && order.deliveryLongitude && (
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${order.deliveryLatitude},${order.deliveryLongitude}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline mt-1"
+                  >
+                    <MapPin size={11} />
+                    Open in Google Maps
+                  </a>
+                )}
+              </div>
             </div>
           )}
         </div>

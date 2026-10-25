@@ -10,6 +10,8 @@ import { StorefrontNotificationListener } from './storefront-notification.listen
 import { CustomerJwtGuard } from './guards/customer-jwt.guard';
 import { CommonModule } from '../../common/services/common.module';
 import { CommunicationsModule } from '../communications/communications.module';
+import { CustomerAddressController } from './customer-address.controller';
+import { CustomerAddressService } from './customer-address.service';
 
 @Module({
   imports: [
@@ -24,12 +26,13 @@ import { CommunicationsModule } from '../communications/communications.module';
       }),
     }),
   ],
-  controllers: [StorefrontAuthController, StorefrontOrdersController, StorefrontOtpController],
+  controllers: [StorefrontAuthController, StorefrontOrdersController, StorefrontOtpController, CustomerAddressController],
   providers: [
     StorefrontAuthService,
     StorefrontOtpService,
     StorefrontNotificationListener,
     CustomerJwtGuard,
+    CustomerAddressService,
   ],
 })
 export class StorefrontModule {}
