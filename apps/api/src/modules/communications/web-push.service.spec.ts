@@ -325,4 +325,102 @@ describe('WebPushService', () => {
       expect(result.expired).toBe(3);
     });
   });
+
+  // ── VAPID private key encryption — security properties ─────────────────────
+  //
+  // These tests prove that AES-256-GCM authenticated encryption is used for
+  // VAPID private key storage.  They exercise the encrypt/decrypt functions
+  // from @knef/utils directly — using jest.requireActual so the real crypto
+  // path runs, not a mock.
+
+  describe('VAPID private key encryption — security properties', () => {
+    const realUtils = () =>
+      jest.requireActual<typeof import('@knef/utils')>('@knef/utils');
+
+    const TEST_ENC_KEY = 'a'.repeat(64); // 32-byte hex key for tests
+    const RAW_PRIVATE_KEY = 'C'.repeat(43); // matches the mocked webpush.generateVAPIDKeys
+
+    it('stores private key encrypted — stored value differs from raw key', async () => {
+      const { service, prisma } = makeService();
+      await service.getVapidPublicKey('org-1');
+
+      const storedJson = (prisma.systemSetting.create as jest.Mock).mock.calls[0][0].data.value;
+      const stored = JSON.parse(storedJson) as { privateKeyEncrypted: string };
+
+      expect(stored.privateKeyEncrypted).not.toBe(RAW_PRIVATE_KEY);
+      expect(stored.privateKeyEncrypted).not.toContain(RAW_PRIVATE_KEY);
+    });
+
+    it('stored encrypted value uses three-part GCM format (IV:tag:ciphertext)', async () => {
+      const { service, prisma } = makeService();
+      await service.getVapidPublicKey('org-1');
+
+      const storedJson = (prisma.systemSetting.create as jest.Mock).mock.calls[0][0].data.value;
+      const stored = JSON.parse(storedJson) as { privateKeyEncrypted: string };
+
+      const parts = stored.privateKeyEncrypted.split(':');
+      expect(parts).toHaveLength(3);
+      // Each part must be non-empty hex
+      parts.forEach((part) => {
+        expect(part.length).toBeGreaterThan(0);
+        expect(part).toMatch(/^[0-9a-f]+$/i);
+      });
+    });
+
+    it('valid encrypted key decrypts correctly to original plaintext', () => {
+      const { encrypt, decrypt } = realUtils();
+      const encrypted = encrypt(RAW_PRIVATE_KEY, TEST_ENC_KEY);
+      const decrypted = decrypt(encrypted, TEST_ENC_KEY);
+      expect(decrypted).toBe(RAW_PRIVATE_KEY);
+    });
+
+    it('tampered ciphertext fails GCM authentication tag verification', () => {
+      const { encrypt, decrypt } = realUtils();
+      const encrypted = encrypt(RAW_PRIVATE_KEY, TEST_ENC_KEY);
+      const parts = encrypted.split(':');
+      // Flip the last hex char of the ciphertext
+      const last = parts[2];
+      parts[2] = last.slice(0, -1) + (last.endsWith('0') ? '1' : '0');
+      expect(() => decrypt(parts.join(':'), TEST_ENC_KEY)).toThrow();
+    });
+
+    it('tampered authentication tag fails decryption', () => {
+      const { encrypt, decrypt } = realUtils();
+      const encrypted = encrypt(RAW_PRIVATE_KEY, TEST_ENC_KEY);
+      const parts = encrypted.split(':');
+      // Flip the last hex char of the auth tag (index 1)
+      const tag = parts[1];
+      parts[1] = tag.slice(0, -1) + (tag.endsWith('0') ? '1' : '0');
+      expect(() => decrypt(parts.join(':'), TEST_ENC_KEY)).toThrow();
+    });
+
+    it('wrong encryption key fails decryption', () => {
+      const { encrypt, decrypt } = realUtils();
+      const encrypted = encrypt(RAW_PRIVATE_KEY, TEST_ENC_KEY);
+      const wrongKey = 'b'.repeat(64);
+      expect(() => decrypt(encrypted, wrongKey)).toThrow();
+    });
+
+    it('reject invalid encrypted format (missing parts) fails decryption', () => {
+      const { decrypt } = realUtils();
+      // A raw (unencrypted) value — not in iv:tag:ciphertext format
+      const notEncrypted = 'plaintextkey-not-encrypted';
+      expect(() => decrypt(notEncrypted, TEST_ENC_KEY)).toThrow('Invalid encrypted text format');
+    });
+
+    it('getVapidPublicKey never exposes privateKey or privateKeyEncrypted to callers', async () => {
+      const { service } = makeService();
+      const result = await service.getVapidPublicKey('org-1');
+
+      expect(Object.keys(result)).toEqual(['publicKey']);
+      expect((result as Record<string, unknown>).privateKey).toBeUndefined();
+      expect((result as Record<string, unknown>).privateKeyEncrypted).toBeUndefined();
+    });
+
+    it('public key is accessible without requiring private key decryption', async () => {
+      const { service } = makeService();
+      const { publicKey } = await service.getVapidPublicKey('org-1');
+      expect(publicKey).toBe('B'.repeat(87));
+    });
+  });
 });
