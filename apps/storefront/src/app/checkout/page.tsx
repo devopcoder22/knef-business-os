@@ -205,6 +205,33 @@ export default function CheckoutPage() {
     }
   }
 
+  // Phone OTP
+  async function sendPhoneOtp() {
+    setPhoneOtpStep('sending');
+    setPhoneOtpError('');
+    try {
+      await requestSmsOtp(getValues('customerPhone'));
+      setPhoneOtpStep('sent');
+      toast('success', 'SMS verification code sent');
+    } catch (err) {
+      setPhoneOtpError((err as { message?: string }).message ?? 'Failed to send SMS code');
+      setPhoneOtpStep('idle');
+    }
+  }
+
+  async function verifyPhone() {
+    setPhoneOtpStep('verifying');
+    setPhoneOtpError('');
+    try {
+      await verifySmsOtp(getValues('customerPhone'), phoneOtp);
+      setPhoneOtpStep('verified');
+      toast('success', 'Phone number verified');
+    } catch (err) {
+      setPhoneOtpError((err as { message?: string }).message ?? 'Invalid code. Try again.');
+      setPhoneOtpStep('sent');
+    }
+  }
+
   // Email OTP
   async function sendEmailOtp() {
     setEmailOtpStep('sending');
