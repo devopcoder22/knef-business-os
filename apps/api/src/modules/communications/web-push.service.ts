@@ -2,13 +2,14 @@ import {
   Injectable,
   Logger,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createId } from '@paralleldrive/cuid2';
-import { generateKeyPairSync } from 'crypto';
+import webpush from 'web-push';
 import { PrismaService } from '../../common/services/prisma.service';
 import { QueueService } from '../../common/services/queue.service';
-import { encrypt } from '@knef/utils';
+import { encrypt, decrypt } from '@knef/utils';
 import { QUEUES, JOB_TYPES } from '@knef/constants';
 import type { AppConfig } from '../../config/app.config';
 
@@ -19,6 +20,12 @@ export interface PushSubscriptionDto {
   p256dhKey: string;
   authKey: string;
   userAgent?: string;
+}
+
+interface StoredVapidKeys {
+  publicKey: string;
+  privateKeyEncrypted: string;
+  format: 'v2';
 }
 
 @Injectable()
@@ -46,27 +53,28 @@ export class WebPushService {
     });
 
     if (setting?.value) {
-      const parsed = setting.value as unknown as { publicKey: string; privateKeyEncrypted: string };
-      return parsed;
+      try {
+        const stored = JSON.parse(setting.value) as StoredVapidKeys;
+        // Only trust keys generated with the current format (v2 = proper EC point encoding)
+        if (stored.format === 'v2' && stored.publicKey && stored.publicKey.length <= 100) {
+          return { publicKey: stored.publicKey, privateKeyEncrypted: stored.privateKeyEncrypted };
+        }
+      } catch {
+        // Malformed JSON — regenerate
+      }
+      // Old format or malformed — regenerate below and update
     }
 
-    // Generate new VAPID key pair (EC P-256)
-    const { publicKey, privateKey } = generateKeyPairSync('ec', {
-      namedCurve: 'prime256v1',
-      publicKeyEncoding: { type: 'spki', format: 'der' },
-      privateKeyEncoding: { type: 'pkcs8', format: 'der' },
-    });
-
-    const publicKeyBase64 = publicKey.toString('base64url');
-    const privateKeyBase64 = privateKey.toString('base64url');
-    const privateKeyEncrypted = encrypt(privateKeyBase64, this.encryptionKey);
-
-    const stored = { publicKey: publicKeyBase64, privateKeyEncrypted };
+    // Generate proper VAPID key pair using web-push library
+    const { publicKey, privateKey } = webpush.generateVAPIDKeys();
+    const privateKeyEncrypted = encrypt(privateKey, this.encryptionKey);
+    const stored: StoredVapidKeys = { publicKey, privateKeyEncrypted, format: 'v2' };
+    const storedJson = JSON.stringify(stored);
 
     if (setting) {
       await this.prisma.systemSetting.update({
         where: { id: setting.id },
-        data: { value: stored as unknown as Parameters<typeof this.prisma.systemSetting.update>[0]['data']['value'] },
+        data: { value: storedJson },
       });
     } else {
       await this.prisma.systemSetting.create({
@@ -74,13 +82,13 @@ export class WebPushService {
           id: createId(),
           organizationId,
           key: VAPID_SETTING_KEY,
-          value: stored as unknown as Parameters<typeof this.prisma.systemSetting.create>[0]['data']['value'],
+          value: storedJson,
           isPublic: false,
         },
       });
     }
 
-    return stored;
+    return { publicKey, privateKeyEncrypted };
   }
 
   // ── Subscription management ───────────────────────────────────────────────
@@ -94,6 +102,11 @@ export class WebPushService {
       throw new BadRequestException('Invalid push subscription: endpoint, p256dhKey, and authKey are required');
     }
 
+    // Validate endpoint is https (required for Web Push)
+    if (!dto.endpoint.startsWith('https://')) {
+      throw new BadRequestException('Push subscription endpoint must use HTTPS');
+    }
+
     const existing = await this.prisma.pushSubscription.findFirst({
       where: { userId, endpoint: dto.endpoint },
     });
@@ -101,7 +114,14 @@ export class WebPushService {
     if (existing) {
       await this.prisma.pushSubscription.update({
         where: { id: existing.id },
-        data: { isActive: true, userAgent: dto.userAgent ?? existing.userAgent },
+        data: {
+          isActive: true,
+          p256dhKey: dto.p256dhKey,
+          authKey: dto.authKey,
+          userAgent: dto.userAgent ?? existing.userAgent,
+          failureCount: 0,
+          revokedAt: null,
+        },
       });
       return { id: existing.id };
     }
@@ -116,6 +136,7 @@ export class WebPushService {
         authKey: dto.authKey,
         userAgent: dto.userAgent ?? null,
         isActive: true,
+        failureCount: 0,
       },
     });
 
@@ -125,7 +146,22 @@ export class WebPushService {
   async unsubscribe(userId: string, endpoint: string): Promise<void> {
     await this.prisma.pushSubscription.updateMany({
       where: { userId, endpoint },
-      data: { isActive: false },
+      data: { isActive: false, revokedAt: new Date() },
+    });
+  }
+
+  async revokeSubscription(userId: string, organizationId: string, subscriptionId: string): Promise<void> {
+    const sub = await this.prisma.pushSubscription.findFirst({
+      where: { id: subscriptionId, organizationId },
+    });
+    if (!sub) return;
+    // IDOR: only owner or admin can revoke
+    if (sub.userId !== userId) {
+      throw new ForbiddenException('Cannot revoke another user\'s subscription');
+    }
+    await this.prisma.pushSubscription.update({
+      where: { id: subscriptionId },
+      data: { isActive: false, revokedAt: new Date() },
     });
   }
 
@@ -142,12 +178,20 @@ export class WebPushService {
     });
   }
 
+  async listOrgSubscriptions(organizationId: string) {
+    const [active, expired] = await Promise.all([
+      this.prisma.pushSubscription.count({ where: { organizationId, isActive: true } }),
+      this.prisma.pushSubscription.count({ where: { organizationId, isActive: false } }),
+    ]);
+    return { active, expired };
+  }
+
   // ── Queue push notification ───────────────────────────────────────────────
 
   async queuePush(
     userId: string,
     organizationId: string,
-    payload: { title: string; body: string; url?: string; icon?: string },
+    payload: { title: string; body: string; url?: string; icon?: string; tag?: string; idempotencyKey?: string },
   ): Promise<{ logId: string }> {
     const hasSubscriptions = await this.prisma.pushSubscription.count({
       where: { userId, organizationId, isActive: true },
@@ -178,10 +222,24 @@ export class WebPushService {
       body: payload.body,
       url: payload.url,
       icon: payload.icon,
+      tag: payload.tag,
       logId: log.id,
+      idempotencyKey: payload.idempotencyKey,
     });
 
     return { logId: log.id };
+  }
+
+  // ── Decrypt VAPID private key (for test-send in admin) ───────────────────
+
+  async getDecryptedVapidKeys(organizationId: string): Promise<{ publicKey: string; privateKey: string } | null> {
+    const keys = await this.getOrGenerateVapidKeys(organizationId);
+    try {
+      const privateKey = decrypt(keys.privateKeyEncrypted, this.encryptionKey);
+      return { publicKey: keys.publicKey, privateKey };
+    } catch {
+      return null;
+    }
   }
 
   // ── Private ───────────────────────────────────────────────────────────────

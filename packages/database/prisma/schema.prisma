@@ -2862,14 +2862,18 @@ model PushSubscription {
   authKey        String
   userAgent      String?
   isActive       Boolean   @default(true)
+  failureCount   Int       @default(0)
   lastUsedAt     DateTime?
+  revokedAt      DateTime?
   createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, endpoint])
   @@index([organizationId, userId])
+  @@index([organizationId, isActive])
   @@map("push_subscriptions")
 }
 
@@ -3016,6 +3020,7 @@ model CommunicationLog {
   providerMessageId String?
   errorMessage      String?
   attemptCount      Int       @default(0)
+  idempotencyKey    String?   @unique
   sentAt            DateTime?
   deliveredAt       DateTime?
   failedAt          DateTime?

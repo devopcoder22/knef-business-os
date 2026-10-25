@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { decrypt } from '@knef/utils';
+import { decrypt, normalizeToE164 } from '@knef/utils';
 import { PrismaService } from './prisma.service';
 import type { WorkerConfig } from '../config/worker.config';
 
@@ -9,6 +9,15 @@ interface TermiiResponse {
   message?: string;
   code?: string;
 }
+
+// Termii error codes that indicate a permanent failure (do not retry)
+const TERMII_PERMANENT_ERRORS = new Set([
+  'invalid_phone_number',
+  'phone_number_not_verified',
+  'sender_not_approved',
+  'insufficient_balance',
+  'blacklisted',
+]);
 
 @Injectable()
 export class SmsSenderService {
@@ -20,6 +29,10 @@ export class SmsSenderService {
     private readonly config: ConfigService<WorkerConfig>,
   ) {}
 
+  private get deliveryEnabled(): boolean {
+    return this.config.get<string>('SMS_DELIVERY_ENABLED') === 'true';
+  }
+
   async sendSms(params: {
     organizationId: string;
     to: string;
@@ -27,7 +40,27 @@ export class SmsSenderService {
     providerId?: string;
     senderId?: string;
     logId?: string;
+    idempotencyKey?: string;
   }): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    // Delivery safety flag
+    if (!this.deliveryEnabled) {
+      this.logger.log(`[MOCK] SMS delivery disabled — skipping send to ${params.to} (org=${params.organizationId})`);
+      await this.updateLog(params.logId, 'sent', 'mock-disabled');
+      return { success: true, messageId: 'mock-disabled' };
+    }
+
+    // Idempotency: skip if same business event already sent successfully
+    if (params.idempotencyKey) {
+      const existing = await this.prisma.communicationLog.findFirst({
+        where: { organizationId: params.organizationId, idempotencyKey: params.idempotencyKey, status: 'sent' },
+        select: { id: true, providerMessageId: true },
+      });
+      if (existing) {
+        this.logger.log(`SMS idempotency hit — skipping duplicate (key=${params.idempotencyKey})`);
+        return { success: true, messageId: existing.providerMessageId ?? undefined };
+      }
+    }
+
     const provider = await this.resolveProvider(params.organizationId, params.providerId);
     if (!provider) {
       const err = 'No SMS provider configured';
@@ -35,12 +68,18 @@ export class SmsSenderService {
       return { success: false, error: err };
     }
 
-    const to = this.normalizePhone(params.to);
-    const senderId = params.senderId ?? provider.senderId ?? 'KNEF';
+    const to = normalizeToE164(params.to);
+    if (!to) {
+      const err = `Cannot normalize phone number: ${params.to}`;
+      await this.updateLog(params.logId, 'failed', undefined, err);
+      return { success: false, error: err };
+    }
+    const senderIdRaw = params.senderId ?? provider.senderId;
+    const senderId = senderIdRaw !== null && senderIdRaw !== undefined ? senderIdRaw : 'KNEF';
 
     try {
       const result = await this.dispatchViaProvider(provider.providerName, provider.apiKey, to, params.message, senderId);
-      await this.updateLog(params.logId, 'sent', result.messageId);
+      await this.updateLog(params.logId, result.success ? 'sent' : 'failed', result.messageId, result.error);
       return result;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -71,23 +110,42 @@ export class SmsSenderService {
     message: string,
     from: string,
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
-    const res = await fetch(this.termiiBaseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        to,
-        from,
-        sms: message,
-        type: 'plain',
-        api_key: apiKey,
-        channel: 'generic',
-      }),
-    });
+    let res: Response;
+    try {
+      res = await fetch(this.termiiBaseUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to,
+          from,
+          sms: message,
+          type: 'plain',
+          api_key: apiKey,
+          channel: 'generic',
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+    } catch (err) {
+      if (err instanceof Error && err.name === 'TimeoutError') {
+        throw new Error('Termii API timeout');
+      }
+      throw err;
+    }
 
     const data = (await res.json()) as TermiiResponse;
 
     if (!res.ok || data.code === 'err') {
-      return { success: false, error: data.message ?? `Termii error: ${res.status}` };
+      const errMsg = data.message ?? `Termii error: ${res.status}`;
+      // Permanent error codes → return failure without throwing (no retry)
+      if (data.code && TERMII_PERMANENT_ERRORS.has(data.code)) {
+        return { success: false, error: errMsg };
+      }
+      // 4xx permanent → return failure
+      if (res.status >= 400 && res.status < 500) {
+        return { success: false, error: errMsg };
+      }
+      // 5xx transient → throw so BullMQ retries
+      throw new Error(errMsg);
     }
 
     return { success: true, messageId: data.message_id };
@@ -120,14 +178,6 @@ export class SmsSenderService {
       this.logger.error(`Failed to decrypt SMS provider key for ${record.id}`);
       return null;
     }
-  }
-
-  private normalizePhone(phone: string): string {
-    const digits = phone.replace(/\D/g, '');
-    if (digits.startsWith('0') && digits.length === 11) {
-      return `234${digits.slice(1)}`;
-    }
-    return digits;
   }
 
   private async updateLog(

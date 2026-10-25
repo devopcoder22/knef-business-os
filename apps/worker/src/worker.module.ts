@@ -12,6 +12,7 @@ import { EmbeddingService } from './services/embedding.service';
 import { ReportDataService } from './services/report-data.service';
 import { ReportExportersService } from './services/report-exporters.service';
 import { SocialPublisherService } from './services/social-publisher.service';
+import { WebPushSenderService } from './services/web-push-sender.service';
 import { WhatsAppSenderService } from './services/whatsapp-sender.service';
 
 // Processors
@@ -55,6 +56,7 @@ import { AdvertisingScheduler } from './schedulers/advertising-scheduler';
     ReportDataService,
     ReportExportersService,
     SocialPublisherService,
+    WebPushSenderService,
     WhatsAppSenderService,
 
     // Processors

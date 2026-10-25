@@ -43,6 +43,10 @@ function makeSmsSender() {
   return { sendSms: jest.fn(async () => ({ success: true })) };
 }
 
+function makeWebPushSender() {
+  return { sendPush: jest.fn(async () => {}) };
+}
+
 function makeWhatsAppSender() {
   return { sendWhatsApp: jest.fn(async () => {}) };
 }
@@ -51,10 +55,17 @@ describe('NotificationsProcessor', () => {
   function makeProcessor() {
     const prisma = makePrisma();
     const smsSender = makeSmsSender();
-    const config = makeConfig();
+    const webPushSender = makeWebPushSender();
     const whatsAppSender = makeWhatsAppSender();
-    const processor = new NotificationsProcessor(prisma as never, smsSender as never, whatsAppSender as never, config as never);
-    return { processor, prisma };
+    const config = makeConfig();
+    const processor = new NotificationsProcessor(
+      prisma as never,
+      smsSender as never,
+      webPushSender as never,
+      whatsAppSender as never,
+      config as never,
+    );
+    return { processor, prisma, smsSender, webPushSender, whatsAppSender };
   }
 
   it('creates notification with correct fields', async () => {
@@ -122,5 +133,54 @@ describe('NotificationsProcessor', () => {
     await (processor as unknown as { process: (j: Job) => Promise<void> }).process(job);
 
     expect(prisma.notification.create).not.toHaveBeenCalled();
+  });
+
+  it('delegates SEND_SMS job to SmsSenderService', async () => {
+    const { processor, smsSender } = makeProcessor();
+    const job = {
+      id: 'j-2',
+      name: JOB_TYPES.SEND_SMS,
+      data: { organizationId: 'org-1', to: '+2348012345678', message: 'Hi!', messageType: 'TRANSACTIONAL' },
+    } as Job;
+
+    await (processor as unknown as { process: (j: Job) => Promise<void> }).process(job);
+
+    expect((smsSender.sendSms as jest.Mock)).toHaveBeenCalledTimes(1);
+    const args = (smsSender.sendSms as jest.Mock).mock.calls[0][0];
+    expect(args.to).toBe('+2348012345678');
+  });
+
+  it('delegates SEND_PUSH job to WebPushSenderService', async () => {
+    const { processor, webPushSender } = makeProcessor();
+    const job = {
+      id: 'j-3',
+      name: JOB_TYPES.SEND_PUSH,
+      data: { organizationId: 'org-1', userId: 'user-1', title: 'Order shipped', body: 'Your order is on the way' },
+    } as Job;
+
+    await (processor as unknown as { process: (j: Job) => Promise<void> }).process(job);
+
+    expect((webPushSender.sendPush as jest.Mock)).toHaveBeenCalledTimes(1);
+    expect((webPushSender.sendPush as jest.Mock).mock.calls[0][0].title).toBe('Order shipped');
+  });
+
+  it('passes idempotencyKey through SEND_SMS to sender', async () => {
+    const { processor, smsSender } = makeProcessor();
+    const job = {
+      id: 'j-4',
+      name: JOB_TYPES.SEND_SMS,
+      data: {
+        organizationId: 'org-1',
+        to: '+2348012345678',
+        message: 'Hi',
+        messageType: 'TRANSACTIONAL',
+        idempotencyKey: 'sms:order:org-1:order-1:created',
+      },
+    } as Job;
+
+    await (processor as unknown as { process: (j: Job) => Promise<void> }).process(job);
+
+    const args = (smsSender.sendSms as jest.Mock).mock.calls[0][0];
+    expect(args.idempotencyKey).toBe('sms:order:org-1:order-1:created');
   });
 });

@@ -166,6 +166,7 @@ export class SmsService {
         messageType: params.messageType ?? 'TRANSACTIONAL',
         recipient: params.to,
         status: 'queued',
+        idempotencyKey: params.idempotencyKey ?? null,
       },
     });
 

@@ -159,6 +159,7 @@ export interface PushSendJobData {
   body: string;
   url?: string;
   icon?: string;
+  tag?: string;
   logId?: string;
   idempotencyKey?: string;
 }

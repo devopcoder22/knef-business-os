@@ -32,6 +32,15 @@ const nextConfig = {
           },
         ],
       },
+      {
+        // Service worker must be served with no-cache and correct scope
+        source: '/sw.js',
+        headers: [
+          { key: 'Content-Type', value: 'application/javascript' },
+          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
+          { key: 'Service-Worker-Allowed', value: '/' },
+        ],
+      },
     ];
   },
 };

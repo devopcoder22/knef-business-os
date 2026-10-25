@@ -770,4 +770,26 @@ export class WebPushController {
   listSubscriptions(@CurrentUser() user: AuthUser) {
     return this.webPush.listSubscriptions(user.id, user.organizationId);
   }
+
+  @Get('subscription-count')
+  @Permissions(PERMISSIONS.COMMUNICATIONS.SMS)
+  @ApiOperation({ summary: 'Get org push subscription counts (admin)' })
+  subscriptionCount(@CurrentUser() user: AuthUser) {
+    return this.webPush.listOrgSubscriptions(user.organizationId);
+  }
+
+  @Post('test')
+  @Permissions(PERMISSIONS.COMMUNICATIONS.SMS)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Send a test push notification to a user (admin)' })
+  testPush(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: { userId: string; title?: string; body?: string },
+  ) {
+    return this.webPush.queuePush(dto.userId, user.organizationId, {
+      title: dto.title ?? 'Test Notification',
+      body: dto.body ?? 'This is a test push notification from KNEF.',
+      url: '/',
+    });
+  }
 }

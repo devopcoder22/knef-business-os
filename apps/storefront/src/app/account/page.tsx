@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { User, Package, LogOut, MapPin } from 'lucide-react';
+import { User, Package, LogOut, MapPin, Bell } from 'lucide-react';
 import { useCustomerStore } from '@/stores/customer.store';
 import { customerLogout } from '@/lib/api';
 
@@ -89,6 +89,15 @@ export default function AccountPage() {
           <MapPin size={24} className="text-green-600 mb-3" />
           <p className="font-semibold text-gray-900 group-hover:text-blue-600">My Addresses</p>
           <p className="text-sm text-gray-500 mt-1">Manage your saved delivery addresses</p>
+        </Link>
+
+        <Link
+          href="/account/notifications"
+          className="bg-white rounded-xl border border-gray-200 p-6 hover:border-blue-300 hover:shadow-sm transition-all group"
+        >
+          <Bell size={24} className="text-purple-600 mb-3" />
+          <p className="font-semibold text-gray-900 group-hover:text-blue-600">Notifications</p>
+          <p className="text-sm text-gray-500 mt-1">Manage push notification preferences</p>
         </Link>
       </div>
     </div>

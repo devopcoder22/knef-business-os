@@ -19,6 +19,12 @@ const WorkerConfigSchema = z.object({
   // Daily backup cron (default: 2am)
   BACKUP_CRON_HOUR: z.coerce.number().default(2),
   BACKUP_RETENTION_DAYS: z.coerce.number().default(7),
+  // Delivery safety flags (default false for stage-validation)
+  SMS_DELIVERY_ENABLED: z.string().optional().default('false'),
+  WEB_PUSH_DELIVERY_ENABLED: z.string().optional().default('false'),
+  WHATSAPP_DELIVERY_ENABLED: z.string().optional().default('false'),
+  // VAPID contact subject (mailto: or URL) for Web Push
+  VAPID_SUBJECT: z.string().optional().default('mailto:support@knef.app'),
   // Calendar provider OAuth credentials (optional — calendar sync disabled if absent)
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),

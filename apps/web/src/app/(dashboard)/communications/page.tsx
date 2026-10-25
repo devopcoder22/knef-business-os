@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Mail, MessageSquare, Webhook, FileText } from 'lucide-react';
+import { Mail, MessageSquare, Webhook, FileText, Phone, Bell, MessageCircle } from 'lucide-react';
 
 const CARDS = [
   {
@@ -17,6 +17,27 @@ const CARDS = [
     href: '/communications/templates',
     icon: FileText,
     color: 'bg-purple-500',
+  },
+  {
+    title: 'SMS Providers',
+    description: 'Configure Termii and manage SMS sender IDs for transactional messages.',
+    href: '/communications/sms-providers',
+    icon: Phone,
+    color: 'bg-green-500',
+  },
+  {
+    title: 'Web Push',
+    description: 'VAPID-authenticated browser push notifications for order updates.',
+    href: '/communications/push',
+    icon: Bell,
+    color: 'bg-indigo-500',
+  },
+  {
+    title: 'WhatsApp',
+    description: 'Manage WhatsApp Business API templates and order notifications.',
+    href: '/communications/whatsapp',
+    icon: MessageCircle,
+    color: 'bg-emerald-500',
   },
   {
     title: 'Telegram',
