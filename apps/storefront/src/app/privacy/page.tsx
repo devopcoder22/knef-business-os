@@ -70,7 +70,38 @@ export default function PrivacyPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-gray-900 mb-3">7. Contact</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mb-3">7. Advertising &amp; Cookies</h2>
+          <p>
+            When advertising is enabled on this storefront, we may use Google AdSense to display ads on
+            non-transactional pages. Google AdSense may set cookies and collect data about your visit to
+            serve relevant advertisements. This data is governed by{' '}
+            <a
+              href="https://policies.google.com/privacy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:text-blue-700"
+            >
+              Google&apos;s Privacy Policy
+            </a>
+            . We do not control what data Google collects for advertising purposes.
+          </p>
+          <p className="mt-2">
+            Advertising is never displayed on checkout, payment, order confirmation, or account pages.
+            If you would prefer not to see personalised ads, you may opt out via{' '}
+            <a
+              href="https://adssettings.google.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:text-blue-700"
+            >
+              Google Ad Settings
+            </a>
+            .
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-lg font-semibold text-gray-900 mb-3">8. Contact</h2>
           <p>
             KNEF Technology &amp; IT Solutions, Lagos, Nigeria.{' '}
             <a href="mailto:info@knefgadgets.com" className="text-blue-600 hover:text-blue-700">

@@ -215,6 +215,15 @@ export class AdvertisingActionService {
       return;
     }
 
+    // Idempotency guard — skip if already submitted, applied, or failed
+    const terminalStatuses = ['SUBMITTED', 'APPLIED', 'FAILED', 'CANCELLED', 'REJECTED'];
+    if (terminalStatuses.includes(action.status)) {
+      this.logger.warn(
+        `submitAction: action ${actionId} is already in status ${action.status} — skipping duplicate submit`,
+      );
+      return;
+    }
+
     await this.prisma.advertisingAction.update({
       where: { id: actionId },
       data: { status: 'SUBMITTED', submittedAt: new Date() },

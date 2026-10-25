@@ -10,6 +10,11 @@ import type { WorkerConfig } from '../config/worker.config';
 // Sync all active advertising accounts every 4 hours
 const SYNC_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
+// Providers whose implementation is FOUNDATION ONLY — no live API calls available.
+// Scheduler skips these to prevent recurring failed-job noise.
+// Remove a provider from this set once its live integration is fully implemented.
+const FOUNDATION_ONLY_PROVIDERS = new Set(['GOOGLE_ADS', 'META', 'TIKTOK']);
+
 @Injectable()
 export class AdvertisingScheduler implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AdvertisingScheduler.name);
@@ -72,9 +77,28 @@ export class AdvertisingScheduler implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    this.logger.log(`Dispatching campaign sync for ${activeAccounts.length} active account(s)`);
+    // Filter out FOUNDATION-only providers — their processors would only produce
+    // warn-level logs and no useful work. Skip entirely until live integration exists.
+    const syncableAccounts = activeAccounts.filter(
+      (a) => !FOUNDATION_ONLY_PROVIDERS.has(a.provider),
+    );
 
-    const jobs = activeAccounts.map((account) => ({
+    const skippedCount = activeAccounts.length - syncableAccounts.length;
+    if (skippedCount > 0) {
+      this.logger.debug(
+        `Skipping ${skippedCount} account(s) with FOUNDATION-only providers ` +
+        `(${[...FOUNDATION_ONLY_PROVIDERS].join(', ')})`,
+      );
+    }
+
+    if (syncableAccounts.length === 0) {
+      this.logger.debug('No syncable advertising accounts after filtering FOUNDATION providers');
+      return;
+    }
+
+    this.logger.log(`Dispatching campaign sync for ${syncableAccounts.length} active account(s)`);
+
+    const jobs = syncableAccounts.map((account) => ({
       name: JOB_TYPES.ADVERTISING_CAMPAIGN_SYNC,
       data: {
         organizationId: account.organizationId,

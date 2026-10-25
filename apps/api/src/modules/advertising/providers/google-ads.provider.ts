@@ -10,20 +10,29 @@ import type {
 } from '../advertising-provider.interface';
 
 /**
- * Google Ads API v18 — FOUNDATION ONLY
+ * Google Ads API v26 — FOUNDATION ONLY — DEVELOPER ACCESS REQUIRED
  *
- * Requires a separate developer token approval process from Google, distinct from
- * the standard OAuth token. The developer token must be approved via:
- *   https://developers.google.com/google-ads/api/docs/first-call/dev-token
+ * As of September 2026, the separate developer token requirement was sunset.
+ * Access is now managed per Google Cloud project with three tiers:
+ *   Test Account Access: 15,000 ops/day (test accounts only)
+ *   Basic Access:        15,000 ops/day (production, auto-granted to GCP projects)
+ *   Standard Access:     Unlimited ops/day (requires Google review application)
  *
- * OAuth scope required: https://www.googleapis.com/auth/adwords
+ * OAuth scope (single scope for all operations):
+ *   https://www.googleapis.com/auth/adwords
  *
- * Once the developer token is approved:
- * - API calls use GAQL (Google Ads Query Language) via GoogleAdsService.Search()
- * - Base endpoint: https://googleads.googleapis.com/v18/customers/{customerId}/googleAds:search
- * - Customer list: https://googleads.googleapis.com/v18/customers:listAccessibleCustomers
+ * Once access is provisioned:
+ *   Account discovery:  CustomerService.listAccessibleCustomers
+ *   Campaign reads:     GoogleAdsService.Search/SearchStream with GAQL
+ *   Metrics/reporting:  GoogleAdsService.Search with date ranges and segmentation
+ *   Campaign mutations: CampaignService.MutateCampaigns, GoogleAdsService.Mutate
+ *   Budget mutations:   CampaignBudgetService.MutateCampaignBudgets
+ *   Rate limits:        Token bucket per customer ID + per GCP project (QPS + ops/min)
+ *   Pagination:         10,000 rows/page (Search); SearchStream for unbounded results
+ *   Webhooks:           Lead Forms only; campaign/metrics require polling
+ *   Sandbox:            Dedicated test manager account hierarchy (no billing/serving)
  *
- * Status: FOUNDATION ONLY — pending Google developer token approval
+ * Standard Access application: https://developers.google.com/google-ads/api/docs/api-policy/access-levels
  */
 @Injectable()
 export class GoogleAdsProvider implements IAdvertisingProvider {

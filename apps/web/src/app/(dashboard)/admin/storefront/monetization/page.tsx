@@ -17,8 +17,18 @@ const APPROVAL_STATUSES = [
   { value: 'CONFIGURED', label: 'Configured — Awaiting Google Review' },
   { value: 'PENDING_GOOGLE_APPROVAL', label: 'Pending Google Approval' },
   { value: 'ACTIVE', label: 'Active — Approved by Google' },
+  { value: 'ACTION_REQUIRED', label: 'Action Required — Check AdSense Dashboard' },
   { value: 'REJECTED', label: 'Rejected by Google' },
+  { value: 'DISABLED', label: 'Disabled' },
 ];
+
+const PENDING_APPROVAL_STATUSES = new Set([
+  'NOT_CONFIGURED',
+  'CONFIGURED',
+  'PENDING_GOOGLE_APPROVAL',
+  'ACTION_REQUIRED',
+  'REJECTED',
+]);
 
 const MANDATORY_EXCLUDED_ROUTES = [
   '/cart',
@@ -257,6 +267,41 @@ export default function MonetizationPage() {
             </div>
           )}
 
+          {/* Three-state status distinction */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+            <h2 className="text-sm font-semibold text-gray-900">AdSense Status Overview</h2>
+            <div className="grid grid-cols-3 gap-3">
+              <div className={`rounded-lg p-3 border text-center ${publisherIdValid ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                <p className="text-xs font-semibold text-gray-700">Integration</p>
+                <p className={`text-xs mt-1 font-medium ${publisherIdValid ? 'text-green-700' : 'text-gray-400'}`}>
+                  {publisherIdValid ? 'Configured' : 'Not configured'}
+                </p>
+              </div>
+              <div className={`rounded-lg p-3 border text-center ${approvalStatus === 'ACTIVE' ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
+                <p className="text-xs font-semibold text-gray-700">Google Approval</p>
+                <p className={`text-xs mt-1 font-medium ${approvalStatus === 'ACTIVE' ? 'text-green-700' : 'text-amber-700'}`}>
+                  {approvalStatus === 'ACTIVE' ? 'Approved' : 'Not confirmed'}
+                </p>
+              </div>
+              <div className={`rounded-lg p-3 border text-center ${approvalStatus === 'ACTIVE' && publisherIdValid && enabled ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                <p className="text-xs font-semibold text-gray-700">Ads Serving</p>
+                <p className={`text-xs mt-1 font-medium ${approvalStatus === 'ACTIVE' && publisherIdValid && enabled ? 'text-green-700' : 'text-gray-400'}`}>
+                  {approvalStatus === 'ACTIVE' && publisherIdValid && enabled ? 'Enabled' : 'Not active'}
+                </p>
+              </div>
+            </div>
+            {publisherIdValid && approvalStatus !== 'ACTIVE' && (
+              <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+                <AlertTriangle size={13} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-700">
+                  <strong>Publisher ID is configured but Google has not confirmed site approval.</strong>{' '}
+                  The AdSense script will render on eligible pages, but ads will not serve until Google approves your site.
+                  Update the Site Approval Status below once you confirm approval in your AdSense dashboard.
+                </p>
+              </div>
+            )}
+          </div>
+
           {/* Approval Status */}
           <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-2">
             <label className="block text-sm font-medium text-gray-900">Site Approval Status</label>
@@ -269,11 +314,66 @@ export default function MonetizationPage() {
                 <option key={s.value} value={s.value}>{s.label}</option>
               ))}
             </select>
+            {approvalStatus === 'REJECTED' && (
+              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg p-2.5">
+                <AlertTriangle size={13} className="text-red-500 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-red-700">
+                  <strong>Site rejected by Google.</strong> Disable AdSense above and check your AdSense dashboard for the reason.
+                  Do not continue serving the script on a rejected site.
+                </p>
+              </div>
+            )}
+            {approvalStatus === 'ACTION_REQUIRED' && (
+              <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+                <AlertTriangle size={13} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-700">
+                  <strong>Action required.</strong> Log in to your Google AdSense dashboard and resolve the outstanding issue before ads can serve.
+                </p>
+              </div>
+            )}
             <div className="flex items-start gap-2 bg-gray-50 border border-gray-200 rounded-lg p-2.5">
               <Info size={13} className="text-gray-400 flex-shrink-0 mt-0.5" />
               <p className="text-xs text-gray-500">
-                This is an external status you must update manually after checking your AdSense dashboard.
-                The system does not automatically verify site approval status with Google.
+                This is an admin-managed external status. The system cannot automatically query Google for approval state.
+                Update this field manually after checking your AdSense dashboard.
+              </p>
+            </div>
+          </div>
+
+          {/* Consent / CMP notice */}
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
+            <AlertTriangle size={15} className="text-amber-600 flex-shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-amber-800">Consent Management — Action Required</p>
+              <p className="text-xs text-amber-700">
+                This storefront does <strong>not</strong> currently include a cookie consent banner or Consent Management Platform (CMP).
+                Google AdSense may require visitor consent before serving personalised ads in regions subject to GDPR, UK GDPR, or similar regulations.
+                Before enabling AdSense in those regions, you should either:
+              </p>
+              <ul className="list-disc pl-4 text-xs text-amber-700 space-y-0.5 mt-1">
+                <li>Implement a CMP that integrates with Google's EU User Consent Policy, or</li>
+                <li>Configure AdSense to serve non-personalised ads only (no consent required), or</li>
+                <li>Confirm this storefront serves audiences outside consent-required jurisdictions.</li>
+              </ul>
+              <p className="text-xs text-amber-700 mt-1">
+                AdSense is not considered fully operational for consent-required regions until a compliant consent mechanism is configured.
+              </p>
+            </div>
+          </div>
+
+          {/* Privacy disclosure notice */}
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex gap-3">
+            <Info size={15} className="text-blue-500 flex-shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-blue-800">Privacy Policy — Manual Update Required</p>
+              <p className="text-xs text-blue-700">
+                When AdSense is enabled, your storefront privacy policy must disclose the use of advertising cookies
+                and third-party ad serving (Google). The current privacy policy does not contain this disclosure.
+              </p>
+              <p className="text-xs text-blue-700 mt-1">
+                Before enabling AdSense on a live site, update the <strong>/privacy</strong> page to include a section about
+                advertising cookies and Google AdSense data practices. The system cannot generate legally compliant
+                privacy policy text automatically.
               </p>
             </div>
           </div>

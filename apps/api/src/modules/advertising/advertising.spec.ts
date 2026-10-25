@@ -830,4 +830,104 @@ describe('Security', () => {
       where: { id: 'action-1' },
     });
   });
+
+  it('Non-HIGH_RISK action (CAMPAIGN_PAUSE) is created as DRAFT', async () => {
+    mockPrisma.advertisingAccount.findFirst.mockResolvedValue(makeAccount());
+    mockPrisma.advertisingAction.create.mockImplementation(
+      (args: { data: { status: string } }) =>
+        Promise.resolve({ ...makeAction(), status: args.data.status }),
+    );
+
+    const result = await actionService.createAction('org-1', 'user-1', {
+      provider: 'GOOGLE_ADS',
+      advertisingAccountId: 'adacct-1',
+      actionType: 'CAMPAIGN_PAUSE',
+      requestPayload: { campaignId: 'camp-1' },
+    });
+
+    expect(result.status).toBe('DRAFT');
+  });
+
+  it('Duplicate submit is idempotent — FAILED action is skipped on second call', async () => {
+    const alreadyFailed = makeAction({ status: 'FAILED' });
+    mockPrisma.advertisingAction.findUnique.mockResolvedValue(alreadyFailed);
+
+    await actionService.submitAction('action-1');
+
+    // update must NOT be called for a terminal-status action
+    expect(mockPrisma.advertisingAction.update).not.toHaveBeenCalled();
+  });
+
+  it('Duplicate submit is idempotent — APPLIED action is skipped on second call', async () => {
+    const alreadyApplied = makeAction({ status: 'APPLIED' });
+    mockPrisma.advertisingAction.findUnique.mockResolvedValue(alreadyApplied);
+
+    await actionService.submitAction('action-1');
+
+    expect(mockPrisma.advertisingAction.update).not.toHaveBeenCalled();
+  });
+
+  it('Duplicate submit is idempotent — SUBMITTED action is skipped on second call', async () => {
+    const alreadySubmitted = makeAction({ status: 'SUBMITTED' });
+    mockPrisma.advertisingAction.findUnique.mockResolvedValue(alreadySubmitted);
+
+    await actionService.submitAction('action-1');
+
+    expect(mockPrisma.advertisingAction.update).not.toHaveBeenCalled();
+  });
+
+  it('FOUNDATION provider submit sets FAILED with non-spend error message', async () => {
+    const approvedAction = makeAction({ status: 'APPROVED', provider: 'GOOGLE_ADS' });
+    mockPrisma.advertisingAction.findUnique.mockResolvedValue(approvedAction);
+    const updatedToSubmitted = { ...approvedAction, status: 'SUBMITTED' };
+    const updatedToFailed = { ...approvedAction, status: 'FAILED', errorMessage: expect.any(String) };
+    mockPrisma.advertisingAction.update
+      .mockResolvedValueOnce(updatedToSubmitted)
+      .mockResolvedValueOnce(updatedToFailed);
+
+    await actionService.submitAction('action-1');
+
+    // First update: SUBMITTED; second update: FAILED
+    expect(mockPrisma.advertisingAction.update).toHaveBeenCalledTimes(2);
+    const secondCallArgs = mockPrisma.advertisingAction.update.mock.calls[1] as [{ where: unknown; data: { status: string; errorMessage?: string } }];
+    expect(secondCallArgs[0].data.status).toBe('FAILED');
+    expect(secondCallArgs[0].data.errorMessage).toContain('foundation-only');
+  });
+
+  it('Unapproved DRAFT action is NOT in terminal state — submitAction proceeds to SUBMITTED then FAILED', async () => {
+    // A DRAFT action is not in terminal state, so idempotency guard does NOT block it.
+    // The action will go through to the FOUNDATION stub and end up FAILED.
+    const draftAction = makeAction({ status: 'DRAFT', provider: 'META' });
+    mockPrisma.advertisingAction.findUnique.mockResolvedValue(draftAction);
+    mockPrisma.advertisingAction.update
+      .mockResolvedValueOnce({ ...draftAction, status: 'SUBMITTED' })
+      .mockResolvedValueOnce({ ...draftAction, status: 'FAILED' });
+
+    await actionService.submitAction('action-1');
+
+    // update IS called (not skipped by idempotency guard)
+    expect(mockPrisma.advertisingAction.update).toHaveBeenCalled();
+    const firstUpdateArgs = mockPrisma.advertisingAction.update.mock.calls[0] as [{ where: unknown; data: { status: string } }];
+    expect(firstUpdateArgs[0].data.status).toBe('SUBMITTED');
+  });
+
+  it('HIGH_RISK CAMPAIGN_ENABLE action requires approval — cannot be auto-submitted', async () => {
+    mockPrisma.advertisingAccount.findFirst.mockResolvedValue(makeAccount());
+    mockPrisma.advertisingAction.create.mockImplementation(
+      (args: { data: { status: string } }) =>
+        Promise.resolve({ ...makeAction(), status: args.data.status }),
+    );
+
+    const result = await actionService.createAction('org-1', 'user-1', {
+      provider: 'GOOGLE_ADS',
+      advertisingAccountId: 'adacct-1',
+      actionType: 'CAMPAIGN_ENABLE',
+      requestPayload: { campaignId: 'camp-1' },
+    });
+
+    // Must be APPROVAL_REQUIRED — cannot transition directly to submitted
+    expect(result.status).toBe('APPROVAL_REQUIRED');
+    // Queue must NOT have been called during createAction
+    expect(mockQueue.enqueue).not.toHaveBeenCalled();
+  });
 });

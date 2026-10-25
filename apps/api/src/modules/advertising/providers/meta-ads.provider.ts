@@ -10,23 +10,31 @@ import type {
 } from '../advertising-provider.interface';
 
 /**
- * Meta Marketing API v21.0 — FOUNDATION ONLY
+ * Meta Marketing API v26.0 — FOUNDATION ONLY — MARKETING API ACCESS REQUIRED
  *
- * Requires Meta App Review for ads-specific scopes, which are separate from
- * the social publishing scopes used in Stage 24E:
- *   - ads_read       — read ad account data and insights
- *   - ads_management — create/manage campaigns, ad sets, ads
+ * NOTE: v21.0 expired September 2025. Current stable version is v26.0 (Graph API v26.0).
  *
- * These are Business-level permissions requiring Meta App Review at:
+ * Required OAuth scopes (separate from Stage 24E social publishing scopes):
+ *   ads_read        — read ad account data and Insights API (read-only)
+ *   ads_management  — create/manage campaigns, ad sets, ads, budgets (write)
+ *   business_management — business asset access
+ *
+ * Access tiers:
+ *   Development:   300 calls/hr/account (limited, no App Review required for testing)
+ *   Full Access:   100,000 calls/hr/account + 40×active ads (requires App Review + Business Verification)
+ *
+ * Once approved:
+ *   Account discovery:  GET /v26.0/me/adaccounts
+ *   Campaign reads:     GET /v26.0/act_{id}/campaigns, /adsets, /ads
+ *   Metrics/reporting:  GET /v26.0/{object-id}/insights (flexible breakdowns, date ranges)
+ *   Campaign mutations: POST /v26.0/act_{id}/campaigns; POST /v26.0/{campaign-id} (update status/budget)
+ *   Rate limits:        Read=1pt, Write=3pts per BUC score; Dev tier max 60pts/300s; 100 req/s hard cap
+ *   Pagination:         Cursor-based (before/after cursors in paging object)
+ *   Webhooks:           Available for ad account status changes and Lead Ads
+ *   Test accounts:      Test ad accounts available in Meta Business Suite (no ad serving)
+ *
+ * App Review application required for ads_management:
  *   https://developers.facebook.com/docs/marketing-api/overview/permission-requirements
- *
- * Relevant endpoints (once approved):
- *   GET /v21.0/me/adaccounts                — list accessible ad accounts
- *   GET /v21.0/act_{id}/campaigns           — list campaigns
- *   GET /v21.0/act_{id}/insights            — fetch metrics/insights
- *   POST /v21.0/act_{id}/campaigns          — create campaign
- *
- * Status: FOUNDATION ONLY — pending Meta App Review for ads_read/ads_management scopes
  */
 @Injectable()
 export class MetaAdsProvider implements IAdvertisingProvider {
