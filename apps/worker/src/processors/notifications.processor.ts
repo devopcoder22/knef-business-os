@@ -14,9 +14,11 @@ import {
   type NotificationJobData,
   type SmsSendJobData,
   type PushSendJobData,
+  type WhatsAppSendJobData,
 } from '@knef/constants';
 import { PrismaService } from '../services/prisma.service';
 import { SmsSenderService } from '../services/sms-sender.service';
+import { WhatsAppSenderService } from '../services/whatsapp-sender.service';
 import type { WorkerConfig } from '../config/worker.config';
 
 @Injectable()
@@ -28,6 +30,7 @@ export class NotificationsProcessor implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly smsSender: SmsSenderService,
+    private readonly whatsAppSender: WhatsAppSenderService,
     private readonly config: ConfigService<WorkerConfig>,
   ) {}
 
@@ -63,6 +66,9 @@ export class NotificationsProcessor implements OnModuleInit, OnModuleDestroy {
         break;
       case JOB_TYPES.SEND_PUSH:
         await this.sendPush(job.data as PushSendJobData);
+        break;
+      case JOB_TYPES.SEND_WHATSAPP:
+        await this.whatsAppSender.sendWhatsApp(job.data as WhatsAppSendJobData);
         break;
       default:
         this.logger.warn(`Unknown notification job type: ${job.name}`);

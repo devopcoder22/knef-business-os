@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { EmailService } from '../communications/email.service';
 import { PrismaService } from '../../common/services/prisma.service';
+import { WhatsAppOrderService } from '../whatsapp/whatsapp-order.service';
 
 interface OrderCreatedPayload {
   organizationId: string;
@@ -42,6 +43,7 @@ export class StorefrontNotificationListener {
   constructor(
     private readonly email: EmailService,
     private readonly prisma: PrismaService,
+    private readonly whatsAppOrder: WhatsAppOrderService,
   ) {}
 
   @OnEvent('storefront.order.created')
@@ -64,5 +66,10 @@ export class StorefrontNotificationListener {
     await this.email
       .sendSms(payload.organizationId, payload.customerPhone, smsBody)
       .catch((err) => this.logger.warn('SMS send failed:', err));
+
+    // WhatsApp order notification (non-blocking; idempotent)
+    await this.whatsAppOrder
+      .notifyOrderEvent(payload.organizationId, payload.orderId, 'ORDER_RECEIVED')
+      .catch((err) => this.logger.warn('WhatsApp order notify failed:', err));
   }
 }

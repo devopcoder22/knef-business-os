@@ -40,6 +40,8 @@ export const JOB_TYPES = {
   SEND_SMS: 'send-sms',
   SEND_PUSH: 'send-push',
   SEND_WHATSAPP: 'send-whatsapp',
+  WHATSAPP_TEMPLATE_SYNC: 'whatsapp-template-sync',
+  WHATSAPP_HEALTH_CHECK: 'whatsapp-health-check',
   // marketing queue
   MARKETING_SCHEDULE_CHECK: 'marketing-schedule-check',
   MARKETING_AUDIENCE_RESOLVE: 'marketing-audience-resolve',
@@ -164,9 +166,15 @@ export interface PushSendJobData {
 export interface WhatsAppSendJobData {
   organizationId: string;
   to: string;
-  message: string;
+  message?: string;
   messageType: 'TRANSACTIONAL' | 'MARKETING';
   templateName?: string;
+  templateLanguage?: string;
+  templateComponents?: unknown[];
+  contextMessageId?: string;
+  conversationId?: string;
+  messageId?: string;
+  orderId?: string;
   logId?: string;
   idempotencyKey?: string;
 }
@@ -236,4 +244,14 @@ export interface AdvertisingMetricsSyncJobData {
 export interface AdvertisingActionSubmitJobData {
   organizationId: string;
   actionId: string;
+}
+
+export interface WhatsAppTemplateSyncJobData {
+  organizationId: string;
+  configId: string;
+}
+
+export interface WhatsAppHealthCheckJobData {
+  organizationId: string;
+  configId: string;
 }

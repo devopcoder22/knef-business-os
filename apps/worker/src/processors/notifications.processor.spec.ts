@@ -43,12 +43,17 @@ function makeSmsSender() {
   return { sendSms: jest.fn(async () => ({ success: true })) };
 }
 
+function makeWhatsAppSender() {
+  return { sendWhatsApp: jest.fn(async () => {}) };
+}
+
 describe('NotificationsProcessor', () => {
   function makeProcessor() {
     const prisma = makePrisma();
     const smsSender = makeSmsSender();
     const config = makeConfig();
-    const processor = new NotificationsProcessor(prisma as never, smsSender as never, config as never);
+    const whatsAppSender = makeWhatsAppSender();
+    const processor = new NotificationsProcessor(prisma as never, smsSender as never, whatsAppSender as never, config as never);
     return { processor, prisma };
   }
 

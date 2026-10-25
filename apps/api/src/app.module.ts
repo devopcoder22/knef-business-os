@@ -60,6 +60,7 @@ import { MarketingModule } from './modules/marketing/marketing.module';
 import { SocialModule } from './modules/social/social.module';
 import { TestimonialsModule } from './modules/testimonials/testimonials.module';
 import { AdvertisingModule } from './modules/advertising/advertising.module';
+import { WhatsAppModule } from './modules/whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -141,6 +142,7 @@ import { AdvertisingModule } from './modules/advertising/advertising.module';
     SocialModule,
     TestimonialsModule,
     AdvertisingModule,
+    WhatsAppModule,
   ],
   providers: [
     // Rate limiting — must run before auth so unauthenticated bots are throttled

@@ -10,6 +10,7 @@ import { StorefrontNotificationListener } from './storefront-notification.listen
 import { CustomerJwtGuard } from './guards/customer-jwt.guard';
 import { CommonModule } from '../../common/services/common.module';
 import { CommunicationsModule } from '../communications/communications.module';
+import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { CustomerAddressController } from './customer-address.controller';
 import { CustomerAddressService } from './customer-address.service';
 
@@ -17,6 +18,7 @@ import { CustomerAddressService } from './customer-address.service';
   imports: [
     CommonModule,
     CommunicationsModule,
+    WhatsAppModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

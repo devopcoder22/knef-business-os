@@ -151,6 +151,11 @@ export const PERMISSIONS = {
     SUBSCRIPTIONS: 'communications.subscriptions',
     SMS: 'communications.sms',
     PUSH: 'communications.push',
+    WHATSAPP: 'communications.whatsapp',
+    WHATSAPP_MANAGE: 'communications.whatsapp.manage',
+    WHATSAPP_SEND: 'communications.whatsapp.send',
+    WHATSAPP_TEMPLATES: 'communications.whatsapp.templates',
+    WHATSAPP_SUPPORT: 'communications.whatsapp.support',
   },
   CALENDAR: {
     VIEW: 'calendar.view',

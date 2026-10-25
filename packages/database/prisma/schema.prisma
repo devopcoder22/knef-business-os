@@ -1044,6 +1044,9 @@ model CustomerAccount {
   resetPasswordExpires DateTime?
   lastLoginAt          DateTime?
   isActive             Boolean   @default(true)
+  whatsappOptIn        Boolean   @default(false)
+  whatsappOptInAt      DateTime?
+  whatsappPhone        String?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
@@ -2871,19 +2874,134 @@ model PushSubscription {
 }
 
 model WhatsAppConfig {
-  id                   String   @id @default(cuid())
-  organizationId       String   @unique
-  phoneNumberId        String
-  businessAccountId    String
-  accessTokenEncrypted String
-  webhookVerifyToken   String?
-  isActive             Boolean  @default(true)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  id                      String    @id @default(cuid())
+  organizationId          String    @unique
+  phoneNumberId           String
+  businessAccountId       String
+  displayPhoneNumber      String?
+  businessAccountName     String?
+  accessTokenEncrypted    String
+  appSecretEncrypted      String?
+  webhookVerifyToken      String?
+  status                  String    @default("NOT_CONFIGURED")
+  webhookVerifiedAt       DateTime?
+  lastHealthCheckAt       DateTime?
+  qualityRating           String?
+  messagingLimit          String?
+  connectionId            String?
+  isActive                Boolean   @default(true)
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization            Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  templates               WhatsAppTemplate[]
+  conversations           WhatsAppConversation[]
+  orderEventMappings      WhatsAppOrderEventMapping[]
 
   @@map("whatsapp_configs")
+}
+
+model WhatsAppTemplate {
+  id                 String    @id @default(cuid())
+  organizationId     String
+  whatsAppConfigId   String
+  providerTemplateId String?
+  name               String
+  language           String    @default("en_US")
+  category           String    // UTILITY | MARKETING | AUTHENTICATION
+  status             String    @default("DRAFT") // DRAFT|PENDING|APPROVED|REJECTED|PAUSED|DISABLED
+  components         Json?
+  rejectionReason    String?
+  lastSyncedAt       DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  config           WhatsAppConfig @relation(fields: [whatsAppConfigId], references: [id], onDelete: Cascade)
+  orderMappings    WhatsAppOrderEventMapping[]
+
+  @@unique([organizationId, name, language])
+  @@index([organizationId, status])
+  @@index([whatsAppConfigId])
+  @@map("whatsapp_templates")
+}
+
+model WhatsAppConversation {
+  id                     String    @id @default(cuid())
+  organizationId         String
+  whatsAppConfigId       String
+  providerConversationId String?
+  customerPhone          String
+  businessPhoneNumberId  String
+  customerAccountId      String?
+  orderId                String?
+  status                 String    @default("OPEN") // OPEN | CLOSED
+  windowExpiresAt        DateTime?
+  lastInboundAt          DateTime?
+  lastOutboundAt         DateTime?
+  unreadCount            Int       @default(0)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  config                WhatsAppConfig @relation(fields: [whatsAppConfigId], references: [id], onDelete: Cascade)
+  messages              WhatsAppMessage[]
+
+  @@index([organizationId, customerPhone])
+  @@index([organizationId, status])
+  @@index([whatsAppConfigId])
+  @@map("whatsapp_conversations")
+}
+
+model WhatsAppMessage {
+  id                  String    @id @default(cuid())
+  organizationId      String
+  conversationId      String
+  providerMessageId   String?
+  direction           String    // INBOUND | OUTBOUND
+  fromNumber          String
+  toNumber            String
+  messageType         String    @default("text") // text | template | image | document | location | unknown
+  body                String?
+  templateName        String?
+  templateLanguage    String?
+  templateComponents  Json?
+  status              String    @default("QUEUED") // QUEUED|SUBMITTED|SENT|DELIVERED|READ|FAILED
+  errorCode           Int?
+  errorMessage        String?
+  idempotencyKey      String?
+  communicationLogId  String?
+  sentAt              DateTime?
+  deliveredAt         DateTime?
+  readAt              DateTime?
+  failedAt            DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  conversation        WhatsAppConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, providerMessageId])
+  @@unique([idempotencyKey])
+  @@index([conversationId])
+  @@index([organizationId, direction])
+  @@index([organizationId, status])
+  @@map("whatsapp_messages")
+}
+
+model WhatsAppOrderEventMapping {
+  id               String   @id @default(cuid())
+  organizationId   String
+  whatsAppConfigId String
+  orderEvent       String   // ORDER_RECEIVED|PAYMENT_CONFIRMED|ORDER_CONFIRMED|ORDER_PROCESSING|ORDER_READY|ORDER_DISPATCHED|ORDER_COMPLETED|ORDER_CANCELLED
+  templateId       String
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  config           WhatsAppConfig   @relation(fields: [whatsAppConfigId], references: [id], onDelete: Cascade)
+  template         WhatsAppTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, orderEvent])
+  @@index([organizationId, isActive])
+  @@map("whatsapp_order_event_mappings")
 }
 
 model CommunicationLog {
