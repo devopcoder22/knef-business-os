@@ -94,9 +94,10 @@ export class WebPushService {
   // ── Subscription management ───────────────────────────────────────────────
 
   async subscribe(
-    userId: string,
+    subjectId: string,
     organizationId: string,
     dto: PushSubscriptionDto,
+    subjectType: 'user' | 'customer' = 'user',
   ): Promise<{ id: string }> {
     if (!dto.endpoint || !dto.p256dhKey || !dto.authKey) {
       throw new BadRequestException('Invalid push subscription: endpoint, p256dhKey, and authKey are required');
@@ -107,8 +108,12 @@ export class WebPushService {
       throw new BadRequestException('Push subscription endpoint must use HTTPS');
     }
 
+    const subjectFilter = subjectType === 'customer'
+      ? { customerAccountId: subjectId }
+      : { userId: subjectId };
+
     const existing = await this.prisma.pushSubscription.findFirst({
-      where: { userId, endpoint: dto.endpoint },
+      where: { ...subjectFilter, endpoint: dto.endpoint },
     });
 
     if (existing) {
@@ -130,7 +135,7 @@ export class WebPushService {
       data: {
         id: createId(),
         organizationId,
-        userId,
+        ...subjectFilter,
         endpoint: dto.endpoint,
         p256dhKey: dto.p256dhKey,
         authKey: dto.authKey,
@@ -143,9 +148,17 @@ export class WebPushService {
     return { id: record.id };
   }
 
-  async unsubscribe(userId: string, endpoint: string): Promise<void> {
+  async unsubscribe(
+    subjectId: string,
+    endpoint: string,
+    subjectType: 'user' | 'customer' = 'user',
+  ): Promise<void> {
+    const subjectFilter = subjectType === 'customer'
+      ? { customerAccountId: subjectId }
+      : { userId: subjectId };
+
     await this.prisma.pushSubscription.updateMany({
-      where: { userId, endpoint },
+      where: { ...subjectFilter, endpoint },
       data: { isActive: false, revokedAt: new Date() },
     });
   }
@@ -165,9 +178,17 @@ export class WebPushService {
     });
   }
 
-  async listSubscriptions(userId: string, organizationId: string) {
+  async listSubscriptions(
+    subjectId: string,
+    organizationId: string,
+    subjectType: 'user' | 'customer' = 'user',
+  ) {
+    const subjectFilter = subjectType === 'customer'
+      ? { customerAccountId: subjectId }
+      : { userId: subjectId };
+
     return this.prisma.pushSubscription.findMany({
-      where: { userId, organizationId, isActive: true },
+      where: { ...subjectFilter, organizationId, isActive: true },
       select: {
         id: true,
         endpoint: true,

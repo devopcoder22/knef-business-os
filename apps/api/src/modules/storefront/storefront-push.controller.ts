@@ -34,7 +34,7 @@ export class StorefrontPushController {
     @CurrentCustomer() account: CustomerAccountContext,
     @Body() dto: { endpoint: string; p256dhKey: string; authKey: string; userAgent?: string },
   ) {
-    return this.webPush.subscribe(account.id, account.organizationId, dto);
+    return this.webPush.subscribe(account.id, account.organizationId, dto, 'customer');
   }
 
   @Delete('unsubscribe')
@@ -43,11 +43,11 @@ export class StorefrontPushController {
     @CurrentCustomer() account: CustomerAccountContext,
     @Body() dto: { endpoint: string },
   ) {
-    return this.webPush.unsubscribe(account.id, dto.endpoint);
+    return this.webPush.unsubscribe(account.id, dto.endpoint, 'customer');
   }
 
   @Get('subscriptions')
   listSubscriptions(@CurrentCustomer() account: CustomerAccountContext) {
-    return this.webPush.listSubscriptions(account.id, account.organizationId);
+    return this.webPush.listSubscriptions(account.id, account.organizationId, 'customer');
   }
 }

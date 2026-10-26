@@ -1050,10 +1050,11 @@ model CustomerAccount {
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
-  customer      Customer?                    @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  refreshTokens CustomerAccountRefreshToken[]
-  salesOrders   SalesOrder[]
+  customer          Customer?                    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  refreshTokens     CustomerAccountRefreshToken[]
+  salesOrders       SalesOrder[]
   savedAddresses    SavedAddress[]
+  pushSubscriptions PushSubscription[]
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -2854,25 +2855,30 @@ model ChannelPreference {
 }
 
 model PushSubscription {
-  id             String    @id @default(cuid())
-  organizationId String
-  userId         String
-  endpoint       String
-  p256dhKey      String
-  authKey        String
-  userAgent      String?
-  isActive       Boolean   @default(true)
-  failureCount   Int       @default(0)
-  lastUsedAt     DateTime?
-  revokedAt      DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id                String    @id @default(cuid())
+  organizationId    String
+  userId            String?
+  customerAccountId String?
+  endpoint          String
+  p256dhKey         String
+  authKey           String
+  userAgent         String?
+  isActive          Boolean   @default(true)
+  failureCount      Int       @default(0)
+  lastUsedAt        DateTime?
+  revokedAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user            User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customerAccount CustomerAccount? @relation(fields: [customerAccountId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, endpoint])
+  // Partial unique indexes defined in raw SQL migration (WHERE userId IS NOT NULL / WHERE customerAccountId IS NOT NULL)
+  @@index([userId, endpoint])
+  @@index([customerAccountId, endpoint])
   @@index([organizationId, userId])
+  @@index([organizationId, customerAccountId])
   @@index([organizationId, isActive])
   @@map("push_subscriptions")
 }
