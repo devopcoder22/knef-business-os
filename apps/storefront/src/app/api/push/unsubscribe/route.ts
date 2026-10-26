@@ -16,7 +16,7 @@ export async function DELETE(request: NextRequest) {
     if (typeof endpoint !== 'string') {
       return NextResponse.json({ error: 'endpoint is required' }, { status: 400 });
     }
-    const res = await fetch(`${BACKEND}/api/v1/communications/push/unsubscribe`, {
+    const res = await fetch(`${BACKEND}/api/v1/storefront/push/unsubscribe`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ endpoint }),

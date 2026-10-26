@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     if (typeof endpoint !== 'string' || typeof p256dhKey !== 'string' || typeof authKey !== 'string') {
       return NextResponse.json({ error: 'Invalid subscription payload' }, { status: 400 });
     }
-    const res = await fetch(`${BACKEND}/api/v1/communications/push/subscribe`, {
+    const res = await fetch(`${BACKEND}/api/v1/storefront/push/subscribe`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ endpoint, p256dhKey, authKey, userAgent: typeof userAgent === 'string' ? userAgent : undefined }),

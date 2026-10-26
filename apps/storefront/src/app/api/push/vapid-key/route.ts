@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
   const token = extractToken(request);
   if (!token) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 });
   try {
-    const res = await fetch(`${BACKEND}/api/v1/communications/push/vapid-public-key`, {
+    const res = await fetch(`${BACKEND}/api/v1/storefront/push/vapid-key`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await res.json();

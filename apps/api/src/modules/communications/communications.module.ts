@@ -64,6 +64,7 @@ import {
     WebhooksService,
     SmsService,
     ChannelPreferenceService,
+    WebPushService,
   ],
 })
 export class CommunicationsModule {}
