@@ -9,7 +9,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { ProductStatus } from '@prisma/client';
+import { BarcodeType, ProductStatus } from '@prisma/client';
 
 export class CreateProductDto {
   @ApiProperty()
@@ -31,6 +31,11 @@ export class CreateProductDto {
   @IsOptional()
   @IsString()
   gtin?: string;
+
+  @ApiPropertyOptional({ enum: BarcodeType, description: 'Barcode symbology: CODE128 (internal) or EAN13 (GTIN required)' })
+  @IsOptional()
+  @IsEnum(BarcodeType)
+  barcodeType?: BarcodeType;
 
   @ApiPropertyOptional()
   @IsOptional()

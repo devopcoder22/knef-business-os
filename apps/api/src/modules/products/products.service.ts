@@ -172,6 +172,7 @@ export class ProductsService {
         weight: dto.weight,
         weightUnit: dto.weightUnit ?? 'kg',
         status: dto.status ?? ProductStatus.ACTIVE,
+        barcodeType: dto.barcodeType,
         metaTitle: dto.metaTitle,
         metaDesc: dto.metaDesc,
       },
@@ -244,6 +245,7 @@ export class ProductsService {
         sku: dto.sku,
         barcode: dto.barcode,
         gtin: dto.gtin,
+        barcodeType: dto.barcodeType,
         categoryId: dto.categoryId,
         brandId: dto.brandId,
         description: dto.description,
@@ -377,6 +379,7 @@ export class ProductsService {
         sku: dto.sku,
         barcode: dto.barcode,
         gtin: dto.gtin,
+        barcodeType: dto.barcodeType,
         costPrice: dto.costPrice,
         sellingPrice: dto.sellingPrice,
         options: dto.options ?? {},
@@ -417,6 +420,7 @@ export class ProductsService {
         sku: dto.sku,
         barcode: dto.barcode,
         gtin: dto.gtin,
+        barcodeType: dto.barcodeType,
         costPrice: dto.costPrice,
         sellingPrice: dto.sellingPrice,
         options: dto.options,
@@ -872,5 +876,68 @@ export class ProductsService {
       product: { id: unit.product.id, name: unit.product.name, sku: unit.product.sku, sellingPrice: unit.product.sellingPrice, costPrice: unit.product.costPrice, isSerialized: unit.product.isSerialized, hasVariants: unit.product.hasVariants },
       unit: { id: unit.id, imei1: unit.imei1, imei2: unit.imei2, serialNumber: unit.serialNumber, status: unit.status, locationId: unit.locationId },
     };
+  }
+
+  // ── EAN-13 Validation ──────────────────────────────────────────────────────
+
+  validateEan13Checksum(gtin: string): boolean {
+    if (!/^\d{13}$/.test(gtin)) return false;
+    const digits = gtin.split('').map(Number);
+    const sum = digits.slice(0, 12).reduce((acc, d, i) => acc + d * (i % 2 === 0 ? 1 : 3), 0);
+    const check = (10 - (sum % 10)) % 10;
+    return check === digits[12];
+  }
+
+  // ── Label Data ────────────────────────────────────────────────────────────
+
+  async getLabelData(organizationId: string, productId: string, variantId?: string) {
+    const product = await this.prisma.product.findFirst({
+      where: { id: productId, organizationId },
+      select: {
+        id: true, name: true, sku: true, barcode: true, gtin: true, barcodeType: true,
+        sellingPrice: true,
+        brand: { select: { name: true } },
+        variants: variantId
+          ? { where: { id: variantId }, select: { id: true, name: true, sku: true, barcode: true, gtin: true, barcodeType: true, sellingPrice: true, options: true }, take: 1 }
+          : false,
+      },
+    });
+    if (!product) throw new NotFoundException('Product not found');
+
+    const org = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { name: true, currency: true },
+    });
+
+    const variant = variantId ? (product.variants as any[])[0] ?? null : null;
+    if (variantId && !variant) throw new NotFoundException('Variant not found');
+
+    const barcodeValue = variant?.barcode ?? variant?.gtin ?? product.barcode ?? product.gtin ?? product.sku;
+    const barcodeType = variant?.barcodeType ?? product.barcodeType ?? 'CODE128';
+    const sellingPrice = variant?.sellingPrice ?? product.sellingPrice;
+
+    return {
+      productId: product.id,
+      variantId: variant?.id ?? null,
+      productName: product.name,
+      variantName: variant?.name ?? null,
+      variantOptions: variant?.options ?? null,
+      sku: variant?.sku ?? product.sku,
+      barcodeValue,
+      barcodeType,
+      sellingPrice: sellingPrice?.toString() ?? '0',
+      currency: org?.currency ?? 'NGN',
+      brandName: product.brand?.name ?? null,
+      orgName: org?.name ?? 'KNEF',
+    };
+  }
+
+  async getBatchLabelData(organizationId: string, items: Array<{ productId: string; variantId?: string; qty: number }>) {
+    const results = [];
+    for (const item of items) {
+      const data = await this.getLabelData(organizationId, item.productId, item.variantId);
+      results.push({ ...data, qty: Math.min(Math.max(item.qty, 1), 200) });
+    }
+    return results;
   }
 }

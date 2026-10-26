@@ -296,6 +296,7 @@ model Product {
   sku            String
   barcode        String?
   gtin           String?
+  barcodeType    BarcodeType? @default(CODE128)
   description    String?
   shortDesc      String?
   costPrice      Decimal  @db.Decimal(15, 2)
@@ -346,6 +347,11 @@ enum ProductStatus {
   DRAFT
 }
 
+enum BarcodeType {
+  CODE128
+  EAN13
+}
+
 model ProductVariant {
   id          String   @id @default(cuid())
   productId   String
@@ -353,6 +359,7 @@ model ProductVariant {
   sku         String
   barcode     String?
   gtin        String?
+  barcodeType BarcodeType? @default(CODE128)
   costPrice   Decimal  @db.Decimal(15, 2)
   sellingPrice Decimal @db.Decimal(15, 2)
   options     Json     @default("{}")

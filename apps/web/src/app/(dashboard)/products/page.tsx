@@ -13,7 +13,9 @@ import {
   Eye,
   Trash2,
   AlertTriangle,
+  Printer,
 } from 'lucide-react';
+import { PrintSingleLabelModal } from '@/components/barcode/print-labels-modal';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -66,6 +68,7 @@ export default function ProductsPage() {
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(1);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
+  const [printProductId, setPrintProductId] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery<ProductsResponse>({
     queryKey: ['products', page, search, categoryId, brandId, status],
@@ -307,6 +310,13 @@ export default function ProductsPage() {
                                   Edit
                                 </Link>
                                 <button
+                                  onClick={() => { setActiveMenu(null); setPrintProductId(product.id); }}
+                                  className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 w-full"
+                                >
+                                  <Printer size={14} />
+                                  Print Label
+                                </button>
+                                <button
                                   onClick={() => {
                                     if (confirm('Delete this product?')) {
                                       deleteMutation.mutate(product.id);
@@ -361,6 +371,13 @@ export default function ProductsPage() {
           </div>
         )}
       </div>
+
+      {printProductId && (
+        <PrintSingleLabelModal
+          productId={printProductId}
+          onClose={() => setPrintProductId(null)}
+        />
+      )}
     </div>
   );
 }

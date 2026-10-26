@@ -196,4 +196,43 @@ export class ProductsController {
   getInventory(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.productsService.getInventorySummary(user.organizationId, id);
   }
+
+  // ── Label Printing ────────────────────────────────────────────
+
+  @Get(':id/label')
+  @Permissions(PERMISSIONS.PRODUCTS.VIEW)
+  @ApiOperation({ summary: 'Get label data for a product or variant' })
+  getLabelData(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('variantId') variantId?: string,
+  ) {
+    return this.productsService.getLabelData(user.organizationId, id, variantId);
+  }
+
+  @Post('labels/batch')
+  @Permissions(PERMISSIONS.PRODUCTS.VIEW)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get label data for multiple products/variants with quantities' })
+  getBatchLabelData(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { items: Array<{ productId: string; variantId?: string; qty: number }> },
+  ) {
+    if (!Array.isArray(body.items) || body.items.length === 0) {
+      throw new BadRequestException('items must be a non-empty array');
+    }
+    if (body.items.length > 50) {
+      throw new BadRequestException('Maximum 50 items per batch');
+    }
+    return this.productsService.getBatchLabelData(user.organizationId, body.items);
+  }
+
+  @Get('ean13/validate')
+  @Permissions(PERMISSIONS.PRODUCTS.VIEW)
+  @ApiOperation({ summary: 'Validate an EAN-13 barcode checksum' })
+  validateEan13(@Query('value') value: string) {
+    if (!value) throw new BadRequestException('value is required');
+    const valid = this.productsService.validateEan13Checksum(value.trim());
+    return { value: value.trim(), valid };
+  }
 }
