@@ -9,6 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { Public } from '../../common/decorators/public.decorator';
 import { WebPushService } from '../communications/web-push.service';
 import { CustomerJwtGuard } from './guards/customer-jwt.guard';
 import { CurrentCustomer } from './decorators/current-customer.decorator';
@@ -16,6 +17,7 @@ import type { CustomerAccountContext } from './guards/customer-jwt.guard';
 
 @ApiTags('storefront-push')
 @ApiBearerAuth('CustomerJWT')
+@Public()
 @UseGuards(CustomerJwtGuard)
 @Controller('storefront/push')
 export class StorefrontPushController {
