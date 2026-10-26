@@ -1,166 +1,164 @@
 # STAGE 24I CLOSURE REPORT
-## SMS + Standards-Compliant Browser Web Push
-**Date:** 2026-10-25  
+## SMS + Standards-Compliant Browser Web Push — Final Remediation
+**Date:** 2026-10-26  
 **Branch:** v1.1-development  
-**Commit:** 5e5f6fc  
+**HEAD:** f866949  
 
 ---
 
-## 1. Phase Summary
+## 1. Scope Delivered
 
-Phase 24I delivered two parallel workstreams:
-
-1. **SMS Hardening** — delivery flag, `normalizeToE164` migration, idempotency deduplication, typed worker config
-2. **Browser Web Push** — full RFC 8291/RFC 7519-compliant implementation replacing the Phase 24B placeholder: real VAPID keys, encrypted payloads via `web-push` npm package, service worker, subscription lifecycle, storefront UI, admin management page
-
----
-
-## 2. Baseline vs Final Test Counts
-
-| Suite | Baseline | Final | Delta |
-|-------|----------|-------|-------|
-| API (`@knef/api`) | 1276 | 1291 | +15 |
-| Worker (`@knef/worker`) | 130 | 152 | +22 |
-| Storefront (`@knef/storefront`) | 86 | 86 | 0 |
-| **Total** | **1492** | **1529** | **+37** |
-
-All suites green at commit.
+| Area | Status |
+|------|--------|
+| VAPID encryption confirmed AES-256-GCM | CONFIRMED (packages/utils/src/crypto.ts — no change needed) |
+| VAPID security tests (8 tests) | DONE |
+| Idempotency org-scope migration | DONE (20261025000003) |
+| PushSubscription CustomerAccount support | DONE (20261026000000) |
+| StorefrontPushController + CustomerJwtGuard | DONE |
+| BFF push routes (vapid-key / subscribe / unsubscribe) | DONE |
+| Storefront push UX tests | DONE (120 total) |
+| SW safety tests (isSafeDestination, urlBase64ToUint8Array) | DONE |
+| Communication failure independence tests | DONE (7 tests) |
+| Browser Web Push UAT | DONE (synthetic subscription, full lifecycle) |
+| All delivery flags false after UAT | CONFIRMED |
 
 ---
 
-## 3. Database Migration
+## 2. Security Verification
 
-**Migration:** `20261025000002_stage24i_sms_webpush`
+### 2a. VAPID Encryption Format
 
-Changes:
-- `push_subscriptions`: added `failureCount INT DEFAULT 0`, `revokedAt TIMESTAMPTZ?`, `updatedAt TIMESTAMPTZ`
-- `push_subscriptions`: new index `@@index([organizationId, isActive])`
-- `communication_logs`: added `idempotencyKey TEXT`, unique partial index (WHERE NOT NULL)
+```
+packages/utils/src/crypto.ts — ALGORITHM = 'aes-256-gcm'
+Format: ${iv_hex}:${tag_hex}:${ciphertext_hex}  (3-part colon-separated)
+```
+CONFIRMED: AES-256-GCM with authenticated tag. No CTR used anywhere.
 
-Applied to: stage-validation DB (`knef_stage_validation`)
+### 2b. VAPID Private Key Never Exposed
 
----
+`getVapidPublicKey()` returns `{ publicKey }` only — private key stays encrypted in `SystemSetting`.  
+Test: "getVapidPublicKey never exposes privateKey or privateKeyEncrypted" — PASS.
 
-## 4. SMS Hardening (Worker)
+### 2c. Idempotency Org-Scoping
 
-### `sms-sender.service.ts`
-- `SMS_DELIVERY_ENABLED` config flag — `false` by default in stage-validation
-- Replaced inline `normalizePhone()` with `normalizeToE164()` from `@knef/utils`
-- Null guard after normalization prevents dispatch of unparseable numbers
-- Idempotency deduplication: `communicationLog.findFirst({ where: { idempotencyKey, status: 'sent' } })` runs before provider resolution
-- `AbortSignal.timeout(15_000)` on all Termii HTTP calls
-- 5xx status throws for BullMQ automatic retry; 4xx returns `{ success: false }`
-
-### `worker.config.ts`
-- Added: `SMS_DELIVERY_ENABLED`, `WEB_PUSH_DELIVERY_ENABLED`, `WHATSAPP_DELIVERY_ENABLED`, `VAPID_SUBJECT`
-
-### `apps/api/.env.stage-validation`
-- Added: `SMS_DELIVERY_ENABLED=false`, `WEB_PUSH_DELIVERY_ENABLED=false`, `VAPID_SUBJECT=mailto:support@knef.app`
+Migration `20261025000003_idempotency_org_scope/migration.sql`:
+```sql
+DROP INDEX IF EXISTS "communication_logs_idempotency_key";
+CREATE UNIQUE INDEX "communication_logs_idempotency_org_key"
+  ON "communication_logs"("organizationId", "idempotencyKey")
+  WHERE "idempotencyKey" IS NOT NULL;
+```
+Cross-org idempotency key collision: **impossible** after this migration.
 
 ---
 
-## 5. Web Push Implementation
+## 3. Schema Change: PushSubscription CustomerAccount Support
 
-### VAPID Key Management (`web-push.service.ts`)
-- Uses `webpush.generateVAPIDKeys()` (65-byte EC point, 87-char base64url) — replaces old DER-encoded SPKI generation
-- `format: 'v2'` marker in stored JSON; auto-regenerates if `publicKey.length > 100` (old DER format detection)
-- Private key stored AES-256-CTR encrypted under `ENCRYPTION_KEY`
-- `SystemSetting.value` is a `String` field — uses `JSON.stringify()`/`JSON.parse()` for storage
+Migration `20261026000000_push_subscription_customer_support/migration.sql` applied:
 
-### Subscription Lifecycle (`web-push.service.ts`)
-- `subscribe()`: validates HTTPS-only endpoint, resets `failureCount=0, revokedAt=null` on re-subscribe
-- `unsubscribe()`: sets `revokedAt: new Date()`, `isActive: false` via `updateMany`
-- `revokeSubscription()`: IDOR guard — throws `ForbiddenException` if `sub.userId !== userId`
-- `listSubscriptions()`: scoped to `userId + organizationId`
-- `listOrgSubscriptions()`: returns `{ active: N, expired: M }` counts for admin
-- `queuePush()`: passes `tag`, `idempotencyKey` through to job data
-
-### Push Dispatch (`web-push-sender.service.ts`)
-- `WEB_PUSH_DELIVERY_ENABLED` flag (mock path returns success immediately)
-- `MAX_FAILURE_COUNT = 5` — subscriptions exceeding threshold excluded via DB query `{ lt: 5 }`
-- `GONE_STATUS_CODES = {404, 410}` → deactivate + `revokedAt`
-- `RETRY_STATUS_CODES = {429, 500, 502, 503, 504}` → throw for BullMQ retry
-- Unknown/permanent errors → increment `failureCount`, log, continue
-- `resolveVapidKeys()`: `JSON.parse(setting.value)` + format validation + `decrypt()`
-- Per-subscription `lastUsedAt` + `failureCount=0` reset on successful send
-- `updatePushLog()` records `sent`/`failed` status with timestamps
-
-### Notifications Processor (`notifications.processor.ts`)
-- Constructor extended to accept `WebPushSenderService` as 3rd argument
-- `SEND_PUSH` jobs delegated to `webPushSender.sendPush()`
-- `SEND_SMS` passes `idempotencyKey` through to SmsSenderService
-
-### Service Worker (`apps/storefront/public/sw.js`)
-- `push` event: `isSafeDestination()` validates same-origin URL, shows notification
-- `notificationclick`: opens/focuses window, prevents default
-- `pushsubscriptionchange`: re-subscribes, posts `PUSH_SUBSCRIPTION_CHANGED` to all clients
-- Security: non-same-origin URLs rejected with console warn
-
-### Storefront BFF Routes
-- `GET /api/push/vapid-key` — fetches public key from backend API
-- `POST /api/push/subscribe` — strips `userId`/`organizationId` from client payload, injects from session
-- `DELETE /api/push/unsubscribe` — strips auth context from client request
-
-### `PushNotificationManager.tsx`
-- 5 render states: `unsupported`, `denied`, `subscribed`, `explanation`, `default`
-- Pre-permission explanation screen (spec §11)
-- `Notification.requestPermission()` called only after explicit user confirmation
-- `urlBase64ToUint8Array()` converts VAPID key for `PushManager.subscribe()`
-- `applicationServerKey: urlBase64ToUint8Array(publicKey).buffer as ArrayBuffer` (TS fix)
-- Checks existing subscription on mount (`pushsubscriptionchange` rehydration)
-
-### PWA Assets
-- `apps/storefront/public/manifest.json`: KNEF Store PWA manifest, icons 192/512
-- `apps/storefront/next.config.mjs`: `sw.js` headers: `Content-Type`, `Cache-Control: no-cache`, `Service-Worker-Allowed: /`
-
-### Admin Web Push Page (`apps/web/…/communications/push/page.tsx`)
-- VAPID configuration status (configured / not configured)
-- Active/expired subscription counts
-- Test push form (send to specific userId)
-- Browser requirements checklist
+- `userId` made nullable (staff users — keeps existing functionality)  
+- `customerAccountId TEXT` added with FK → `CustomerAccount(id) ON DELETE CASCADE`  
+- Old non-partial unique index on `(userId, endpoint)` replaced with:
+  - `UNIQUE INDEX ... WHERE userId IS NOT NULL`
+  - `UNIQUE INDEX ... WHERE customerAccountId IS NOT NULL`
+- `WebPushService.subscribe/unsubscribe/listSubscriptions` accept `subjectType: 'user' | 'customer'`
+- `StorefrontPushController` passes `subjectType='customer'` for all operations
 
 ---
 
-## 6. API Additions
+## 4. Browser Web Push UAT Results
 
-### `communications.controller.ts`
-- `GET /push/subscription-count` — admin endpoint, returns `{ active, expired }` for org
-- `POST /push/test` — admin endpoint, queues push to userId with title/body/url
+**Test customer:** `pushtest@knef.app` (ID: `y92uoaxgu2p40dibpqy2rete`)  
+**Organization:** `gt06tauaar8ddllok229xlxq`  
+**VAPID public key:** `BJhsuWmnwZ1tprFzFrJfRBnpQlxHxCPwMilx4o0crMJQK-_2P0QI4xLBD9jF2uu6OWlcn7kWe2M5jFwAF2AGuk4`
 
-### `sms.service.ts`
-- `queueSms()`: passes `idempotencyKey` to `communicationLog.create`
+| Step | Endpoint | Result | HTTP |
+|------|----------|--------|------|
+| VAPID key (direct API) | GET /api/v1/storefront/push/vapid-key | 87-char public key returned | 200 |
+| Subscribe | POST /api/v1/storefront/push/subscribe | `{"id":"yqmase4vqyrp2emo6uwslcjn"}` | 200 |
+| List subscriptions | GET /api/v1/storefront/push/subscriptions | 1 active subscription returned | 200 |
+| Unsubscribe | DELETE /api/v1/storefront/push/unsubscribe | `{}` | 200 |
+| List after unsubscribe | GET /api/v1/storefront/push/subscriptions | `[]` empty | 200 |
+| Re-subscribe (idempotent) | POST /api/v1/storefront/push/subscribe | Same ID returned | 200 |
+| Unauthenticated request | GET /api/v1/storefront/push/vapid-key | Rejected | 401 |
+| Invalid token | GET /api/v1/storefront/push/vapid-key | Rejected | 401 |
+| BFF VAPID key (port 3004) | GET /api/push/vapid-key | Same public key | 200 |
+| BFF Subscribe (port 3004) | POST /api/push/subscribe | `{"id":"o9ucprz3ra99cwxi3ggkgjul"}` | 200 |
 
----
-
-## 7. Security Properties
-
-| Property | Implementation |
-|----------|---------------|
-| IDOR prevention | `revokeSubscription` verifies `sub.userId === userId` before update |
-| HTTPS-only endpoints | `subscribe()` rejects non-HTTPS endpoints with `BadRequestException` |
-| SSRF prevention | Service worker `isSafeDestination()` rejects non-same-origin notification URLs |
-| Private key encryption | VAPID private key encrypted with AES-256-CTR before DB storage |
-| Org isolation | All Prisma queries scope by `organizationId` |
-| Rate limit resilience | 429 rethrows for BullMQ retry; permanent errors handled gracefully |
-
----
-
-## 8. Bugs Fixed During Implementation
-
-1. **VAPID JSON not parsed**: `resolveVapidKeys()` was casting `setting.value` directly instead of calling `JSON.parse()` — caused all push dispatch tests to fail with "VAPID keys not configured"
-2. **Missing `__esModule: true`**: Jest `esModuleInterop` caused `webpush.sendNotification` to be `undefined` in test files; fixed by adding `__esModule: true` to all `jest.mock('web-push', ...)` factories
-3. **Test: `sendSms` missing `message`**: Required field omitted in invalid-phone test
-4. **Test: MAX_FAILURE_COUNT architecture**: Test assumed in-memory filtering, but service filters at query level — rewrote test to verify `{ lt: 5 }` filter in Prisma query
+All UAT steps: **PASS**
 
 ---
 
-## 9. Not Deployed
+## 5. Delivery Flags (Post-UAT)
 
-Per spec §95, Phase 24I was NOT deployed to production (157.245.43.74).  
-Stage-validation environment updated; production unchanged.
+```
+SMS_DELIVERY_ENABLED=false       ✓
+WHATSAPP_DELIVERY_ENABLED=false  ✓
+WEB_PUSH_DELIVERY_ENABLED=false  ✓
+```
 
 ---
 
-## 10. Phase 24J
+## 6. Test Suite Results
 
-Not begun. Per spec instructions.
+| Suite | Tests | Status |
+|-------|-------|--------|
+| API (apps/api) | **1307 / 1307** | ALL PASS |
+| Worker (apps/worker) | **152 / 152** | ALL PASS |
+| Storefront (apps/storefront) | **120 / 120** | ALL PASS |
+
+**Total: 1579 tests — 0 failures**
+
+---
+
+## 7. TypeScript Checks
+
+```
+apps/api        → npx tsc --noEmit → 0 errors
+apps/worker     → npx tsc --noEmit → 0 errors
+apps/storefront → npx tsc --noEmit → 0 errors
+apps/web        → npx tsc --noEmit → 0 errors
+```
+
+---
+
+## 8. Stage Validation Health (post-remediation)
+
+| Service | Check | Status |
+|---------|-------|--------|
+| API live | GET /api/v1/health/live | 200 |
+| API ready | GET /api/v1/health/ready | 200 |
+| Web app | GET http://localhost:3003/ | 307 (redirect to /login — healthy) |
+| Storefront | GET http://localhost:3004/ | 200 |
+| PostgreSQL | pg_isready | READY |
+| Redis | redis-cli ping | PONG |
+| MCP Server | GET /health | 200 |
+
+**7 / 7 healthy**
+
+---
+
+## 9. Migration Chain
+
+Total migrations applied to `knef_stage_validation`: **32**  
+(30 Prisma-tracked + 2 raw: idempotency org-scope + customer push support)  
+Failed migrations: **0**
+
+---
+
+## 10. Commits in This Stage
+
+| Hash | Message |
+|------|---------|
+| f866949 | fix(storefront): make push_subscriptions support CustomerAccount (Stage 24I remediation) |
+| 35740a6 | docs: add Stage 24I closure report (SMS hardening + browser web push) |
+| 5e5f6fc | feat(communications): complete SMS and browser web push |
+
+---
+
+## 11. Classification
+
+**Stage 24I: CLOSED**  
+No production deployment performed.  
+No Phase 24J work begun.  
+v1.1-development branch ready for review.
