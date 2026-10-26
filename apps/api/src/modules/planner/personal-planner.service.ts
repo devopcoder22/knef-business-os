@@ -114,6 +114,26 @@ export class PersonalPlannerService {
       }
     }
 
+    // Active responsibilities (if user has an employee record)
+    if (perms.has(PERMISSIONS.STAFF.CLOCK)) {
+      const employee = await this.prisma.employee.findFirst({
+        where: { userId, organizationId },
+        select: { id: true },
+      });
+      if (employee) {
+        const responsibilities = await this.prisma.employeeResponsibility.findMany({
+          where: { employeeId: employee.id, isActive: true },
+          select: { title: true, category: true, priority: true },
+          take: 8,
+        });
+        if (responsibilities.length > 0) {
+          sections.push(
+            `ACTIVE RESPONSIBILITIES: ${responsibilities.map((r) => `"${r.title}"${r.category ? ` [${r.category}]` : ''}`).join('; ')}`,
+          );
+        }
+      }
+    }
+
     // Calendar (from service cache — enforces org+user isolation)
     if (perms.has(PERMISSIONS.CALENDAR.VIEW)) {
       try {

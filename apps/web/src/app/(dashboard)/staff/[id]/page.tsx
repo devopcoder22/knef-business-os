@@ -3,11 +3,11 @@
 import { useState, Suspense } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, User, Calendar, ClipboardList, Plus } from 'lucide-react';
+import { ArrowLeft, User, Calendar, ClipboardList, Plus, Target, CheckSquare, Pencil, Trash2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
-type Tab = 'overview' | 'attendance' | 'duties';
+type Tab = 'overview' | 'attendance' | 'duties' | 'responsibilities' | 'goals';
 
 interface Employee {
   id: string;
@@ -36,6 +36,9 @@ interface AttendanceRecord {
   hoursWorked: string | null;
   status: string;
   notes: string | null;
+  correctionReason: string | null;
+  correctedAt: string | null;
+  correctedBy: { firstName: string; lastName: string } | null;
 }
 
 interface Duty {
@@ -47,6 +50,25 @@ interface Duty {
   notes: string | null;
 }
 
+interface Responsibility {
+  id: string;
+  title: string;
+  description: string | null;
+  category: string | null;
+  priority: string;
+  isActive: boolean;
+  startDate: string | null;
+  endDate: string | null;
+}
+
+interface Goal {
+  id: string;
+  title: string;
+  status: string;
+  progress: number;
+  endDate: string | null;
+}
+
 const ATTENDANCE_STATUS_COLORS: Record<string, string> = {
   PRESENT: 'bg-green-100 text-green-700',
   ABSENT: 'bg-red-100 text-red-700',
@@ -54,6 +76,24 @@ const ATTENDANCE_STATUS_COLORS: Record<string, string> = {
   HALF_DAY: 'bg-blue-100 text-blue-700',
   LEAVE: 'bg-purple-100 text-purple-700',
   HOLIDAY: 'bg-gray-100 text-gray-700',
+  PARTIAL: 'bg-orange-100 text-orange-700',
+  EXCUSED: 'bg-indigo-100 text-indigo-700',
+  CORRECTED: 'bg-amber-100 text-amber-700',
+};
+
+const GOAL_STATUS_COLORS: Record<string, string> = {
+  ACTIVE: 'bg-blue-100 text-blue-700',
+  ACHIEVED: 'bg-green-100 text-green-700',
+  MISSED: 'bg-red-100 text-red-700',
+  PAUSED: 'bg-gray-100 text-gray-600',
+  CANCELLED: 'bg-gray-100 text-gray-500',
+};
+
+const PRIORITY_COLORS: Record<string, string> = {
+  LOW: 'bg-gray-100 text-gray-600',
+  MEDIUM: 'bg-blue-100 text-blue-700',
+  HIGH: 'bg-orange-100 text-orange-700',
+  URGENT: 'bg-red-100 text-red-700',
 };
 
 function EmployeeDetailContent() {
@@ -63,7 +103,9 @@ function EmployeeDetailContent() {
   const id = params.id;
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [showAddDuty, setShowAddDuty] = useState(false);
+  const [showAddResp, setShowAddResp] = useState(false);
   const [dutyForm, setDutyForm] = useState({ title: '', description: '', startTime: '', endTime: '', notes: '' });
+  const [respForm, setRespForm] = useState({ title: '', description: '', category: '', priority: 'MEDIUM' });
 
   const { data: employee, isLoading } = useQuery<Employee>({
     queryKey: ['employee', id],
@@ -91,6 +133,25 @@ function EmployeeDetailContent() {
     enabled: activeTab === 'duties',
   });
 
+  const { data: responsibilities = [] } = useQuery<Responsibility[]>({
+    queryKey: ['employee-responsibilities', id],
+    queryFn: async () => {
+      const res = await api().get(`/responsibilities?employeeId=${id}`);
+      return ((res.data as any)?.data ?? res.data) as Responsibility[];
+    },
+    enabled: activeTab === 'responsibilities',
+  });
+
+  const { data: goals = [] } = useQuery<Goal[]>({
+    queryKey: ['employee-goals', id, employee?.user?.id],
+    queryFn: async () => {
+      if (!employee?.user?.id) return [];
+      const res = await api().get(`/goals?ownerId=${employee.user.id}&limit=20`);
+      return ((res.data as any)?.data ?? res.data) as Goal[];
+    },
+    enabled: activeTab === 'goals' && !!employee?.user?.id,
+  });
+
   const addDutyMutation = useMutation({
     mutationFn: async () => {
       await api().post(`/employees/${id}/duties`, dutyForm);
@@ -99,6 +160,26 @@ function EmployeeDetailContent() {
       queryClient.invalidateQueries({ queryKey: ['employee-duties', id] });
       setShowAddDuty(false);
       setDutyForm({ title: '', description: '', startTime: '', endTime: '', notes: '' });
+    },
+  });
+
+  const addRespMutation = useMutation({
+    mutationFn: async () => {
+      await api().post('/responsibilities', { ...respForm, employeeId: id });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['employee-responsibilities', id] });
+      setShowAddResp(false);
+      setRespForm({ title: '', description: '', category: '', priority: 'MEDIUM' });
+    },
+  });
+
+  const deactivateRespMutation = useMutation({
+    mutationFn: async (respId: string) => {
+      await api().delete(`/responsibilities/${respId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['employee-responsibilities', id] });
     },
   });
 
@@ -132,17 +213,19 @@ function EmployeeDetailContent() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-gray-200">
+      <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
         {([
           { key: 'overview', label: 'Overview', icon: User },
           { key: 'attendance', label: 'Attendance', icon: Calendar },
+          { key: 'responsibilities', label: 'Responsibilities', icon: CheckSquare },
+          { key: 'goals', label: 'Goals', icon: Target },
           { key: 'duties', label: 'Duties', icon: ClipboardList },
         ] as { key: Tab; label: string; icon: React.ElementType }[]).map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             onClick={() => setActiveTab(key)}
             className={cn(
-              'flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px',
+              'flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px whitespace-nowrap',
               activeTab === key
                 ? 'border-blue-600 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700',
@@ -217,6 +300,7 @@ function EmployeeDetailContent() {
                 <th className="text-left px-4 py-3 font-medium text-gray-700">Clock Out</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-700">Hours</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-700">Status</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-700">Correction</th>
               </tr>
             </thead>
             <tbody>
@@ -231,13 +315,157 @@ function EmployeeDetailContent() {
                       {rec.status}
                     </span>
                   </td>
+                  <td className="px-4 py-3 text-xs text-gray-400">
+                    {rec.correctedAt ? (
+                      <span title={rec.correctionReason ?? ''}>
+                        Corrected {rec.correctedBy ? `by ${rec.correctedBy.firstName}` : ''}
+                      </span>
+                    ) : '—'}
+                  </td>
                 </tr>
               ))}
               {attendance.length === 0 && (
-                <tr><td colSpan={5} className="px-4 py-12 text-center text-gray-400">No attendance records</td></tr>
+                <tr><td colSpan={6} className="px-4 py-12 text-center text-gray-400">No attendance records</td></tr>
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Responsibilities tab */}
+      {activeTab === 'responsibilities' && (
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <button onClick={() => setShowAddResp(true)} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+              <Plus size={16} /> Add Responsibility
+            </button>
+          </div>
+          <div className="space-y-3">
+            {responsibilities.map((resp) => (
+              <div key={resp.id} className={cn('bg-white rounded-xl border p-4', resp.isActive ? 'border-gray-200' : 'border-gray-100 opacity-60')}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1">
+                    <p className="font-medium text-gray-900">{resp.title}</p>
+                    {resp.description && <p className="text-sm text-gray-500 mt-1">{resp.description}</p>}
+                    <div className="flex items-center gap-2 mt-2">
+                      <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', PRIORITY_COLORS[resp.priority] ?? 'bg-gray-100 text-gray-600')}>
+                        {resp.priority}
+                      </span>
+                      {resp.category && <span className="text-xs text-gray-400">{resp.category}</span>}
+                      {!resp.isActive && <span className="text-xs text-gray-400 italic">Inactive</span>}
+                    </div>
+                  </div>
+                  {resp.isActive && (
+                    <button
+                      onClick={() => deactivateRespMutation.mutate(resp.id)}
+                      className="p-1.5 text-gray-400 hover:text-red-500 rounded"
+                      title="Deactivate"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+            {responsibilities.length === 0 && (
+              <div className="text-center py-12 text-gray-400">No responsibilities assigned</div>
+            )}
+          </div>
+
+          {showAddResp && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-xl p-6 w-full max-w-md space-y-4">
+                <h2 className="text-lg font-semibold">Add Responsibility</h2>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Title *</label>
+                    <input
+                      type="text"
+                      value={respForm.title}
+                      onChange={e => setRespForm(f => ({ ...f, title: e.target.value }))}
+                      placeholder="e.g. Daily POS reconciliation"
+                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                    <input
+                      type="text"
+                      value={respForm.description}
+                      onChange={e => setRespForm(f => ({ ...f, description: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                    <input
+                      type="text"
+                      value={respForm.category}
+                      onChange={e => setRespForm(f => ({ ...f, category: e.target.value }))}
+                      placeholder="e.g. Operations"
+                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+                    <select
+                      value={respForm.priority}
+                      onChange={e => setRespForm(f => ({ ...f, priority: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      {['LOW', 'MEDIUM', 'HIGH', 'URGENT'].map(p => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <button onClick={() => setShowAddResp(false)} className="flex-1 px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-700">Cancel</button>
+                  <button
+                    onClick={() => addRespMutation.mutate()}
+                    disabled={addRespMutation.isPending || !respForm.title}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg disabled:opacity-50"
+                  >
+                    {addRespMutation.isPending ? 'Adding...' : 'Add'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Goals tab */}
+      {activeTab === 'goals' && (
+        <div className="space-y-3">
+          {goals.map((goal) => (
+            <div key={goal.id} className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1">
+                  <p className="font-medium text-gray-900">{goal.title}</p>
+                  {goal.endDate && (
+                    <p className="text-xs text-gray-400 mt-0.5">Due: {new Date(goal.endDate).toLocaleDateString('en-NG')}</p>
+                  )}
+                  <div className="mt-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-gray-500">Progress</span>
+                      <span className="text-xs font-medium text-gray-700">{goal.progress}%</span>
+                    </div>
+                    <div className="w-full bg-gray-100 rounded-full h-1.5">
+                      <div
+                        className="bg-blue-500 h-1.5 rounded-full"
+                        style={{ width: `${goal.progress}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+                <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium flex-shrink-0', GOAL_STATUS_COLORS[goal.status] ?? 'bg-gray-100 text-gray-600')}>
+                  {goal.status}
+                </span>
+              </div>
+            </div>
+          ))}
+          {goals.length === 0 && (
+            <div className="text-center py-12 text-gray-400">No goals assigned to this employee</div>
+          )}
         </div>
       )}
 

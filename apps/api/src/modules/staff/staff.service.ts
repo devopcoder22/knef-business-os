@@ -193,6 +193,8 @@ export class StaffService {
           hoursWorked,
           status: dto.status,
           notes: dto.notes,
+          clockInSource: dto.clockIn ? 'ADMIN' : undefined,
+          clockOutSource: dto.clockOut ? 'ADMIN' : undefined,
         },
       });
     }
@@ -201,12 +203,15 @@ export class StaffService {
       data: {
         id: createId(),
         employeeId,
+        organizationId,
         date,
         clockIn: dto.clockIn ? new Date(dto.clockIn) : undefined,
         clockOut: dto.clockOut ? new Date(dto.clockOut) : undefined,
         hoursWorked,
         status: dto.status ?? 'PRESENT',
         notes: dto.notes,
+        clockInSource: 'ADMIN',
+        clockOutSource: dto.clockOut ? 'ADMIN' : undefined,
       },
     });
   }

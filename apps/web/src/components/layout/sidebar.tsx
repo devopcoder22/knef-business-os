@@ -144,6 +144,8 @@ const NAV_ITEMS: NavItem[] = [
     permission: PERMISSIONS.STAFF.VIEW,
     children: [
       { label: 'Employees', href: '/staff', icon: UserCog, permission: PERMISSIONS.STAFF.VIEW },
+      { label: 'Attendance', href: '/attendance', icon: Clock, permission: PERMISSIONS.STAFF.MANAGE_ATTENDANCE },
+      { label: 'My Attendance', href: '/my-attendance', icon: Clock, permission: PERMISSIONS.STAFF.CLOCK },
     ],
   },
   { label: 'Tasks', href: '/tasks', icon: CheckSquare, permission: PERMISSIONS.TASKS.VIEW },

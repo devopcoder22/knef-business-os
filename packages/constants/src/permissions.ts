@@ -70,6 +70,10 @@ export const PERMISSIONS = {
   STAFF: {
     VIEW: 'staff.view',
     MANAGE: 'staff.manage',
+    CLOCK: 'staff.clock',
+    CORRECT_ATTENDANCE: 'staff.correct_attendance',
+    VIEW_RESPONSIBILITIES: 'staff.view_responsibilities',
+    MANAGE_RESPONSIBILITIES: 'staff.manage_responsibilities',
     // Legacy
     CREATE: 'staff.create',
     EDIT: 'staff.edit',
