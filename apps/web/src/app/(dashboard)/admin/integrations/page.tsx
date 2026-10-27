@@ -172,7 +172,7 @@ export default function IntegrationsPage() {
                 No marketplace integrations configured
               </p>
               <p className="text-xs text-gray-400">
-                Connect Jumia, Konga, or other marketplaces via the E-commerce section.
+                Use the Shopify integration under Integrations → Shopify.
               </p>
             </div>
           </div>

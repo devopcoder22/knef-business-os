@@ -23,7 +23,7 @@ interface FlagsResponse {
 const FLAG_DESCRIPTIONS: Record<string, string> = {
   FEATURE_AI_ASSISTANT: 'Enable the AI-powered business assistant for queries, analysis, and automation',
   FEATURE_BANK_INTEGRATION: 'Connect bank accounts via Mono/Okra for automatic reconciliation',
-  FEATURE_MARKETPLACE_SYNC: 'Sync product catalog and orders with Jumia, Konga, and other marketplaces',
+  FEATURE_MARKETPLACE_SYNC: 'Legacy marketplace sync flag (retired — use Shopify integration)',
   FEATURE_EMAIL_MARKETING: 'Send targeted email campaigns to customer segments',
   FEATURE_TELEGRAM: 'Receive business alerts and reports via Telegram bot',
   FEATURE_CALENDAR: 'Sync tasks and events with Google Calendar or Outlook',
