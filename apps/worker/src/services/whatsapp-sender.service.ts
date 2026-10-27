@@ -27,6 +27,19 @@ export class WhatsAppSenderService {
   }
 
   async sendWhatsApp(data: WhatsAppSendJobData): Promise<void> {
+    // Consent check: skip MARKETING sends to opted-out numbers
+    if (data.messageType === 'MARKETING') {
+      const pref = await this.prisma.channelPreference.findFirst({
+        where: { organizationId: data.organizationId, phone: data.to, channel: 'WHATSAPP', messageType: 'MARKETING' },
+        select: { status: true },
+      });
+      if (pref?.status === 'unsubscribed') {
+        this.logger.log(`WhatsApp MARKETING suppressed — opt-out (to=${data.to}, org=${data.organizationId})`);
+        if (data.messageId) await this.updateMessageStatus(data.messageId, 'FAILED', 'Marketing opt-out').catch(() => {});
+        return;
+      }
+    }
+
     if (!this.deliveryEnabled) {
       this.logger.log(`[MOCK] WhatsApp delivery disabled — skipping send to ${data.to} (org=${data.organizationId})`);
       if (data.messageId) {

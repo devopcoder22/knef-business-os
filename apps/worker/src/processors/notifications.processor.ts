@@ -97,11 +97,12 @@ export class NotificationsProcessor implements OnModuleInit, OnModuleDestroy {
   }
 
   private async sendSms(data: SmsSendJobData): Promise<void> {
-    this.logger.log(`Sending SMS to ${data.to} (org=${data.organizationId})`);
+    this.logger.log(`Sending SMS to ${data.to} (org=${data.organizationId}, type=${data.messageType})`);
     await this.smsSender.sendSms({
       organizationId: data.organizationId,
       to: data.to,
       message: data.message,
+      messageType: data.messageType,
       providerId: data.providerId,
       senderId: data.senderId,
       logId: data.logId,

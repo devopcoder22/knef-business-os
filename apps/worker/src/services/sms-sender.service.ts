@@ -37,11 +37,25 @@ export class SmsSenderService {
     organizationId: string;
     to: string;
     message: string;
+    messageType?: 'TRANSACTIONAL' | 'MARKETING';
     providerId?: string;
     senderId?: string;
     logId?: string;
     idempotencyKey?: string;
   }): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    // Consent check: skip MARKETING sends to opted-out numbers
+    if (params.messageType === 'MARKETING') {
+      const pref = await this.prisma.channelPreference.findFirst({
+        where: { organizationId: params.organizationId, phone: params.to, channel: 'SMS', messageType: 'MARKETING' },
+        select: { status: true },
+      });
+      if (pref?.status === 'unsubscribed') {
+        this.logger.log(`SMS MARKETING suppressed — opt-out (to=${params.to}, org=${params.organizationId})`);
+        await this.updateLog(params.logId, 'suppressed').catch(() => {});
+        return { success: true, messageId: 'suppressed-optout' };
+      }
+    }
+
     // Delivery safety flag
     if (!this.deliveryEnabled) {
       this.logger.log(`[MOCK] SMS delivery disabled — skipping send to ${params.to} (org=${params.organizationId})`);

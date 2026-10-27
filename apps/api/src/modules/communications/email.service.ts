@@ -204,7 +204,7 @@ export class EmailService {
         where: { organizationId, key: 'sms.senderId' },
         select: { value: true },
       });
-      const apiKey = dbApiKey?.value || process.env.TERMII_API_KEY;
+      const apiKey = dbApiKey?.value || this.config.get('TERMII_API_KEY');
       const senderId = dbSenderId?.value || 'OE Alert';
 
       if (!apiKey) {
