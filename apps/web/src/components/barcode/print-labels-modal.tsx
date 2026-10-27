@@ -50,11 +50,16 @@ export function PrintSingleLabelModal({ productId, variantId, onClose }: SingleL
     },
   });
 
+  const [printError, setPrintError] = useState<string | null>(null);
+
   const handlePrint = async () => {
     if (!data) return;
     setPrinting(true);
+    setPrintError(null);
     try {
       await printLabels([{ ...data, qty }], data.orgName);
+    } catch (err: any) {
+      setPrintError(err.message ?? 'Print failed');
     } finally {
       setPrinting(false);
     }
@@ -97,11 +102,12 @@ export function PrintSingleLabelModal({ productId, variantId, onClose }: SingleL
               )}
             </div>
 
-            {/* Printer note */}
-            <div className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 flex gap-2">
-              <Info size={12} className="shrink-0 mt-0.5" />
-              <span>Set print scale to <strong>100%</strong> (Actual size). Disable headers/footers. Configure paper size to <strong>60 × 30 mm</strong> in your printer settings.</span>
-            </div>
+            {printError && (
+              <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
+                <AlertCircle size={14} className="shrink-0" />
+                {printError}
+              </div>
+            )}
 
             {/* Quantity */}
             <div>
@@ -139,7 +145,7 @@ export function PrintSingleLabelModal({ productId, variantId, onClose }: SingleL
               className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg disabled:opacity-50 transition-colors"
             >
               <Printer size={16} />
-              {printing ? 'Opening print dialog…' : `Print ${qty} Label${qty !== 1 ? 's' : ''}`}
+              {printing ? 'Printing…' : `Print ${qty} Label${qty !== 1 ? 's' : ''}`}
             </button>
           </>
         )}
@@ -204,10 +210,6 @@ export function PrintBatchLabelsModal({ items, onClose }: BatchLabelModalProps) 
           </button>
         </div>
 
-        <div className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 flex gap-2">
-          <Info size={12} className="shrink-0 mt-0.5" />
-          <span>Set print scale to <strong>100%</strong>. Paper size: <strong>60 × 30 mm</strong>. Disable headers/footers.</span>
-        </div>
 
         <div className="space-y-2 max-h-64 overflow-y-auto">
           {items.map(item => {
@@ -261,7 +263,7 @@ export function PrintBatchLabelsModal({ items, onClose }: BatchLabelModalProps) 
           className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg disabled:opacity-50 transition-colors"
         >
           <Printer size={16} />
-          {printing || batchMutation.isPending ? 'Preparing…' : `Print ${totalQty} Label${totalQty !== 1 ? 's' : ''}`}
+          {printing || batchMutation.isPending ? 'Printing…' : `Print ${totalQty} Label${totalQty !== 1 ? 's' : ''}`}
         </button>
       </div>
     </div>

@@ -14,6 +14,8 @@ import { ReportExportersService } from './services/report-exporters.service';
 import { SocialPublisherService } from './services/social-publisher.service';
 import { WebPushSenderService } from './services/web-push-sender.service';
 import { WhatsAppSenderService } from './services/whatsapp-sender.service';
+import { ShopifyWorkerService } from './services/shopify-worker.service';
+import { ShopifySyncProcessor } from './processors/shopify-sync.processor';
 
 // Processors
 import { EmailProcessor } from './processors/email.processor';
@@ -58,6 +60,7 @@ import { AdvertisingScheduler } from './schedulers/advertising-scheduler';
     SocialPublisherService,
     WebPushSenderService,
     WhatsAppSenderService,
+    ShopifyWorkerService,
 
     // Processors
     EmailProcessor,
@@ -69,6 +72,7 @@ import { AdvertisingScheduler } from './schedulers/advertising-scheduler';
     CalendarProcessor,
     AutomationProcessor,
     IntegrationSyncProcessor,
+    ShopifySyncProcessor,
     MarketingSchedulerProcessor,
     SocialPublishingProcessor,
     AdvertisingSyncProcessor,

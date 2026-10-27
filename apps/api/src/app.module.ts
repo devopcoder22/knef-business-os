@@ -61,6 +61,7 @@ import { SocialModule } from './modules/social/social.module';
 import { TestimonialsModule } from './modules/testimonials/testimonials.module';
 import { AdvertisingModule } from './modules/advertising/advertising.module';
 import { WhatsAppModule } from './modules/whatsapp/whatsapp.module';
+import { ShopifyModule } from './modules/shopify/shopify.module';
 
 @Module({
   imports: [
@@ -143,6 +144,7 @@ import { WhatsAppModule } from './modules/whatsapp/whatsapp.module';
     TestimonialsModule,
     AdvertisingModule,
     WhatsAppModule,
+    ShopifyModule,
   ],
   providers: [
     // Rate limiting — must run before auth so unauthenticated bots are throttled

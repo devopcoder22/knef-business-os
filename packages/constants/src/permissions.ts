@@ -134,6 +134,13 @@ export const PERMISSIONS = {
     VIEW: 'integrations.view',
     MANAGE: 'integrations.manage',
   },
+  SHOPIFY: {
+    VIEW:           'integrations.shopify.view',
+    MANAGE:         'integrations.shopify.manage',
+    SYNC_PRODUCTS:  'integrations.shopify.sync_products',
+    SYNC_INVENTORY: 'integrations.shopify.sync_inventory',
+    MANAGE_ORDERS:  'integrations.shopify.manage_orders',
+  },
   MARKETING: {
     VIEW: 'marketing.view',
     MANAGE: 'marketing.manage',

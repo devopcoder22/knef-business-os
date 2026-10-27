@@ -14,6 +14,7 @@ import {
   type IntegrationHealthCheckJobData,
 } from '@knef/constants';
 import { IntegrationSyncService } from '../services/integration-sync.service';
+import { ShopifyWorkerService } from '../services/shopify-worker.service';
 import type { WorkerConfig } from '../config/worker.config';
 
 @Injectable()
@@ -24,6 +25,7 @@ export class IntegrationSyncProcessor implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly integrationSync: IntegrationSyncService,
+    private readonly shopifyWorker: ShopifyWorkerService,
     private readonly config: ConfigService<WorkerConfig>,
   ) {}
 
@@ -53,6 +55,12 @@ export class IntegrationSyncProcessor implements OnModuleInit, OnModuleDestroy {
   }
 
   private async process(job: Job): Promise<void> {
+    // Delegate Shopify-specific jobs to the Shopify worker service
+    if (job.name.startsWith('shopify-')) {
+      await this.processShopifyJob(job);
+      return;
+    }
+
     switch (job.name) {
       case JOB_TYPES.INTEGRATION_REFRESH_TOKENS:
         await this.refreshTokens(job.data as IntegrationRefreshTokensJobData);
@@ -62,6 +70,48 @@ export class IntegrationSyncProcessor implements OnModuleInit, OnModuleDestroy {
         break;
       default:
         this.logger.warn(`Unknown integration job type: ${job.name}`);
+    }
+  }
+
+  private async processShopifyJob(job: Job): Promise<void> {
+    const { organizationId, connectionId } = job.data as { organizationId: string; connectionId: string };
+    switch (job.name) {
+      case JOB_TYPES.SHOPIFY_PRODUCT_SYNC: {
+        const d = job.data as { productId: string; operation: 'publish' | 'update' | 'archive' };
+        await this.shopifyWorker.syncProduct(organizationId, connectionId, d.productId, d.operation);
+        break;
+      }
+      case JOB_TYPES.SHOPIFY_INVENTORY_SYNC: {
+        const d = job.data as { productId?: string; variantId?: string };
+        await this.shopifyWorker.syncInventory(organizationId, connectionId, d.productId, d.variantId);
+        break;
+      }
+      case JOB_TYPES.SHOPIFY_ORDER_IMPORT: {
+        const d = job.data as { shopifyOrderId: string };
+        await this.shopifyWorker.importOrder(organizationId, connectionId, d.shopifyOrderId);
+        break;
+      }
+      case JOB_TYPES.SHOPIFY_FULFILLMENT_SYNC: {
+        const d = job.data as { salesOrderId: string; shopifyOrderId: string };
+        await this.shopifyWorker.syncFulfillment(organizationId, connectionId, d.salesOrderId, d.shopifyOrderId);
+        break;
+      }
+      case JOB_TYPES.SHOPIFY_RECONCILE: {
+        const d = job.data as { scope: 'products' | 'inventory' | 'orders' | 'all' };
+        await this.shopifyWorker.reconcile(organizationId, connectionId, d.scope);
+        break;
+      }
+      case JOB_TYPES.SHOPIFY_WEBHOOK_PROCESS: {
+        const d = job.data as { webhookEventId: string };
+        await this.shopifyWorker.processWebhookEvent(d.webhookEventId);
+        break;
+      }
+      case JOB_TYPES.SHOPIFY_HEALTH_CHECK: {
+        await this.shopifyWorker.healthCheck(organizationId, connectionId);
+        break;
+      }
+      default:
+        this.logger.warn(`Unknown Shopify job type: ${job.name}`);
     }
   }
 

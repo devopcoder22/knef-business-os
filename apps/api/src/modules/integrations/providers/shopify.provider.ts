@@ -3,15 +3,15 @@ import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'crypto';
 import type { ExternalProviderInterface, OAuthTokens, ExternalAccountInfo, ProviderCapabilities } from './external-provider.interface';
 
+export const SHOPIFY_API_VERSION = '2026-10';
+
 const DEFAULT_SCOPES = [
-  'read_products',
-  'write_products',
-  'read_inventory',
-  'write_inventory',
-  'read_orders',
-  'write_orders',
-  'read_fulfillments',
-  'write_fulfillments',
+  'read_products', 'write_products',
+  'read_inventory', 'write_inventory',
+  'read_locations',
+  'read_orders', 'write_orders',
+  'read_assigned_fulfillment_orders', 'write_assigned_fulfillment_orders',
+  'read_merchant_managed_fulfillment_orders', 'write_merchant_managed_fulfillment_orders',
   'read_customers',
 ];
 
@@ -80,23 +80,25 @@ export class ShopifyExternalProvider implements ExternalProviderInterface {
 
   async getAccountInfo(accessToken: string, shopDomain?: string): Promise<ExternalAccountInfo> {
     if (!shopDomain) throw new Error('Shopify getAccountInfo requires shopDomain');
-
-    const res = await fetch(`https://${shopDomain}/admin/api/2024-01/shop.json`, {
-      headers: {
-        'X-Shopify-Access-Token': accessToken,
-        'Content-Type': 'application/json',
-      },
+    const query = `{ shop { id name email myshopifyDomain ianaTimezone currencyCode } }`;
+    const res = await fetch(`https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
+      method: 'POST',
+      headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
     });
-
     if (!res.ok) throw new Error(`Shopify shop info failed: ${res.status}`);
-
-    const data = await res.json() as { shop?: Record<string, unknown> };
-    const shop = data.shop ?? {};
+    const data = await res.json() as { data?: { shop?: Record<string, unknown> } };
+    const shop = data.data?.shop ?? {};
     return {
       id: String(shop['id']),
       name: shop['name'] as string,
       email: shop['email'] as string | undefined,
-      metadata: { domain: shopDomain, myshopifyDomain: shop['myshopify_domain'] },
+      metadata: {
+        domain: shopDomain,
+        myshopifyDomain: shop['myshopifyDomain'],
+        ianaTimezone: shop['ianaTimezone'],
+        currencyCode: shop['currencyCode'],
+      },
     };
   }
 

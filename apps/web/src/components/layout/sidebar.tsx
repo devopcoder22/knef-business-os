@@ -220,7 +220,21 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Monetization', href: '/admin/storefront/monetization', icon: DollarSign, adminOnly: true },
     ],
   },
-  { label: 'Integrations', href: '/admin/integrations', icon: Plug, adminOnly: true },
+  {
+    label: 'Integrations',
+    href: '/admin/integrations',
+    icon: Plug,
+    adminOnly: true,
+    children: [
+      { label: 'Overview', href: '/admin/integrations', icon: Plug, adminOnly: true },
+      { label: 'Connections', href: '/integrations/connections', icon: Webhook, adminOnly: true },
+      { label: 'Shopify', href: '/integrations/shopify', icon: ShoppingBag, adminOnly: true },
+      { label: '  › Products', href: '/integrations/shopify/products', icon: Package, adminOnly: true },
+      { label: '  › Locations', href: '/integrations/shopify/locations', icon: MapPin, adminOnly: true },
+      { label: '  › Orders', href: '/integrations/shopify/orders', icon: ShoppingCart, adminOnly: true },
+      { label: '  › Reconcile', href: '/integrations/shopify/reconciliation', icon: BarChart3, adminOnly: true },
+    ],
+  },
   { label: 'Business Rules', href: '/admin/business-rules', icon: Scale, adminOnly: true },
   {
     label: 'Advertising',

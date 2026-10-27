@@ -1,6 +1,15 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
+  async rewrites() {
+    // When Caddy is not in front (e.g. stage-validation direct port access),
+    // proxy /api/v1 through Next.js server so the baked-in relative URL works.
+    const internalApi = process.env.INTERNAL_API_URL ?? 'http://api:4000/api/v1';
+    const apiBase = internalApi.replace(/\/api\/v1$/, '');
+    return [
+      { source: '/api/v1/:path*', destination: `${apiBase}/api/v1/:path*` },
+    ];
+  },
   experimental: {
     optimizePackageImports: ['lucide-react', 'recharts'],
   },

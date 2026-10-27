@@ -23,11 +23,22 @@ interface LabelPrintPreviewProps {
   height?: number;
 }
 
-function formatPrice(price: string, currency: string): string {
+function formatPrice(price: unknown, currency: unknown): string {
+  const num = Number(price);
+  if (!price && price !== 0) return '';
+  if (isNaN(num)) return String(price);
+  const cur = String(currency || 'NGN');
   try {
-    return new Intl.NumberFormat('en-NG', { style: 'currency', currency, maximumFractionDigits: 0 }).format(Number(price));
+    const result = new Intl.NumberFormat('en-NG', {
+      style: 'currency',
+      currency: cur,
+      maximumFractionDigits: 0,
+    }).format(num);
+    if (result && result.trim()) return result;
+    throw new Error('empty');
   } catch {
-    return `${currency} ${Number(price).toLocaleString()}`;
+    const sym = cur === 'NGN' ? '₦' : cur;
+    return `${sym}${num.toLocaleString('en', { maximumFractionDigits: 0 })}`;
   }
 }
 
@@ -52,6 +63,7 @@ export function LabelPrintPreview({ label, width = 226, height = 113 }: LabelPri
   const [barcodeError, setBarcodeError] = useState<string | null>(null);
 
   const spec = buildVariantSpec(label);
+  const priceText = formatPrice(label.sellingPrice, label.currency);
 
   useEffect(() => {
     if (!label.barcodeValue) return;
@@ -80,35 +92,39 @@ export function LabelPrintPreview({ label, width = 226, height = 113 }: LabelPri
     render();
   }, [label.barcodeValue, label.barcodeType]);
 
-  const scaleFactor = width / 226;
+  const s = (base: number) => Math.round(base * (width / 226));
 
   return (
     <div className="inline-block border border-gray-300 rounded overflow-hidden bg-white shadow-sm">
       {/* Hidden canvas for bwip-js rendering */}
       <canvas ref={canvasRef} style={{ display: 'none' }} />
 
-      {/* Preview box — proportional to 60×30mm */}
-      <div
-        style={{ width, height, padding: Math.round(4 * scaleFactor), fontFamily: 'Arial, sans-serif', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}
-      >
-        {/* Top row: org name + price */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: Math.round(1 * scaleFactor) }}>
-          <span style={{ fontSize: Math.round(5.5 * scaleFactor), color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.02em', maxWidth: '55%', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+      {/* Preview — 60×30mm proportional */}
+      <div style={{ width, height, padding: s(4), fontFamily: 'Arial, sans-serif', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: s(1) }}>
+
+        {/* Row 1: org name (left) + SKU (right) */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+          <span style={{ fontSize: s(5), color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.04em', maxWidth: '60%', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
             {label.orgName}
           </span>
-          <span style={{ fontSize: Math.round(7.5 * scaleFactor), fontWeight: 700, color: '#111827', whiteSpace: 'nowrap' }}>
-            {formatPrice(label.sellingPrice, label.currency)}
+          <span style={{ fontSize: s(5), color: '#9ca3af', fontFamily: 'monospace', maxWidth: '40%', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', textAlign: 'right' }}>
+            {label.sku}
           </span>
         </div>
 
-        {/* Product name */}
-        <div style={{ fontSize: Math.round(7 * scaleFactor), fontWeight: 600, color: '#111827', lineHeight: 1.2, marginBottom: Math.round(1 * scaleFactor), overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+        {/* Row 2: product name */}
+        <div style={{ fontSize: s(6.5), fontWeight: 600, color: '#111827', lineHeight: 1.2, flexShrink: 0, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
           {truncate(label.productName, 40)}
         </div>
 
-        {/* Variant spec */}
+        {/* Row 3: price — always on its own row */}
+        <div style={{ fontSize: s(10), fontWeight: 800, color: '#000000', lineHeight: 1, flexShrink: 0, letterSpacing: '-0.02em' }}>
+          {priceText || <span style={{ color: '#9ca3af', fontWeight: 400, fontSize: s(7) }}>No price</span>}
+        </div>
+
+        {/* Variant spec (optional) */}
         {spec && (
-          <div style={{ fontSize: Math.round(6 * scaleFactor), color: '#4b5563', marginBottom: Math.round(1 * scaleFactor), overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+          <div style={{ fontSize: s(5.5), color: '#6b7280', flexShrink: 0, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
             {truncate(spec, 36)}
           </div>
         )}
@@ -116,11 +132,11 @@ export function LabelPrintPreview({ label, width = 226, height = 113 }: LabelPri
         {/* Barcode */}
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 0 }}>
           {barcodeError ? (
-            <span style={{ fontSize: Math.round(5.5 * scaleFactor), color: '#ef4444' }}>Barcode error: {barcodeError}</span>
+            <span style={{ fontSize: s(5), color: '#ef4444' }}>Barcode error: {barcodeError}</span>
           ) : barcodeDataUrl ? (
-            <img src={barcodeDataUrl} alt={label.barcodeValue} style={{ maxWidth: '100%', maxHeight: Math.round(36 * scaleFactor), objectFit: 'contain' }} />
+            <img src={barcodeDataUrl} alt={label.barcodeValue} style={{ maxWidth: '100%', maxHeight: s(32), objectFit: 'contain' }} />
           ) : (
-            <div style={{ width: '80%', height: Math.round(20 * scaleFactor), background: '#e5e7eb', borderRadius: 2 }} />
+            <div style={{ width: '80%', height: s(18), background: '#e5e7eb', borderRadius: 2 }} />
           )}
         </div>
       </div>
@@ -128,173 +144,21 @@ export function LabelPrintPreview({ label, width = 226, height = 113 }: LabelPri
   );
 }
 
-// ── Print document generation ─────────────────────────────────────────────
+// ── Print via TSPL2 API ───────────────────────────────────────────────────
 
 interface PrintableLabelData extends LabelData {
   qty: number;
 }
 
-export async function printLabels(labels: PrintableLabelData[], orgName: string): Promise<void> {
-  // Pre-render all barcodes to dataURLs
-  const rendered: Array<{ label: PrintableLabelData; dataUrl: string | null }> = [];
+export async function printLabels(labels: PrintableLabelData[], _orgName: string): Promise<void> {
+  const res = await fetch('/api/print/label', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ labels }),
+  });
 
-  for (const label of labels) {
-    try {
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore
-      const bwipjs = (await import('bwip-js')) as any; // eslint-disable-line
-      const canvas = document.createElement('canvas');
-      bwipjs.toCanvas(canvas, {
-        bcid: label.barcodeType === 'EAN13' ? 'ean13' : 'code128',
-        text: label.barcodeValue,
-        scale: 3,
-        height: 10,
-        includetext: true,
-        textxalign: 'center',
-        textsize: 8,
-      });
-      rendered.push({ label, dataUrl: canvas.toDataURL('image/png') });
-    } catch {
-      rendered.push({ label, dataUrl: null });
-    }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `Print failed (${res.status})`);
   }
-
-  // Build one HTML block per physical label
-  const labelBlocks: string[] = [];
-  for (const { label, dataUrl } of rendered) {
-    const spec = buildVariantSpec(label);
-    const price = formatPrice(label.sellingPrice, label.currency);
-    for (let i = 0; i < label.qty; i++) {
-      labelBlocks.push(`
-        <div class="label">
-          <div class="label-top">
-            <span class="org">${escHtml(label.orgName)}</span>
-            <span class="price">${escHtml(price)}</span>
-          </div>
-          <div class="product-name">${escHtml(truncate(label.productName, 40))}</div>
-          ${spec ? `<div class="spec">${escHtml(truncate(spec, 36))}</div>` : ''}
-          <div class="barcode-area">
-            ${dataUrl
-              ? `<img src="${dataUrl}" alt="${escHtml(label.barcodeValue)}" />`
-              : `<span class="barcode-fallback">${escHtml(label.barcodeValue)}</span>`}
-          </div>
-        </div>
-      `);
-    }
-  }
-
-  const html = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>Product Labels</title>
-  <style>
-    /* ── Print settings ── */
-    @page {
-      size: 60mm 30mm;
-      margin: 0;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { width: 60mm; height: 30mm; background: white; }
-
-    /* Each label fills one page exactly */
-    .label {
-      width: 60mm;
-      height: 30mm;
-      padding: 1.5mm 2mm;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      page-break-after: always;
-      break-after: page;
-      font-family: Arial, Helvetica, sans-serif;
-      overflow: hidden;
-    }
-    .label:last-child { page-break-after: avoid; break-after: avoid; }
-
-    .label-top {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-    }
-    .org {
-      font-size: 5pt;
-      color: #6b7280;
-      text-transform: uppercase;
-      letter-spacing: 0.02em;
-      max-width: 55%;
-      overflow: hidden;
-      white-space: nowrap;
-      text-overflow: ellipsis;
-    }
-    .price {
-      font-size: 7pt;
-      font-weight: 700;
-      color: #111827;
-      white-space: nowrap;
-    }
-    .product-name {
-      font-size: 6.5pt;
-      font-weight: 600;
-      color: #111827;
-      line-height: 1.25;
-      overflow: hidden;
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-    }
-    .spec {
-      font-size: 5.5pt;
-      color: #4b5563;
-      overflow: hidden;
-      white-space: nowrap;
-      text-overflow: ellipsis;
-    }
-    .barcode-area {
-      flex: 1;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 0;
-    }
-    .barcode-area img {
-      max-width: 100%;
-      max-height: 10mm;
-      object-fit: contain;
-    }
-    .barcode-fallback {
-      font-size: 5pt;
-      font-family: monospace;
-      color: #374151;
-    }
-
-    /* Hide everything on screen except print simulation */
-    @media screen {
-      body { background: #f3f4f6; padding: 8px; }
-      .label { border: 1px solid #d1d5db; margin-bottom: 4px; background: white; }
-    }
-  </style>
-</head>
-<body>
-  ${labelBlocks.join('\n')}
-  <script>
-    window.onload = function() {
-      window.print();
-    };
-  </script>
-</body>
-</html>`;
-
-  const win = window.open('', '_blank', 'width=400,height=300');
-  if (!win) {
-    alert('Pop-up blocked. Please allow pop-ups for this site to print labels.');
-    return;
-  }
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
-}
-
-function escHtml(str: string): string {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }

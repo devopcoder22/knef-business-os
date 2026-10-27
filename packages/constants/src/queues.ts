@@ -53,6 +53,14 @@ export const JOB_TYPES = {
   ADVERTISING_CAMPAIGN_SYNC: 'advertising-campaign-sync',
   ADVERTISING_METRICS_SYNC: 'advertising-metrics-sync',
   ADVERTISING_ACTION_SUBMIT: 'advertising-action-submit',
+  // Shopify integration queue (Phase 24L)
+  SHOPIFY_PRODUCT_SYNC:     'shopify-product-sync',
+  SHOPIFY_INVENTORY_SYNC:   'shopify-inventory-sync',
+  SHOPIFY_ORDER_IMPORT:     'shopify-order-import',
+  SHOPIFY_FULFILLMENT_SYNC: 'shopify-fulfillment-sync',
+  SHOPIFY_RECONCILE:        'shopify-reconcile',
+  SHOPIFY_WEBHOOK_PROCESS:  'shopify-webhook-process',
+  SHOPIFY_HEALTH_CHECK:     'shopify-health-check',
 } as const;
 
 // ── Job payload types ─────────────────────────────────────────────────────────
@@ -255,4 +263,47 @@ export interface WhatsAppTemplateSyncJobData {
 export interface WhatsAppHealthCheckJobData {
   organizationId: string;
   configId: string;
+}
+
+export interface ShopifyProductSyncJobData {
+  organizationId: string;
+  connectionId: string;
+  productId: string;
+  variantId?: string;
+  operation: 'publish' | 'update' | 'archive';
+}
+
+export interface ShopifyInventorySyncJobData {
+  organizationId: string;
+  connectionId: string;
+  productId?: string;
+  variantId?: string;
+  locationId?: string;
+}
+
+export interface ShopifyOrderImportJobData {
+  organizationId: string;
+  connectionId: string;
+  shopifyOrderId: string;
+  webhookEventId?: string;
+}
+
+export interface ShopifyFulfillmentSyncJobData {
+  organizationId: string;
+  connectionId: string;
+  salesOrderId: string;
+  shopifyOrderId: string;
+}
+
+export interface ShopifyReconcileJobData {
+  organizationId: string;
+  connectionId: string;
+  scope: 'products' | 'inventory' | 'orders' | 'all';
+}
+
+export interface ShopifyWebhookProcessJobData {
+  webhookEventId: string;
+  organizationId: string;
+  connectionId: string;
+  topic: string;
 }

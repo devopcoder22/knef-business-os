@@ -95,6 +95,7 @@ model Location {
   stockCounts        StockCount[]
   attendance         Attendance[]
   responsibilities   EmployeeResponsibility[]
+  shopifyLocationMappings ShopifyLocationMapping[]
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -330,6 +331,7 @@ model Product {
   stockAdjustmentItems StockAdjustmentItem[]
   stockCountItems    StockCountItem[]
   commissions        Commission[]
+  shopifyMappings    ShopifyProductMapping[]
 
   @@unique([organizationId, sku])
   @@index([organizationId])
@@ -372,6 +374,7 @@ model ProductVariant {
   serializedUnits SerializedUnit[]
   salesOrderItems SalesOrderItem[]
   invoiceItems    InvoiceItem[]
+  shopifyMappings ShopifyProductMapping[]
 
   @@unique([productId, sku])
   @@index([productId])
@@ -1151,6 +1154,10 @@ model SalesOrder {
   deliveryAddressSource AddressSource?
   idempotencyKey   String?
   customerAccountId String?
+  externalOrderId      String?
+  externalOrderName    String?
+  externalProvider     String?
+  externalConnectionId String?
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
@@ -1171,6 +1178,8 @@ model SalesOrder {
   @@index([status])
   @@index([createdAt])
   @@index([customerAccountId])
+  @@index([externalOrderId, externalProvider])
+  @@index([externalConnectionId])
 }
 
 enum OrderStatus {
@@ -1190,6 +1199,7 @@ enum SalesChannel {
   PHONE
   WHATSAPP
   INSTAGRAM
+  SHOPIFY
   OTHER
 }
 
@@ -2826,6 +2836,9 @@ model ExternalConnection {
   syncLogs      IntegrationSyncLog[]
   socialAccounts SocialAccount[]
   advertisingAccounts AdvertisingAccount[]
+  shopifyProductMappings  ShopifyProductMapping[]
+  shopifyLocationMappings ShopifyLocationMapping[]
+  shopifyWebhookEvents    ShopifyWebhookEvent[]
 
   @@unique([organizationId, provider, externalAccountId])
   @@index([organizationId, provider])
@@ -3513,4 +3526,96 @@ model AdvertisingAction {
   @@index([organizationId, provider])
   @@index([advertisingAccountId])
   @@map("advertising_actions")
+}
+
+// ─────────────────────────────────────────────────────────────
+// SHOPIFY INTEGRATION — Phase 24L
+// ─────────────────────────────────────────────────────────────
+
+enum ShopifySyncStatus {
+  NOT_SYNCED
+  SYNCING
+  SYNCED
+  OUT_OF_SYNC
+  FAILED
+  REQUIRES_MAPPING
+  CONFLICT
+}
+
+enum ShopifyWebhookStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
+  DUPLICATE
+}
+
+model ShopifyProductMapping {
+  id                     String            @id @default(cuid())
+  organizationId         String
+  externalConnectionId   String
+  productId              String
+  variantId              String?
+  shopifyProductId       String
+  shopifyVariantId       String?
+  shopifyInventoryItemId String?
+  shopifyHandle          String?
+  syncStatus             ShopifySyncStatus @default(NOT_SYNCED)
+  lastLocalHash          String?
+  lastSyncedAt           DateTime?
+  syncError              String?
+  syncRetryCount         Int               @default(0)
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+
+  product            Product             @relation(fields: [productId], references: [id])
+  variant            ProductVariant?     @relation(fields: [variantId], references: [id])
+  externalConnection ExternalConnection  @relation(fields: [externalConnectionId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, externalConnectionId, productId, variantId])
+  @@unique([organizationId, externalConnectionId, shopifyProductId, shopifyVariantId])
+  @@index([organizationId, externalConnectionId])
+  @@index([organizationId, syncStatus])
+  @@index([productId])
+}
+
+model ShopifyLocationMapping {
+  id                   String   @id @default(cuid())
+  organizationId       String
+  externalConnectionId String
+  locationId           String
+  shopifyLocationId    String
+  shopifyLocationName  String?
+  fulfillsOnlineOrders Boolean  @default(false)
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  location           Location           @relation(fields: [locationId], references: [id])
+  externalConnection ExternalConnection @relation(fields: [externalConnectionId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, externalConnectionId, locationId], map: "ShopifyLocationMapping_org_conn_loc_key")
+  @@unique([organizationId, externalConnectionId, shopifyLocationId], map: "ShopifyLocationMapping_org_conn_slid_key")
+  @@index([organizationId, externalConnectionId])
+}
+
+model ShopifyWebhookEvent {
+  id                   String               @id @default(cuid())
+  organizationId       String
+  externalConnectionId String
+  shopifyDeliveryId    String
+  shopifyEventId       String?
+  topic                String
+  shopDomain           String
+  receivedAt           DateTime             @default(now())
+  processedAt          DateTime?
+  status               ShopifyWebhookStatus @default(PENDING)
+  error                String?
+
+  externalConnection ExternalConnection @relation(fields: [externalConnectionId], references: [id], onDelete: Cascade)
+
+  @@unique([shopifyDeliveryId])
+  @@index([organizationId, externalConnectionId])
+  @@index([status])
+  @@index([topic, status])
 }
