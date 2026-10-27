@@ -21,6 +21,7 @@ import { PERMISSIONS } from '@knef/constants';
 import { decrypt } from '@knef/utils';
 import { ConfigService } from '@nestjs/config';
 import type { AppConfig } from '../../config/app.config';
+import { timingSafeEqual } from 'crypto';
 
 interface TelegramMessage {
   message_id: number;
@@ -77,7 +78,13 @@ export class TelegramBotController {
 
     const cfg = telegramConfig as typeof telegramConfig & { webhookSecret?: string | null };
     if (cfg.webhookSecret) {
-      if (secretHeader !== cfg.webhookSecret) {
+      let valid = false;
+      try {
+        valid = timingSafeEqual(Buffer.from(secretHeader ?? ''), Buffer.from(cfg.webhookSecret));
+      } catch {
+        valid = false;
+      }
+      if (!valid) {
         this.logger.warn(`Invalid webhook secret for org ${orgId}`);
         return;
       }

@@ -446,7 +446,7 @@ export class PurchasingService {
     });
     if (!receipt) throw new NotFoundException('Goods receipt not found');
     if (receipt && locationIds !== null) {
-      const po = await this.prisma.purchaseOrder.findUnique({ where: { id: receipt.purchaseOrderId }, select: { locationId: true } });
+      const po = await this.prisma.purchaseOrder.findFirst({ where: { id: receipt.purchaseOrderId, organizationId }, select: { locationId: true } });
       if (po && !locationIds.includes(po.locationId)) {
         throw new NotFoundException('Goods receipt not found');
       }

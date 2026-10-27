@@ -932,7 +932,7 @@ export class SalesService {
       (receipt.invoice?.customer as Record<string, unknown> | null | undefined) ?? null;
 
     if (!customer && receipt.customerId) {
-      const c = await this.prisma.customer.findFirst({ where: { id: receipt.customerId } });
+      const c = await this.prisma.customer.findFirst({ where: { id: receipt.customerId, organizationId } });
       customer = c as Record<string, unknown> | null;
     }
 

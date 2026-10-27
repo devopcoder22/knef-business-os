@@ -524,7 +524,7 @@ export class FinanceService {
       },
     });
 
-    return this.prisma.expense.findFirst({ where: { id } });
+    return this.prisma.expense.findFirst({ where: { id, organizationId } });
   }
 
   // ── Expense Categories ────────────────────────────────────────

@@ -72,8 +72,9 @@ knefos.knefgadgets.com {
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
         X-Content-Type-Options "nosniff"
-        X-Frame-Options "SAMEORIGIN"
+        X-Frame-Options "DENY"
         Referrer-Policy "strict-origin-when-cross-origin"
+        Content-Security-Policy "frame-ancestors 'none'"
         -Server
     }
 
@@ -87,9 +88,11 @@ knefos.knefgadgets.com {
     }
 }
 
-# Fallback: plain HTTP for IP-only access
+# Fallback: plain HTTP for IP-only access (stage-validation / direct IP health-checks)
+# Named domains redirect to HTTPS via Caddy automatic TLS; this :80 handler
+# only serves internal health-check routes that must remain accessible without TLS.
 :80 {
-    handle /api/* {
+    handle /api/health* {
         reverse_proxy api:4000
     }
 
@@ -97,12 +100,9 @@ knefos.knefgadgets.com {
         reverse_proxy api:4000
     }
 
-    handle /uploads/* {
-        reverse_proxy api:4000
-    }
-
+    # All other HTTP traffic gets a permanent redirect to HTTPS
     handle {
-        reverse_proxy web:3000
+        redir https://{host}{uri} permanent
     }
 }
 

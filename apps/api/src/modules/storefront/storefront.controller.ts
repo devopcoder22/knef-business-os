@@ -7,6 +7,7 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Public } from '../../common/decorators/public.decorator';
 import { StorefrontAuthService } from './storefront-auth.service';
@@ -33,6 +34,7 @@ export class StorefrontAuthController {
   constructor(private readonly authService: StorefrontAuthService) {}
 
   @Post('register')
+  @Throttle({ short: { ttl: 60000, limit: 5 } })
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Customer registration' })
   register(@Body() dto: CustomerRegisterDto) {
@@ -40,6 +42,7 @@ export class StorefrontAuthController {
   }
 
   @Post('login')
+  @Throttle({ short: { ttl: 60000, limit: 5 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Customer login' })
   login(@Body() dto: CustomerLoginDto) {
@@ -47,6 +50,7 @@ export class StorefrontAuthController {
   }
 
   @Post('refresh')
+  @Throttle({ short: { ttl: 60000, limit: 20 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Refresh customer token' })
   refresh(@Body() dto: CustomerRefreshDto) {
@@ -81,6 +85,7 @@ export class StorefrontAuthController {
   }
 
   @Post('forgot-password')
+  @Throttle({ short: { ttl: 60000, limit: 5 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Request a password reset email' })
   forgotPassword(@Body() body: { email: string }) {
@@ -88,6 +93,7 @@ export class StorefrontAuthController {
   }
 
   @Post('reset-password')
+  @Throttle({ short: { ttl: 60000, limit: 5 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Reset password using a token from email' })
   resetPassword(@Body() body: { token: string; newPassword: string }) {

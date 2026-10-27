@@ -84,9 +84,10 @@ export class AuthController {
     };
   }
 
-  // POST /auth/refresh
+  // POST /auth/refresh — stricter rate limit: 20 per minute per IP
   @Post('refresh')
   @Public()
+  @Throttle({ short: { ttl: 60000, limit: 20 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Refresh access token using httpOnly cookie' })
   async refresh(
@@ -157,9 +158,10 @@ export class AuthController {
     return { data: { message: 'If that email exists, a reset link has been sent.' } };
   }
 
-  // POST /auth/reset-password
+  // POST /auth/reset-password — matches forgot-password limit
   @Post('reset-password')
   @Public()
+  @Throttle({ short: { ttl: 60000, limit: 5 } })
   @UseGuards(TurnstileGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Reset password using token from email' })

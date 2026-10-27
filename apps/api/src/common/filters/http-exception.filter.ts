@@ -50,7 +50,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
         }
       }
     } else if (exception instanceof Error) {
-      this.logger.error(`Unhandled error: ${exception.message}`, exception.stack);
+      if (process.env['NODE_ENV'] !== 'production') {
+        this.logger.error(`Unhandled error: ${exception.message}`, exception.stack);
+      } else {
+        this.logger.error(`Unhandled error: ${exception.message}`);
+      }
       message = 'An unexpected error occurred';
     } else {
       this.logger.error('Unhandled non-Error exception', String(exception));

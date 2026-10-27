@@ -24,6 +24,14 @@ const AppConfigSchema = z.object({
   STOREFRONT_ORG_ID: z.string().optional(),
   TERMII_API_KEY: z.string().optional(),
   PAYSTACK_SECRET_KEY: z.string().optional(),
+  SHOPIFY_CLIENT_SECRET: z.string().optional(),
+  META_APP_SECRET: z.string().optional(),
+  META_WEBHOOK_VERIFY_TOKEN: z.string().optional(),
+  TIKTOK_CLIENT_KEY: z.string().optional(),
+  TIKTOK_CLIENT_SECRET: z.string().optional(),
+  ALLOWED_ORIGINS: z.string().optional(),
+  VAPID_PUBLIC_KEY: z.string().optional(),
+  VAPID_PRIVATE_KEY: z.string().optional(),
 });
 
 export type AppConfig = z.infer<typeof AppConfigSchema>;
