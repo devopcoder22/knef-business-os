@@ -333,7 +333,7 @@ describe('WhatsAppMessageService', () => {
       mockPrisma as never,
       mockAudit as never,
       mockQueue as never,
-      {} as never,
+      { get: () => 'false' } as never,
       mockConfigService as never,
       mockConvService as never,
       mockMeta as never,

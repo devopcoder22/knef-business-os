@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { fetchProduct } from '@/lib/api';
 import { formatNGN, cn } from '@/lib/utils';
+import { sanitizeHtml } from '@/lib/sanitize';
 import { useCartStore } from '@/stores/cart.store';
 import { toast } from '@/components/ui/toast';
 import type { ProductVariant } from '@/types';
@@ -364,7 +365,7 @@ export default function ProductDetailPage() {
               <h3 className="font-semibold text-gray-900 mb-3">Description</h3>
               <div
                 className="prose prose-sm prose-gray max-w-none text-gray-600"
-                dangerouslySetInnerHTML={{ __html: product.description }}
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(product.description) }}
               />
             </div>
           )}

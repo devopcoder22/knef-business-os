@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { AuditModule } from '../audit/audit.module';
 import { ShopifyGraphQLClient } from './shopify-graphql.client';
 import { ShopifyConnectionService } from './shopify-connection.service';
@@ -12,7 +13,7 @@ import { ShopifyController } from './shopify.controller';
 import { ShopifyWebhookController } from './shopify-webhook.controller';
 
 @Module({
-  imports: [AuditModule],
+  imports: [ConfigModule, AuditModule],
   providers: [
     ShopifyGraphQLClient,
     ShopifyConnectionService,

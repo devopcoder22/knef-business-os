@@ -8,8 +8,10 @@ import { createId } from '@paralleldrive/cuid2';
 import { randomBytes, createHash } from 'crypto';
 import { OrderStatus, Prisma, ProductStatus } from '@prisma/client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../common/services/prisma.service';
 import { InventoryService } from '../inventory/inventory.service';
+import type { AppConfig } from '../../config/app.config';
 import type { PublicProductsQueryDto } from './dto/public-products-query.dto';
 import type { CreatePublicOrderDto } from './dto/create-public-order.dto';
 import type { CreateApiKeyDto } from './dto/create-api-key.dto';
@@ -31,6 +33,7 @@ export class EcommerceService {
     private readonly prisma: PrismaService,
     private readonly inventoryService: InventoryService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly configService: ConfigService<AppConfig, true>,
   ) {}
 
   /**
@@ -422,7 +425,7 @@ export class EcommerceService {
       if (!dto.paystackReference) {
         throw new BadRequestException('Paystack payment reference is required');
       }
-      const paystackKey = process.env.PAYSTACK_SECRET_KEY;
+      const paystackKey = this.configService.get('PAYSTACK_SECRET_KEY');
       if (!paystackKey) {
         throw new BadRequestException('Card payments are not configured on this store');
       }

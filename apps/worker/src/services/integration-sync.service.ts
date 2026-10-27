@@ -180,8 +180,8 @@ export class IntegrationSyncService {
   // ── TikTok ────────────────────────────────────────────────────────────────
 
   private async refreshTikTok(refreshToken: string): Promise<TokenResponse> {
-    const clientKey = process.env['TIKTOK_CLIENT_KEY'] ?? '';
-    const clientSecret = process.env['TIKTOK_CLIENT_SECRET'] ?? '';
+    const clientKey = this.config.get('TIKTOK_CLIENT_KEY') ?? '';
+    const clientSecret = this.config.get('TIKTOK_CLIENT_SECRET') ?? '';
 
     const res = await fetch('https://open.tiktokapis.com/v2/oauth/token/', {
       method: 'POST',
@@ -209,8 +209,8 @@ export class IntegrationSyncService {
   // ── Meta ──────────────────────────────────────────────────────────────────
 
   private async refreshMeta(fbExchangeToken: string): Promise<TokenResponse> {
-    const appId = process.env['META_APP_ID'] ?? '';
-    const appSecret = process.env['META_APP_SECRET'] ?? '';
+    const appId = this.config.get('META_APP_ID') ?? '';
+    const appSecret = this.config.get('META_APP_SECRET') ?? '';
 
     const params = new URLSearchParams({
       grant_type: 'fb_exchange_token',

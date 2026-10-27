@@ -32,6 +32,13 @@ const AppConfigSchema = z.object({
   ALLOWED_ORIGINS: z.string().optional(),
   VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),
+  CLOUDFLARE_TURNSTILE_SECRET: z.string().optional(),
+  PAYSTACK_WEBHOOK_SECRET: z.string().optional(),
+  WHATSAPP_DELIVERY_ENABLED: z.string().optional().default('false'),
+  SMS_DELIVERY_ENABLED: z.string().optional().default('false'),
+  WEB_PUSH_DELIVERY_ENABLED: z.string().optional().default('false'),
+  SOCIAL_PUBLISHING_ENABLED: z.string().optional().default('false'),
+  SHOPIFY_SYNC_ENABLED: z.string().optional().default('false'),
 });
 
 export type AppConfig = z.infer<typeof AppConfigSchema>;

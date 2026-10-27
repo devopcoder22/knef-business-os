@@ -25,6 +25,16 @@ const WorkerConfigSchema = z.object({
   WHATSAPP_DELIVERY_ENABLED: z.string().optional().default('false'),
   // VAPID contact subject (mailto: or URL) for Web Push
   VAPID_SUBJECT: z.string().optional().default('mailto:support@knef.app'),
+  // Integration safety flags
+  SHOPIFY_SYNC_ENABLED: z.string().optional().default('false'),
+  SOCIAL_PUBLISHING_ENABLED: z.string().optional().default('false'),
+  // External provider credentials (optional — features disabled if absent)
+  TERMII_API_KEY: z.string().optional(),
+  TERMII_SENDER_ID: z.string().optional(),
+  META_APP_ID: z.string().optional(),
+  META_APP_SECRET: z.string().optional(),
+  TIKTOK_CLIENT_KEY: z.string().optional(),
+  TIKTOK_CLIENT_SECRET: z.string().optional(),
   // Calendar provider OAuth credentials (optional — calendar sync disabled if absent)
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),

@@ -21,6 +21,7 @@ import { PrintSingleLabelModal } from '@/components/barcode/print-labels-modal';
 import { Printer } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { sanitizeHtml } from '@/lib/sanitize';
 
 const TABS = [
   { id: 'overview', label: 'Overview', icon: Package },
@@ -240,7 +241,7 @@ export default function ProductDetailPage() {
                     <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">Description</p>
                     <div
                       className="text-sm text-gray-700 leading-relaxed prose prose-sm max-w-none"
-                      dangerouslySetInnerHTML={{ __html: product.description }}
+                      dangerouslySetInnerHTML={{ __html: sanitizeHtml(product.description) }}
                     />
                   </div>
                 )}

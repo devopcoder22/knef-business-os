@@ -154,6 +154,7 @@ describe('EcommerceService.createPublicOrder — server-authoritative totals', (
       prisma as unknown as PrismaService,
       inventory as InventoryService,
       eventEmitter,
+      { get: () => undefined } as never,
     );
 
     // Common happy-path mocks

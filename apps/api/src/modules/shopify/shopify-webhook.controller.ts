@@ -12,6 +12,8 @@ import type { Request, Response } from 'express';
 import { Public } from '../../common/decorators/public.decorator';
 import { ShopifyWebhookService } from './shopify-webhook.service';
 import { PrismaService } from '../../common/services/prisma.service';
+import { ConfigService } from '@nestjs/config';
+import type { AppConfig } from '../../config/app.config';
 
 const PRIVATE_IP_PATTERN = /^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|127\.|::1|localhost)/i;
 
@@ -29,6 +31,7 @@ export class ShopifyWebhookController {
   constructor(
     private readonly webhookService: ShopifyWebhookService,
     private readonly prisma: PrismaService,
+    private readonly config: ConfigService<AppConfig>,
   ) {}
 
   @Post(':shopDomain')
@@ -79,7 +82,7 @@ export class ShopifyWebhookController {
     }
 
     // Get client secret
-    const clientSecret = process.env['SHOPIFY_CLIENT_SECRET'];
+    const clientSecret = this.config.get('SHOPIFY_CLIENT_SECRET');
     if (!clientSecret) {
       this.logger.error('SHOPIFY_CLIENT_SECRET not configured');
       res.status(500).json({ error: 'Server misconfiguration' });

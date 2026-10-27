@@ -4,6 +4,7 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { json, urlencoded } from 'express';
+import type { Request } from 'express';
 import helmet from 'helmet';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const cookieParser = require('cookie-parser');
@@ -21,8 +22,18 @@ async function bootstrap(): Promise<void> {
     logger: ['error', 'warn', 'log', 'debug'],
   });
 
-  // Explicit body size limits — prevents request-body DoS
-  app.use(json({ limit: '10mb' }));
+  // Explicit body size limits — prevents request-body DoS.
+  // The verify callback stores the raw bytes on req.rawBody so that webhook
+  // signature verification (Shopify, Meta/WhatsApp) always operates on the
+  // original wire bytes rather than a re-serialised JSON string.
+  app.use(
+    json({
+      limit: '10mb',
+      verify: (req: Request & { rawBody?: Buffer }, _res: unknown, buf: Buffer) => {
+        req.rawBody = buf;
+      },
+    }),
+  );
   app.use(urlencoded({ extended: true, limit: '10mb' }));
 
   const configService = app.get(ConfigService);
@@ -60,11 +71,10 @@ async function bootstrap(): Promise<void> {
   // Request ID middleware
   app.use(RequestIdMiddleware);
 
-  // CORS
-  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') ?? [
-    appUrl,
-    'http://localhost:3000',
-  ];
+  // CORS — use ConfigService so ALLOWED_ORIGINS goes through validated schema
+  const allowedOrigins = (configService.get<string>('ALLOWED_ORIGINS') ?? '').split(',').filter(Boolean).length > 0
+    ? (configService.get<string>('ALLOWED_ORIGINS') as string).split(',').map((o) => o.trim()).filter(Boolean)
+    : [appUrl, 'http://localhost:3000'];
   app.enableCors({
     origin: allowedOrigins,
     credentials: true,

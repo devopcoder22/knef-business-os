@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Send, Archive, Bot, User, Loader2, MessageSquare } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { sanitizeHtml } from '@/lib/sanitize';
 
 interface AIConversation {
   id: string;
@@ -195,7 +196,7 @@ export default function AIChatPage() {
                       {msg.role === 'assistant' ? (
                         <p
                           className="text-sm leading-relaxed"
-                          dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
+                          dangerouslySetInnerHTML={{ __html: sanitizeHtml(renderMarkdown(msg.content)) }}
                         />
                       ) : (
                         <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>

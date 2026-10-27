@@ -51,7 +51,7 @@ export class WhatsAppMessageService {
   ) {}
 
   private get deliveryEnabled(): boolean {
-    return process.env['WHATSAPP_DELIVERY_ENABLED'] === 'true';
+    return this.config.get('WHATSAPP_DELIVERY_ENABLED') === 'true';
   }
 
   async enqueueTransactional(params: SendTransactionalParams): Promise<{ messageId: string }> {

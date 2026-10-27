@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { PrismaService } from '../../common/services/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { QueueService } from '../../common/services/queue.service';
@@ -15,7 +16,7 @@ import { SocialPublishingController } from './social-publishing.controller';
 import { SocialWebhookController } from './social-webhook.controller';
 
 @Module({
-  imports: [IntegrationsModule],
+  imports: [ConfigModule, IntegrationsModule],
   controllers: [SocialPublishingController, SocialWebhookController],
   providers: [
     PrismaService,

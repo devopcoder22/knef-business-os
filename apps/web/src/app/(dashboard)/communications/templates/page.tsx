@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, Eye, Edit2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { sanitizeHtml } from '@/lib/sanitize';
 import { RichTextEditor } from '@/components/ui/rich-text-editor';
 
 interface Template {
@@ -153,7 +154,7 @@ export default function TemplatesPage() {
           )}
           <div
             className="bg-gray-50 rounded-lg p-3 text-sm prose prose-sm max-w-none"
-            dangerouslySetInnerHTML={{ __html: previewResult.body }}
+            dangerouslySetInnerHTML={{ __html: sanitizeHtml(previewResult.body) }}
           />
         </div>
       )}

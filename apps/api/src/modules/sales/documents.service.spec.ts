@@ -483,7 +483,7 @@ describe('SalesService — findReceipt customer fallback', () => {
 
     const result = await svc.findReceipt('org-1', 'rcpt-1');
 
-    expect((prisma.customer.findFirst as jest.Mock)).toHaveBeenCalledWith({ where: { id: 'cust-1' } });
+    expect((prisma.customer.findFirst as jest.Mock)).toHaveBeenCalledWith({ where: { id: 'cust-1', organizationId: 'org-1' } });
     expect((result as { customer: Record<string, unknown> }).customer?.['firstName']).toBe('Ada');
   });
 });

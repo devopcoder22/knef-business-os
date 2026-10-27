@@ -15,9 +15,11 @@
     "@marsidev/react-turnstile": "^1.6.2",
     "@tanstack/react-query": "^5.37.1",
     "@tanstack/react-query-devtools": "^5.37.1",
+    "@types/dompurify": "^3.2.0",
     "axios": "^1.6.8",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
+    "isomorphic-dompurify": "^4.6.0",
     "lucide-react": "^0.378.0",
     "next": "14.2.3",
     "react": "^18.3.1",
@@ -52,7 +54,12 @@
       "**/__tests__/**/*.test.tsx"
     ],
     "transform": {
-      "^.+\\.(ts|tsx)$": ["ts-jest", { "tsconfig": "<rootDir>/tsconfig.jest.json" }]
+      "^.+\\.(ts|tsx)$": [
+        "ts-jest",
+        {
+          "tsconfig": "<rootDir>/tsconfig.jest.json"
+        }
+      ]
     },
     "moduleNameMapper": {
       "^@/(.*)$": "<rootDir>/src/$1",

@@ -162,10 +162,10 @@ export class SmsSenderService {
         });
 
     if (!record) {
-      // Fallback: check process.env for legacy Termii config
-      const envKey = process.env['TERMII_API_KEY'];
+      // Fallback: check typed config for Termii credentials
+      const envKey = this.config.get('TERMII_API_KEY');
       if (envKey) {
-        return { providerName: 'termii', apiKey: envKey, senderId: process.env['TERMII_SENDER_ID'] ?? null };
+        return { providerName: 'termii', apiKey: envKey, senderId: this.config.get('TERMII_SENDER_ID') ?? null };
       }
       return null;
     }

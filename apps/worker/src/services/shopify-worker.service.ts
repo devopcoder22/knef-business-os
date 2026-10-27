@@ -81,7 +81,7 @@ export class ShopifyWorkerService {
     productId: string,
     operation: 'publish' | 'update' | 'archive',
   ): Promise<void> {
-    if (process.env['SHOPIFY_SYNC_ENABLED'] !== 'true') {
+    if (this.config.get("SHOPIFY_SYNC_ENABLED") !== 'true') {
       this.logger.warn(`SHOPIFY_SYNC_ENABLED=false — skipping product ${operation} for ${productId}`);
       return;
     }
@@ -171,7 +171,7 @@ export class ShopifyWorkerService {
     productId?: string,
     variantId?: string,
   ): Promise<void> {
-    if (process.env['SHOPIFY_SYNC_ENABLED'] !== 'true') {
+    if (this.config.get("SHOPIFY_SYNC_ENABLED") !== 'true') {
       this.logger.warn(`SHOPIFY_SYNC_ENABLED=false — skipping inventory sync`);
       return;
     }
@@ -236,7 +236,7 @@ export class ShopifyWorkerService {
     salesOrderId: string,
     shopifyOrderId: string,
   ): Promise<void> {
-    if (process.env['SHOPIFY_SYNC_ENABLED'] !== 'true') {
+    if (this.config.get("SHOPIFY_SYNC_ENABLED") !== 'true') {
       this.logger.warn(`SHOPIFY_SYNC_ENABLED=false — skipping fulfillment sync`);
       return;
     }

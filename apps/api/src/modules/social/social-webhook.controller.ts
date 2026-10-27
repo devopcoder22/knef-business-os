@@ -11,48 +11,53 @@ import {
   BadRequestException,
   Query,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Public } from '../../common/decorators/public.decorator';
 import { PublicationService } from './publication.service';
+import type { AppConfig } from '../../config/app.config';
 import * as crypto from 'crypto';
-
-function verifyMetaSignature(body: string, signature: string): boolean {
-  const secret = process.env.META_APP_SECRET ?? '';
-  if (!secret || !signature) return false;
-  const expected =
-    'sha256=' + crypto.createHmac('sha256', secret).update(body).digest('hex');
-  try {
-    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
-  } catch {
-    return false;
-  }
-}
-
-function verifyTikTokSignature(
-  body: string,
-  timestamp: string,
-  nonce: string,
-  signature: string,
-): boolean {
-  const clientKey = process.env.TIKTOK_CLIENT_KEY ?? '';
-  if (!clientKey) return false;
-  const message = `${timestamp}\n${nonce}\n${body}\n`;
-  const expected = crypto
-    .createHmac('sha256', clientKey)
-    .update(message)
-    .digest('hex');
-  try {
-    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
-  } catch {
-    return false;
-  }
-}
 
 @Public()
 @Controller('social/webhooks')
 export class SocialWebhookController {
   private readonly logger = new Logger(SocialWebhookController.name);
 
-  constructor(private readonly publication: PublicationService) {}
+  constructor(
+    private readonly publication: PublicationService,
+    private readonly config: ConfigService<AppConfig>,
+  ) {}
+
+  private verifyMetaSignature(body: string, signature: string): boolean {
+    const secret = this.config.get('META_APP_SECRET') ?? '';
+    if (!secret || !signature) return false;
+    const expected =
+      'sha256=' + crypto.createHmac('sha256', secret).update(body).digest('hex');
+    try {
+      return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+    } catch {
+      return false;
+    }
+  }
+
+  private verifyTikTokSignature(
+    body: string,
+    timestamp: string,
+    nonce: string,
+    signature: string,
+  ): boolean {
+    const clientKey = this.config.get('TIKTOK_CLIENT_KEY') ?? '';
+    if (!clientKey) return false;
+    const message = `${timestamp}\n${nonce}\n${body}\n`;
+    const expected = crypto
+      .createHmac('sha256', clientKey)
+      .update(message)
+      .digest('hex');
+    try {
+      return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+    } catch {
+      return false;
+    }
+  }
 
   // ── Meta Webhook Verification (GET) ─────────────────────────────────────────
   @Get('meta/:organizationId')
@@ -63,7 +68,7 @@ export class SocialWebhookController {
   ) {
     if (
       mode === 'subscribe' &&
-      verifyToken === (process.env.META_WEBHOOK_VERIFY_TOKEN ?? '')
+      verifyToken === (this.config.get('META_WEBHOOK_VERIFY_TOKEN') ?? '')
     ) {
       return parseInt(challenge, 10);
     }
@@ -79,7 +84,7 @@ export class SocialWebhookController {
     @Headers('x-hub-signature-256') signature: string,
     @Headers('x-raw-body') rawBody: string,
   ) {
-    if (!verifyMetaSignature(rawBody ?? JSON.stringify(body), signature)) {
+    if (!this.verifyMetaSignature(rawBody ?? JSON.stringify(body), signature)) {
       this.logger.warn(`Meta webhook signature mismatch for org ${organizationId}`);
       return { ok: true }; // return 200 to avoid Meta retries, log the failure
     }
@@ -93,8 +98,6 @@ export class SocialWebhookController {
     this.logger.log(
       `Meta webhook received for org ${organizationId}: ${payload.object}`,
     );
-    // Meta media_publish webhooks carry post_id in entry[].changes[].value
-    // We handle status via polling for now; webhook confirms final state
     return { ok: true };
   }
 
@@ -110,7 +113,7 @@ export class SocialWebhookController {
     @Headers('x-raw-body') rawBody: string,
   ) {
     const bodyStr = rawBody ?? JSON.stringify(body);
-    if (!verifyTikTokSignature(bodyStr, timestamp, nonce, signature)) {
+    if (!this.verifyTikTokSignature(bodyStr, timestamp, nonce, signature)) {
       this.logger.warn(`TikTok webhook signature mismatch for org ${organizationId}`);
       return { ok: true };
     }
