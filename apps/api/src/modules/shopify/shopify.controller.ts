@@ -80,8 +80,8 @@ export class ShopifyController {
   @Permissions(PERMISSIONS.SHOPIFY.VIEW)
   async getMappings(
     @Param('connectionId') connectionId: string,
-    @Query('page') page: number,
-    @Query('limit') limit: number,
+    @Query('page') page = 1,
+    @Query('limit') limit = 20,
     @Req() req: Request,
   ) {
     const organizationId = this.getOrg(req);
@@ -212,8 +212,8 @@ export class ShopifyController {
   @Permissions(PERMISSIONS.SHOPIFY.MANAGE_ORDERS)
   async getOrders(
     @Param('connectionId') connectionId: string,
-    @Query('page') page: number,
-    @Query('limit') limit: number,
+    @Query('page') page = 1,
+    @Query('limit') limit = 20,
     @Req() req: Request,
   ) {
     const organizationId = this.getOrg(req);

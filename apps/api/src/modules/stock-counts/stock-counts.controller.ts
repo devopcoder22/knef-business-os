@@ -29,8 +29,8 @@ export class StockCountsController {
   @ApiOperation({ summary: 'List all stock counts' })
   findAll(
     @CurrentUser() user: AuthUser,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
+    @Query('page') page = 1,
+    @Query('limit') limit = 20,
   ) {
     return this.stockCountsService.findAll(user.organizationId, { page, limit });
   }

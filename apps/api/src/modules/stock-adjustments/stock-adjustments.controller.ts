@@ -28,8 +28,8 @@ export class StockAdjustmentsController {
   @ApiOperation({ summary: 'List all stock adjustments' })
   findAll(
     @CurrentUser() user: AuthUser,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
+    @Query('page') page = 1,
+    @Query('limit') limit = 20,
   ) {
     return this.stockAdjustmentsService.findAll(user.organizationId, { page, limit }, user.locationIds);
   }

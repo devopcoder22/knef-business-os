@@ -29,8 +29,8 @@ export class StockTransfersController {
   @ApiOperation({ summary: 'List all stock transfers' })
   findAll(
     @CurrentUser() user: AuthUser,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
+    @Query('page') page = 1,
+    @Query('limit') limit = 20,
   ) {
     return this.stockTransfersService.findAll(user.organizationId, { page, limit }, user.locationIds);
   }
