@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import webpush from 'web-push';
 import { decrypt } from '@knef/utils';
 import { PrismaService } from './prisma.service';
+import { RecipientEligibilityService } from './recipient-eligibility.service';
 import type { WorkerConfig } from '../config/worker.config';
 import type { PushSendJobData } from '@knef/constants';
 
@@ -20,6 +21,7 @@ export class WebPushSenderService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<WorkerConfig>,
+    private readonly eligibility: RecipientEligibilityService,
   ) {}
 
   private get deliveryEnabled(): boolean {
@@ -36,6 +38,21 @@ export class WebPushSenderService {
 
   async sendPush(data: PushSendJobData): Promise<void> {
     this.logger.log(`Web push dispatch for user ${data.userId} (org=${data.organizationId})`);
+
+    // Consent check: skip MARKETING sends for opted-out users
+    if (data.messageType === 'MARKETING') {
+      const eligibility = await this.eligibility.canSend({
+        organizationId: data.organizationId,
+        channel: 'WEB_PUSH',
+        messageType: 'MARKETING',
+        userId: data.userId,
+      });
+      if (!eligibility.allowed) {
+        this.logger.log(`Web Push MARKETING blocked — ${eligibility.reason} (user=${data.userId}, org=${data.organizationId})`);
+        await this.updatePushLog(data.logId, 'suppressed', eligibility.reason);
+        return;
+      }
+    }
 
     const subscriptions = await this.prisma.pushSubscription.findMany({
       where: {

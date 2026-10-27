@@ -127,6 +127,61 @@ describe('ContentDraftService', () => {
     });
   });
 
+  // ── DEF-24O-FCV-006: ContentDraft lifecycle — status always starts as DRAFT ──
+
+  describe('create — status lifecycle (DEF-24O-FCV-006)', () => {
+    it('create() with scheduledAt → status is DRAFT (not SCHEDULED)', async () => {
+      mockPrisma.contentDraft.create.mockResolvedValue({ id: 'd-1', status: 'DRAFT' });
+
+      await service.create(
+        'org-1',
+        {
+          title: 'Scheduled post',
+          scheduledAt: new Date(Date.now() + 86400000).toISOString(),
+        },
+        'user-1',
+      );
+
+      const createArg = mockPrisma.contentDraft.create.mock.calls[0][0] as {
+        data: Record<string, unknown>;
+      };
+      // Status must always be DRAFT regardless of scheduledAt presence
+      expect(createArg.data.status).toBe('DRAFT');
+    });
+
+    it('create() without scheduledAt → status is DRAFT', async () => {
+      mockPrisma.contentDraft.create.mockResolvedValue({ id: 'd-1', status: 'DRAFT' });
+
+      await service.create('org-1', { title: 'Plain draft' }, 'user-1');
+
+      const createArg = mockPrisma.contentDraft.create.mock.calls[0][0] as {
+        data: Record<string, unknown>;
+      };
+      expect(createArg.data.status).toBe('DRAFT');
+    });
+
+    it('create() never sets status to SCHEDULED directly — only schedule() can do that', async () => {
+      mockPrisma.contentDraft.create.mockResolvedValue({ id: 'd-1', status: 'DRAFT' });
+
+      // Even with scheduledAt provided, the initial status must be DRAFT
+      await service.create(
+        'org-1',
+        {
+          title: 'Try to force SCHEDULED',
+          scheduledAt: new Date(Date.now() + 3600000).toISOString(),
+          targetChannel: 'SOCIAL',
+        },
+        'user-1',
+      );
+
+      const createArg = mockPrisma.contentDraft.create.mock.calls[0][0] as {
+        data: Record<string, unknown>;
+      };
+      expect(createArg.data.status).not.toBe('SCHEDULED');
+      expect(createArg.data.status).toBe('DRAFT');
+    });
+  });
+
   // ── content lifecycle ────────────────────────────────────────────────────────
 
   describe('submitForReview', () => {

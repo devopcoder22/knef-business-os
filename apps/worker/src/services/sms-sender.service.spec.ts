@@ -29,12 +29,24 @@ function makePrisma(overrides: Record<string, Record<string, jest.Mock>> = {}) {
   };
 }
 
+function makeEligibility(allowed = true, reason?: string) {
+  return {
+    canSend: jest.fn(async () => ({ allowed, reason })),
+  };
+}
+
 describe('SmsSenderService', () => {
-  function makeService(configOverrides: Record<string, string> = {}, prismaOverrides: Record<string, Record<string, jest.Mock>> = {}) {
+  function makeService(
+    configOverrides: Record<string, string> = {},
+    prismaOverrides: Record<string, Record<string, jest.Mock>> = {},
+    eligibilityAllowed = true,
+    eligibilityReason?: string,
+  ) {
     const prisma = makePrisma(prismaOverrides);
     const config = makeConfig(configOverrides);
-    const service = new SmsSenderService(prisma as never, config as never);
-    return { service, prisma, config };
+    const eligibility = makeEligibility(eligibilityAllowed, eligibilityReason);
+    const service = new SmsSenderService(prisma as never, config as never, eligibility as never);
+    return { service, prisma, config, eligibility };
   }
 
   it('skips send when SMS_DELIVERY_ENABLED=false and returns mock success', async () => {
@@ -159,5 +171,94 @@ describe('SmsSenderService', () => {
       },
       select: { id: true, providerMessageId: true },
     });
+  });
+
+  // ── DEF-24O-FCV-004: Suppression checks ───────────────────────────────────
+
+  it('blocks MARKETING SMS when recipient has unsubscribed status', async () => {
+    const { service, prisma, eligibility } = makeService(
+      {},
+      {},
+      false,  // eligibility blocked
+      'Marketing preference: unsubscribed',
+    );
+
+    const result = await service.sendSms({
+      organizationId: 'org-1',
+      to: '+2348012345678',
+      message: 'Buy now!',
+      messageType: 'MARKETING',
+      logId: 'log-1',
+    });
+
+    expect(eligibility.canSend).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      channel: 'SMS',
+      messageType: 'MARKETING',
+      phone: '+2348012345678',
+    });
+    expect(result.success).toBe(true);
+    expect(result.messageId).toBe('suppressed');
+    // Log should be updated to suppressed
+    expect((prisma.communicationLog.update as jest.Mock)).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'suppressed' }) }),
+    );
+    // Provider must not be called
+    expect((prisma.smsProvider.findFirst as jest.Mock)).not.toHaveBeenCalled();
+  });
+
+  it('blocks MARKETING SMS when recipient has suppressed status', async () => {
+    const { service, eligibility } = makeService(
+      {},
+      {},
+      false,
+      'Marketing preference: suppressed',
+    );
+
+    const result = await service.sendSms({
+      organizationId: 'org-1',
+      to: '+2348012345678',
+      message: 'Big sale!',
+      messageType: 'MARKETING',
+    });
+
+    expect(eligibility.canSend).toHaveBeenCalledWith(
+      expect.objectContaining({ messageType: 'MARKETING', channel: 'SMS' }),
+    );
+    expect(result.success).toBe(true);
+    expect(result.messageId).toBe('suppressed');
+  });
+
+  it('allows TRANSACTIONAL SMS even when eligibility service would block marketing', async () => {
+    // eligibility returns allowed=false, but for TRANSACTIONAL it should never be consulted
+    const { service, eligibility } = makeService(
+      { SMS_DELIVERY_ENABLED: 'false' }, // disable delivery so we don't need a provider
+      {},
+      false,  // would block if called
+    );
+
+    const result = await service.sendSms({
+      organizationId: 'org-1',
+      to: '08012345678',
+      message: 'Your order is confirmed.',
+      messageType: 'TRANSACTIONAL',
+    });
+
+    // eligibility.canSend must NOT be called for transactional
+    expect(eligibility.canSend).not.toHaveBeenCalled();
+    // Returns mock success (delivery disabled)
+    expect(result.success).toBe(true);
+  });
+
+  it('does not call eligibility service when messageType is not set', async () => {
+    const { service, eligibility } = makeService({ SMS_DELIVERY_ENABLED: 'false' });
+
+    await service.sendSms({
+      organizationId: 'org-1',
+      to: '08012345678',
+      message: 'Test',
+    });
+
+    expect(eligibility.canSend).not.toHaveBeenCalled();
   });
 });

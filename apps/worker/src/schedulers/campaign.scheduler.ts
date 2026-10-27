@@ -62,6 +62,12 @@ export class CampaignScheduler implements OnModuleInit, OnModuleDestroy {
         status: 'SCHEDULED',
         scheduledAt: { lte: now },
       },
+      select: {
+        id: true,
+        organizationId: true,
+        campaignType: true,
+        subscriptionList: true,
+      },
       take: 20,
     });
 
@@ -71,7 +77,12 @@ export class CampaignScheduler implements OnModuleInit, OnModuleDestroy {
 
     for (const campaign of campaigns) {
       try {
-        await this.dispatchCampaign(campaign.id, campaign.organizationId);
+        await this.dispatchCampaign(
+          campaign.id,
+          campaign.organizationId,
+          campaign.campaignType,
+          campaign.subscriptionList,
+        );
       } catch (err: unknown) {
         this.logger.error(
           `Failed to dispatch campaign ${campaign.id}: ${err instanceof Error ? err.message : String(err)}`,
@@ -80,12 +91,21 @@ export class CampaignScheduler implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async dispatchCampaign(campaignId: string, organizationId: string): Promise<void> {
-    const campaign = await this.prisma.emailCampaign.findFirst({
+  private async dispatchCampaign(
+    campaignId: string,
+    organizationId: string,
+    campaignType: string,
+    subscriptionList: string,
+  ): Promise<void> {
+    // Atomic claim: only proceeds if status is still SCHEDULED
+    const claimed = await this.prisma.emailCampaign.updateMany({
       where: { id: campaignId, organizationId, status: 'SCHEDULED' },
+      data: { status: 'SENDING' },
     });
-
-    if (!campaign) return;
+    if (claimed.count === 0) {
+      this.logger.debug(`Campaign ${campaignId} already claimed — skipping`);
+      return;
+    }
 
     const recipients = await this.prisma.emailCampaignRecipient.findMany({
       where: { campaignId, status: 'PENDING' },
@@ -94,10 +114,64 @@ export class CampaignScheduler implements OnModuleInit, OnModuleDestroy {
     if (recipients.length === 0) {
       await this.prisma.emailCampaign.update({
         where: { id: campaignId },
-        data: { status: 'SENT', sentAt: new Date(), sentCount: 0 },
+        data: { status: 'SENT', sentAt: new Date(), sentCount: 0, eligibleCount: 0, suppressedCount: 0 },
       });
       return;
     }
+
+    // Suppression filtering (same as manual send path)
+    const isMarketing = campaignType !== 'TRANSACTIONAL';
+    let eligibleRecipients = recipients;
+    let suppressedIds: string[] = [];
+
+    if (isMarketing) {
+      const allEmails = recipients.map((r) => r.email.toLowerCase().trim());
+      const suppressedRecords = await this.prisma.emailSubscription.findMany({
+        where: {
+          organizationId,
+          email: { in: allEmails },
+          subscriptionList,
+          status: { in: ['UNSUBSCRIBED', 'SUPPRESSED', 'BOUNCED', 'COMPLAINED'] },
+        },
+        select: { email: true },
+      });
+      const suppressedEmails = new Set(suppressedRecords.map((r) => r.email.toLowerCase()));
+
+      eligibleRecipients = recipients.filter((r) => !suppressedEmails.has(r.email.toLowerCase()));
+      suppressedIds = recipients
+        .filter((r) => suppressedEmails.has(r.email.toLowerCase()))
+        .map((r) => r.id);
+    }
+
+    // Mark suppressed recipients
+    if (suppressedIds.length > 0) {
+      await this.prisma.emailCampaignRecipient.updateMany({
+        where: { id: { in: suppressedIds } },
+        data: { status: 'SUPPRESSED' },
+      });
+    }
+
+    if (eligibleRecipients.length === 0) {
+      await this.prisma.emailCampaign.update({
+        where: { id: campaignId },
+        data: {
+          status: 'SENT',
+          sentAt: new Date(),
+          eligibleCount: 0,
+          suppressedCount: suppressedIds.length,
+          sentCount: 0,
+        },
+      });
+      return;
+    }
+
+    // Fetch the campaign content fields
+    const campaign = await this.prisma.emailCampaign.findFirst({
+      where: { id: campaignId, organizationId },
+      select: { subject: true, htmlContent: true, textContent: true, fromEmail: true, fromName: true, providerId: true },
+    });
+
+    if (!campaign) return;
 
     const fromAddress = campaign.fromEmail
       ? campaign.fromName
@@ -105,7 +179,7 @@ export class CampaignScheduler implements OnModuleInit, OnModuleDestroy {
         : campaign.fromEmail
       : undefined;
 
-    const jobs: CampaignEmailJobData[] = recipients.map((r) => ({
+    const jobs: CampaignEmailJobData[] = eligibleRecipients.map((r) => ({
       campaignId,
       recipientId: r.id,
       organizationId,
@@ -119,7 +193,10 @@ export class CampaignScheduler implements OnModuleInit, OnModuleDestroy {
 
     await this.prisma.emailCampaign.update({
       where: { id: campaignId },
-      data: { status: 'SENDING', eligibleCount: recipients.length },
+      data: {
+        eligibleCount: eligibleRecipients.length,
+        suppressedCount: suppressedIds.length,
+      },
     });
 
     const bulkJobs = jobs.map((data) => ({
@@ -136,7 +213,7 @@ export class CampaignScheduler implements OnModuleInit, OnModuleDestroy {
     await this.queue.addBulk(bulkJobs);
 
     this.logger.log(
-      `Campaign ${campaignId} dispatched: ${jobs.length} recipients queued`,
+      `Campaign ${campaignId} dispatched: ${jobs.length} eligible, ${suppressedIds.length} suppressed`,
     );
   }
 }

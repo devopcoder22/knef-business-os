@@ -170,6 +170,7 @@ export interface PushSendJobData {
   tag?: string;
   logId?: string;
   idempotencyKey?: string;
+  messageType?: 'TRANSACTIONAL' | 'MARKETING';
 }
 
 export interface WhatsAppSendJobData {

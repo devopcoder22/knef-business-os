@@ -15,6 +15,7 @@ import { SocialPublisherService } from './services/social-publisher.service';
 import { WebPushSenderService } from './services/web-push-sender.service';
 import { WhatsAppSenderService } from './services/whatsapp-sender.service';
 import { ShopifyWorkerService } from './services/shopify-worker.service';
+import { RecipientEligibilityService } from './services/recipient-eligibility.service';
 import { ShopifySyncProcessor } from './processors/shopify-sync.processor';
 
 // Processors
@@ -50,6 +51,7 @@ import { AdvertisingScheduler } from './schedulers/advertising-scheduler';
   providers: [
     // Infrastructure
     PrismaService,
+    RecipientEligibilityService,
     EmailSenderService,
     CalendarSyncService,
     IntegrationSyncService,

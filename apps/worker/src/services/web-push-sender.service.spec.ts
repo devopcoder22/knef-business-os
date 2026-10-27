@@ -78,6 +78,12 @@ function makeValidVapidJson() {
   });
 }
 
+function makeEligibility(allowed = true, reason?: string) {
+  return {
+    canSend: jest.fn(async () => ({ allowed, reason })),
+  };
+}
+
 describe('WebPushSenderService', () => {
   beforeEach(() => jest.clearAllMocks());
 
@@ -85,11 +91,14 @@ describe('WebPushSenderService', () => {
     configOverrides: Record<string, string> = {},
     subs = [makeSubscription()],
     vapidJson: string | null = makeValidVapidJson(),
+    eligibilityAllowed = true,
+    eligibilityReason?: string,
   ) {
     const prisma = makePrisma(subs, vapidJson);
     const config = makeConfig(configOverrides);
-    const service = new WebPushSenderService(prisma as never, config as never);
-    return { service, prisma };
+    const eligibility = makeEligibility(eligibilityAllowed, eligibilityReason);
+    const service = new WebPushSenderService(prisma as never, config as never, eligibility as never);
+    return { service, prisma, eligibility };
   }
 
   it('skips send when WEB_PUSH_DELIVERY_ENABLED=false', async () => {
@@ -221,5 +230,100 @@ describe('WebPushSenderService', () => {
     const findManyCall = (prisma.pushSubscription.findMany as jest.Mock).mock.calls[0][0];
     expect(findManyCall.where.organizationId).toBe('org-2');
     expect(findManyCall.where.userId).toBe('user-2');
+  });
+
+  // ── DEF-24O-FCV-005: Marketing consent checks ─────────────────────────────
+
+  it('blocks MARKETING push when user has opted out (eligibility returns not allowed)', async () => {
+    const { service, prisma, eligibility } = makeService(
+      {},
+      [makeSubscription()],
+      makeValidVapidJson(),
+      false,  // eligibility blocked
+      'Marketing preference: unsubscribed',
+    );
+
+    await service.sendPush({
+      organizationId: 'org-1',
+      userId: 'user-1',
+      title: 'Big Sale!',
+      body: 'Check out our deals',
+      logId: 'log-1',
+      messageType: 'MARKETING',
+    });
+
+    expect(eligibility.canSend).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      channel: 'WEB_PUSH',
+      messageType: 'MARKETING',
+      userId: 'user-1',
+    });
+    // No actual push sent
+    expect((webpush.sendNotification as jest.Mock)).not.toHaveBeenCalled();
+    // Push subscriptions must NOT be queried (early return before subscriptions lookup)
+    expect((prisma.pushSubscription.findMany as jest.Mock)).not.toHaveBeenCalled();
+    // Log marked suppressed
+    expect((prisma.communicationLog.update as jest.Mock)).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'suppressed' }) }),
+    );
+  });
+
+  it('blocks MARKETING push with suppressed status', async () => {
+    const { service, eligibility } = makeService(
+      {},
+      [makeSubscription()],
+      makeValidVapidJson(),
+      false,
+      'Marketing preference: suppressed',
+    );
+
+    await service.sendPush({
+      organizationId: 'org-1',
+      userId: 'user-1',
+      title: 'Deal alert',
+      body: 'Save 20%',
+      messageType: 'MARKETING',
+    });
+
+    expect(eligibility.canSend).toHaveBeenCalledWith(
+      expect.objectContaining({ messageType: 'MARKETING', channel: 'WEB_PUSH' }),
+    );
+    expect((webpush.sendNotification as jest.Mock)).not.toHaveBeenCalled();
+  });
+
+  it('allows TRANSACTIONAL push even when eligibility would block marketing', async () => {
+    // eligibility returns allowed=false, but TRANSACTIONAL should bypass it
+    const { service, eligibility } = makeService(
+      {},
+      [makeSubscription()],
+      makeValidVapidJson(),
+      false,  // would block if called
+    );
+
+    await service.sendPush({
+      organizationId: 'org-1',
+      userId: 'user-1',
+      title: 'Order confirmed',
+      body: 'Your order #123 is confirmed',
+      messageType: 'TRANSACTIONAL',
+    });
+
+    // eligibility must NOT be called for transactional
+    expect(eligibility.canSend).not.toHaveBeenCalled();
+    // Push should proceed normally (will attempt to send)
+    expect((webpush.sendNotification as jest.Mock)).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call eligibility service when messageType is not set', async () => {
+    const { service, eligibility } = makeService();
+
+    await service.sendPush({
+      organizationId: 'org-1',
+      userId: 'user-1',
+      title: 'Test',
+      body: 'Test body',
+    });
+
+    expect(eligibility.canSend).not.toHaveBeenCalled();
   });
 });

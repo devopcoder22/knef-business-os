@@ -132,7 +132,7 @@ export class ContentDraftService {
         ownerId: userId,
         timezone: dto.timezone ?? 'UTC',
         scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
-        status: dto.scheduledAt ? 'SCHEDULED' : 'DRAFT',
+        status: 'DRAFT',
       },
     });
 

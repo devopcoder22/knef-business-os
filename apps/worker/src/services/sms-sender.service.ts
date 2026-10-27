@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { decrypt, normalizeToE164 } from '@knef/utils';
 import { PrismaService } from './prisma.service';
+import { RecipientEligibilityService } from './recipient-eligibility.service';
 import type { WorkerConfig } from '../config/worker.config';
 
 interface TermiiResponse {
@@ -27,6 +28,7 @@ export class SmsSenderService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<WorkerConfig>,
+    private readonly eligibility: RecipientEligibilityService,
   ) {}
 
   private get deliveryEnabled(): boolean {
@@ -43,16 +45,18 @@ export class SmsSenderService {
     logId?: string;
     idempotencyKey?: string;
   }): Promise<{ success: boolean; messageId?: string; error?: string }> {
-    // Consent check: skip MARKETING sends to opted-out numbers
+    // Consent check: skip MARKETING sends to ineligible recipients
     if (params.messageType === 'MARKETING') {
-      const pref = await this.prisma.channelPreference.findFirst({
-        where: { organizationId: params.organizationId, phone: params.to, channel: 'SMS', messageType: 'MARKETING' },
-        select: { status: true },
+      const eligibility = await this.eligibility.canSend({
+        organizationId: params.organizationId,
+        channel: 'SMS',
+        messageType: 'MARKETING',
+        phone: params.to,
       });
-      if (pref?.status === 'unsubscribed') {
-        this.logger.log(`SMS MARKETING suppressed — opt-out (to=${params.to}, org=${params.organizationId})`);
+      if (!eligibility.allowed) {
+        this.logger.log(`SMS MARKETING blocked — ${eligibility.reason} (to=${params.to}, org=${params.organizationId})`);
         await this.updateLog(params.logId, 'suppressed').catch(() => {});
-        return { success: true, messageId: 'suppressed-optout' };
+        return { success: true, messageId: 'suppressed' };
       }
     }
 

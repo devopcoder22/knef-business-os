@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'crypto';
 import type { WorkerConfig } from '../config/worker.config';
 import { PrismaService } from './prisma.service';
+import { RecipientEligibilityService } from './recipient-eligibility.service';
 import { decrypt } from '@knef/utils';
 import type { WhatsAppSendJobData } from '@knef/constants';
 
@@ -16,6 +17,7 @@ export class WhatsAppSenderService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<WorkerConfig>,
+    private readonly eligibility: RecipientEligibilityService,
   ) {}
 
   private get deliveryEnabled(): boolean {
@@ -27,15 +29,17 @@ export class WhatsAppSenderService {
   }
 
   async sendWhatsApp(data: WhatsAppSendJobData): Promise<void> {
-    // Consent check: skip MARKETING sends to opted-out numbers
+    // Consent check: skip MARKETING sends to ineligible recipients
     if (data.messageType === 'MARKETING') {
-      const pref = await this.prisma.channelPreference.findFirst({
-        where: { organizationId: data.organizationId, phone: data.to, channel: 'WHATSAPP', messageType: 'MARKETING' },
-        select: { status: true },
+      const eligibility = await this.eligibility.canSend({
+        organizationId: data.organizationId,
+        channel: 'WHATSAPP',
+        messageType: 'MARKETING',
+        phone: data.to,
       });
-      if (pref?.status === 'unsubscribed') {
-        this.logger.log(`WhatsApp MARKETING suppressed — opt-out (to=${data.to}, org=${data.organizationId})`);
-        if (data.messageId) await this.updateMessageStatus(data.messageId, 'FAILED', 'Marketing opt-out').catch(() => {});
+      if (!eligibility.allowed) {
+        this.logger.log(`WhatsApp MARKETING blocked — ${eligibility.reason} (to=${data.to}, org=${data.organizationId})`);
+        if (data.messageId) await this.updateMessageStatus(data.messageId, 'FAILED', eligibility.reason ?? 'Marketing blocked').catch(() => {});
         return;
       }
     }
