@@ -69,9 +69,9 @@ export default function ShopifyPage() {
   const { data: connectionsData, isLoading: loadingConns } = useQuery<{ data: ShopifyConnection[] }>({
     queryKey: ['shopify-connections'],
     queryFn: async () => {
-      const res = await api().get<{ data: ShopifyConnection[] }>('/integrations/connections?provider=shopify');
-      const all = (res.data as unknown as ShopifyConnection[]) ?? res.data?.data ?? [];
-      const shopify = Array.isArray(all) ? all.filter((c: ShopifyConnection) => (c as any).provider === 'shopify') : all;
+      const res = await api().get('/integrations/connections?provider=shopify');
+      const all = (res.data as any)?.data ?? [];
+      const shopify = Array.isArray(all) ? all.filter((c: ShopifyConnection) => (c as any).provider === 'shopify') : [];
       return { data: shopify } as { data: ShopifyConnection[] };
     },
   });
