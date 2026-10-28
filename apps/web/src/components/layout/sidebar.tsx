@@ -56,6 +56,12 @@ import {
   TrendingUp,
   Clock,
   DollarSign,
+  RotateCcw,
+  History,
+  GitMerge,
+  BookOpenCheck,
+  Zap,
+  Printer,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -110,6 +116,8 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Transfers', href: '/inventory/transfers', icon: ArrowLeftRight, permission: PERMISSIONS.INVENTORY.TRANSFER },
       { label: 'Adjustments', href: '/inventory/adjustments', icon: ClipboardList, permission: PERMISSIONS.INVENTORY.ADJUST },
       { label: 'Stock Count', href: '/inventory/counts', icon: CheckSquare, permission: PERMISSIONS.INVENTORY.COUNT },
+      { label: 'Cycle Counts', href: '/inventory/cycle-counts', icon: RotateCcw, permission: PERMISSIONS.INVENTORY.CYCLE_COUNT },
+      { label: 'Price History', href: '/inventory/price-history', icon: History, permission: PERMISSIONS.INVENTORY.VIEW_PRICE_HISTORY },
     ],
   },
   {
@@ -120,6 +128,9 @@ const NAV_ITEMS: NavItem[] = [
     children: [
       { label: 'Orders', href: '/purchasing/orders', icon: ClipboardList, permission: PERMISSIONS.PURCHASING.VIEW },
       { label: 'Receipts', href: '/purchasing/receipts', icon: CheckSquare, permission: PERMISSIONS.PURCHASING.RECEIVE },
+      { label: 'AP Aging', href: '/purchasing/ap-aging', icon: ClipboardList, permission: PERMISSIONS.SUPPLIERS.VIEW_AP_AGING },
+      { label: '3-Way Match', href: '/purchasing/three-way-matching', icon: GitMerge, permission: PERMISSIONS.PURCHASING.VIEW },
+      { label: 'Supplier Ledger', href: '/purchasing/supplier-ledger', icon: BookOpenCheck, permission: PERMISSIONS.SUPPLIERS.VIEW_LEDGER },
     ],
   },
   { label: 'Customers', href: '/customers', icon: Users, permission: PERMISSIONS.CUSTOMERS.VIEW },
@@ -135,6 +146,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Expenses', href: '/finance/expenses', icon: Receipt, permission: PERMISSIONS.FINANCE.EXPENSES.VIEW },
       { label: 'Expense Categories', href: '/finance/expense-categories', icon: Tag, permission: PERMISSIONS.FINANCE.MANAGE },
       { label: 'Tax Rates', href: '/finance/tax-rates', icon: ListOrdered, permission: PERMISSIONS.FINANCE.MANAGE },
+      { label: 'Reconciliation', href: '/finance/reconciliation', icon: Zap, permission: PERMISSIONS.FINANCE.RECONCILE },
     ],
   },
   {
@@ -188,6 +200,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Purchasing', href: '/reports/purchasing', icon: Truck, permission: PERMISSIONS.REPORTS.VIEW },
       { label: 'Finance', href: '/reports/finance', icon: Banknote, permission: PERMISSIONS.REPORTS.VIEW },
       { label: 'Staff', href: '/reports/staff', icon: UserCog, permission: PERMISSIONS.REPORTS.VIEW },
+      { label: 'Daily Pulse', href: '/reports/daily-pulse', icon: Activity, permission: PERMISSIONS.REPORTS.VIEW },
     ],
   },
   {
@@ -290,6 +303,7 @@ const BOTTOM_ITEMS: NavItem[] = [
     children: [
       { label: 'Business Settings', href: '/settings', icon: Settings, permission: PERMISSIONS.SETTINGS.VIEW },
       { label: 'Organization', href: '/settings/organization', icon: Building2, permission: PERMISSIONS.SETTINGS.VIEW },
+      { label: 'Print Templates', href: '/settings/print-templates', icon: Printer, permission: PERMISSIONS.SETTINGS.PRINT_TEMPLATES },
     ],
   },
   {

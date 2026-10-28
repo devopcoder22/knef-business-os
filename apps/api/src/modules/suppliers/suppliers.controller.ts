@@ -119,4 +119,27 @@ export class SuppliersController {
   getPurchaseHistory(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.suppliersService.getPurchaseHistory(user.organizationId, id);
   }
+
+  // ── Ledger & AP Aging ─────────────────────────────────────────
+
+  @Get(':id/ledger')
+  @Permissions(PERMISSIONS.SUPPLIERS.VIEW_LEDGER)
+  @ApiOperation({ summary: 'Get supplier ledger (invoices + payments + balance)' })
+  getLedger(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 50,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.suppliersService.getLedger(user.organizationId, id, { page, limit, from, to });
+  }
+
+  @Get('ap-aging')
+  @Permissions(PERMISSIONS.SUPPLIERS.VIEW_AP_AGING)
+  @ApiOperation({ summary: 'Accounts Payable aging report — all suppliers' })
+  getApAging(@CurrentUser() user: AuthUser) {
+    return this.suppliersService.getApAging(user.organizationId);
+  }
 }

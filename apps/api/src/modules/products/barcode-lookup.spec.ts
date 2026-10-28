@@ -4,6 +4,7 @@ import { ProductStatus } from '@prisma/client';
 import { ProductsService } from './products.service';
 import { PrismaService } from '../../common/services/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { PriceHistoryService } from '../price-history/price-history.service';
 
 const mockPrisma: any = {
   serializedUnit: { findFirst: jest.fn() },
@@ -12,6 +13,7 @@ const mockPrisma: any = {
 };
 
 const mockAudit = { log: jest.fn() };
+const mockPriceHistory = { record: jest.fn() };
 
 describe('ProductsService.lookupByCode', () => {
   let service: ProductsService;
@@ -23,6 +25,7 @@ describe('ProductsService.lookupByCode', () => {
         ProductsService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: AuditService, useValue: mockAudit },
+        { provide: PriceHistoryService, useValue: mockPriceHistory },
       ],
     }).compile();
     service = module.get(ProductsService);
@@ -100,6 +103,7 @@ describe('ProductsService — variant barcode namespace isolation', () => {
         ProductsService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: AuditService, useValue: mockAudit },
+        { provide: PriceHistoryService, useValue: mockPriceHistory },
       ],
     }).compile();
     service = module.get(ProductsService);

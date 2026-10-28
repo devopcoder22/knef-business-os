@@ -12,13 +12,21 @@ export const PERMISSIONS = {
     ADJUST: 'inventory.adjust',
     TRANSFER: 'inventory.transfer',
     COUNT: 'inventory.count',
+    COUNT_SUBMIT: 'inventory.count.submit',
+    COUNT_REVIEW: 'inventory.count.review',
+    COUNT_APPROVE: 'inventory.count.approve',
+    COUNT_POST: 'inventory.count.post',
+    CYCLE_COUNT: 'inventory.cycle_count',
     VIEW_COST: 'inventory.view_cost',
+    VIEW_PRICE_HISTORY: 'inventory.view_price_history',
   },
   SUPPLIERS: {
     VIEW: 'suppliers.view',
     CREATE: 'suppliers.create',
     EDIT: 'suppliers.edit',
     DELETE: 'suppliers.delete',
+    VIEW_LEDGER: 'suppliers.view_ledger',
+    VIEW_AP_AGING: 'suppliers.view_ap_aging',
   },
   PURCHASING: {
     VIEW: 'purchasing.view',
@@ -55,6 +63,7 @@ export const PERMISSIONS = {
     VIEW: 'finance.view',
     MANAGE: 'finance.manage',
     BANK_ACCOUNTS: 'finance.bank_accounts',
+    RECONCILE: 'finance.reconcile',
     EXPENSES: {
       VIEW: 'finance.expenses.view',
       CREATE: 'finance.expenses.create',
@@ -126,6 +135,7 @@ export const PERMISSIONS = {
     EDIT: 'settings.edit',
     MANAGE_INTEGRATIONS: 'settings.manage_integrations',
     MANAGE: 'settings.manage',
+    PRINT_TEMPLATES: 'settings.print_templates',
   },
   ECOMMERCE: {
     MANAGE: 'ecommerce.manage',

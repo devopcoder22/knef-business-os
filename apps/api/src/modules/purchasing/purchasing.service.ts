@@ -913,4 +913,88 @@ export class PurchasingService {
 
     return this.findPurchaseReturn(organizationId, id);
   }
+
+  // ── Three-Way Matching ────────────────────────────────────────
+
+  async threeWayMatch(organizationId: string, purchaseOrderId: string) {
+    const po = await this.prisma.purchaseOrder.findFirst({
+      where: { id: purchaseOrderId, organizationId },
+      include: {
+        items: {
+          include: {
+            product: { select: { id: true, name: true, sku: true } },
+          },
+        },
+        supplier: { select: { id: true, name: true, code: true } },
+      },
+    });
+    if (!po) throw new NotFoundException('Purchase order not found');
+
+    const [goodsReceipts, invoices] = await Promise.all([
+      this.prisma.goodsReceipt.findMany({
+        where: { purchaseOrderId, organizationId },
+        include: { items: true },
+      }),
+      this.prisma.supplierInvoice.findMany({
+        where: { purchaseOrderId, organizationId },
+      }),
+    ]);
+
+    // Aggregate GRN quantities per product/variant
+    const grnQtyMap = new Map<string, number>();
+    for (const gr of goodsReceipts) {
+      for (const item of gr.items) {
+        const key = `${item.productId}:${item.variantId ?? ''}`;
+        grnQtyMap.set(key, (grnQtyMap.get(key) ?? 0) + item.quantityReceived);
+      }
+    }
+
+    const totalInvoiced = invoices.reduce((s, inv) => s + Number(inv.amount), 0);
+    const totalPaid = invoices.reduce((s, inv) => s + Number(inv.paidAmount), 0);
+
+    const lineMatches = po.items.map((item) => {
+      const key = `${item.productId}:${item.variantId ?? ''}`;
+      const poQty = item.quantity;
+      const grnQty = grnQtyMap.get(key) ?? 0;
+      const qtyVariance = grnQty - poQty;
+      const poValue = poQty * Number(item.unitCost);
+      const grnValue = grnQty * Number(item.unitCost);
+      return {
+        product: item.product,
+        variantId: item.variantId,
+        poQty,
+        grnQty,
+        qtyVariance,
+        qtyMatch: Math.abs(qtyVariance) <= 0.001,
+        poValue,
+        grnValue,
+      };
+    });
+
+    const poTotal = Number(po.totalAmount);
+    const valueVariance = totalInvoiced - poTotal;
+
+    return {
+      purchaseOrder: {
+        id: po.id,
+        reference: po.reference,
+        supplier: po.supplier,
+        status: po.status,
+        totalAmount: poTotal,
+      },
+      lines: lineMatches,
+      invoiceSummary: {
+        totalInvoiced,
+        totalPaid,
+        outstanding: totalInvoiced - totalPaid,
+        invoiceCount: invoices.length,
+      },
+      match: {
+        quantityMatch: lineMatches.every((l) => l.qtyMatch),
+        valueVariance,
+        valueMatchWithin5Pct: Math.abs(valueVariance) <= poTotal * 0.05,
+        requiresReview: !lineMatches.every((l) => l.qtyMatch) || Math.abs(valueVariance) > poTotal * 0.05,
+      },
+    };
+  }
 }

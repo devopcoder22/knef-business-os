@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Body,
   Param,
   Query,
@@ -15,7 +16,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { PERMISSIONS } from '@knef/constants';
 import type { AuthUser } from '@knef/types';
-import { StartStockCountDto } from './dto/create-stock-count.dto';
+import { CreateStockCountDto } from './dto/create-stock-count.dto';
 import { SubmitStockCountDto } from './dto/submit-stock-count.dto';
 
 @ApiTags('stock-counts')
@@ -26,13 +27,15 @@ export class StockCountsController {
 
   @Get()
   @Permissions(PERMISSIONS.INVENTORY.COUNT)
-  @ApiOperation({ summary: 'List all stock counts' })
+  @ApiOperation({ summary: 'List stock counts' })
   findAll(
     @CurrentUser() user: AuthUser,
     @Query('page') page = 1,
     @Query('limit') limit = 20,
+    @Query('status') status?: string,
+    @Query('locationId') locationId?: string,
   ) {
-    return this.stockCountsService.findAll(user.organizationId, { page, limit });
+    return this.stockCountsService.findAll(user.organizationId, { page, limit, status, locationId });
   }
 
   @Get(':id')
@@ -42,35 +45,74 @@ export class StockCountsController {
     return this.stockCountsService.findOne(user.organizationId, id);
   }
 
-  @Post('start')
+  @Post()
   @Permissions(PERMISSIONS.INVENTORY.COUNT)
-  @ApiOperation({ summary: 'Start a new stock count for a location' })
-  startCount(@CurrentUser() user: AuthUser, @Body() dto: StartStockCountDto) {
-    return this.stockCountsService.startCount(user.organizationId, dto, user.id);
+  @ApiOperation({ summary: 'Create a new stock count (DRAFT)' })
+  createCount(@CurrentUser() user: AuthUser, @Body() dto: CreateStockCountDto) {
+    return this.stockCountsService.createCount(user.organizationId, dto, user.id);
+  }
+
+  @Patch(':id/begin')
+  @Permissions(PERMISSIONS.INVENTORY.COUNT)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Begin count — snapshot inventory and move to IN_PROGRESS' })
+  beginCount(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.stockCountsService.beginCount(user.organizationId, id, user.id);
   }
 
   @Patch(':id/submit')
-  @Permissions(PERMISSIONS.INVENTORY.COUNT)
+  @Permissions(PERMISSIONS.INVENTORY.COUNT_SUBMIT)
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Submit counted quantities' })
+  @ApiOperation({ summary: 'Submit counted quantities for review' })
   submitCount(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: SubmitStockCountDto,
   ) {
-    return this.stockCountsService.submitCount(
-      user.organizationId,
-      id,
-      dto.items,
-      user.id,
-    );
+    return this.stockCountsService.submitCount(user.organizationId, id, dto.items, user.id);
+  }
+
+  @Patch(':id/review')
+  @Permissions(PERMISSIONS.INVENTORY.COUNT_REVIEW)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Begin review of submitted count' })
+  beginReview(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.stockCountsService.beginReview(user.organizationId, id);
   }
 
   @Patch(':id/approve')
+  @Permissions(PERMISSIONS.INVENTORY.COUNT_APPROVE)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Approve count after review' })
+  approveCount(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.stockCountsService.approveCount(user.organizationId, id);
+  }
+
+  @Patch(':id/reject')
+  @Permissions(PERMISSIONS.INVENTORY.COUNT_APPROVE)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Reject count with reason' })
+  rejectCount(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: { reason: string },
+  ) {
+    return this.stockCountsService.rejectCount(user.organizationId, id, body.reason);
+  }
+
+  @Patch(':id/post')
+  @Permissions(PERMISSIONS.INVENTORY.COUNT_POST)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Post approved count — apply inventory corrections' })
+  postCount(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.stockCountsService.postCount(user.organizationId, id, user.id);
+  }
+
+  @Delete(':id')
   @Permissions(PERMISSIONS.INVENTORY.COUNT)
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Approve count and apply corrections' })
-  approveCount(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.stockCountsService.approveCount(user.organizationId, id, user.id);
+  @ApiOperation({ summary: 'Cancel a stock count' })
+  cancelCount(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.stockCountsService.cancelCount(user.organizationId, id);
   }
 }

@@ -131,6 +131,13 @@ export class PurchaseOrdersController {
     });
     res.end(pdfBuffer);
   }
+
+  @Get(':id/three-way-match')
+  @Permissions(PERMISSIONS.PURCHASING.VIEW)
+  @ApiOperation({ summary: 'Three-way match: PO ↔ GRN ↔ Supplier Invoice' })
+  threeWayMatch(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.purchasingService.threeWayMatch(user.organizationId, id);
+  }
 }
 
 // ── Goods Receipts ─────────────────────────────────────────────

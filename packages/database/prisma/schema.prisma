@@ -93,6 +93,7 @@ model Location {
   posSessions      POSSession[]
   employees          Employee[]
   stockCounts        StockCount[]
+  cycleCounts        CycleCount[]
   attendance         Attendance[]
   responsibilities   EmployeeResponsibility[]
   shopifyLocationMappings ShopifyLocationMapping[]
@@ -307,8 +308,10 @@ model Product {
   isSerialized   Boolean  @default(false)
   hasVariants    Boolean  @default(false)
   trackInventory Boolean  @default(true)
-  lowStockAlert  Int      @default(5)
-  weight         Decimal? @db.Decimal(10, 3)
+  lowStockAlert    Int      @default(5)
+  reorderPoint     Decimal? @db.Decimal(15, 4)
+  reorderQuantity  Decimal? @db.Decimal(15, 4)
+  weight           Decimal? @db.Decimal(10, 3)
   weightUnit     String?  @default("kg")
   status         ProductStatus @default(ACTIVE)
   searchVector   Unsupported("tsvector")?
@@ -332,6 +335,7 @@ model Product {
   stockCountItems    StockCountItem[]
   commissions        Commission[]
   shopifyMappings    ShopifyProductMapping[]
+  priceHistory       PriceHistory[]
 
   @@unique([organizationId, sku])
   @@index([organizationId])
@@ -596,17 +600,26 @@ model StockAdjustmentItem {
 }
 
 model StockCount {
-  id             String       @id @default(cuid())
-  organizationId String
-  locationId     String
-  reference      String
-  status         CountStatus  @default(IN_PROGRESS)
-  startedAt      DateTime     @default(now())
-  completedAt    DateTime?
-  countedBy      String?
-  notes          String?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id              String      @id @default(cuid())
+  organizationId  String
+  locationId      String
+  reference       String
+  status          CountStatus @default(DRAFT)
+  scopeType       String?
+  scope           Json?
+  startedAt       DateTime    @default(now())
+  submittedAt     DateTime?
+  reviewedAt      DateTime?
+  approvedAt      DateTime?
+  postedAt        DateTime?
+  completedAt     DateTime?
+  countedBy       String?
+  createdBy       String?
+  assignedTo      String?
+  rejectionReason String?
+  notes           String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
 
   location Location         @relation(fields: [locationId], references: [id])
   items    StockCountItem[]
@@ -614,30 +627,39 @@ model StockCount {
   @@unique([organizationId, reference])
   @@index([organizationId])
   @@index([locationId])
+  @@index([organizationId, status])
 }
 
 enum CountStatus {
+  DRAFT
   IN_PROGRESS
-  COMPLETED
+  SUBMITTED
+  UNDER_REVIEW
   APPROVED
+  REJECTED
+  POSTED
+  COMPLETED
   CANCELLED
 }
 
 model StockCountItem {
-  id            String   @id @default(cuid())
-  stockCountId  String
-  productId     String
-  variantId     String?
-  systemQty     Int
-  countedQty    Int
-  variance      Int
-  notes         String?
-  countedAt     DateTime @default(now())
+  id                String   @id @default(cuid())
+  stockCountId      String
+  productId         String
+  variantId         String?
+  systemQty         Decimal  @db.Decimal(15, 4)
+  countedQty        Decimal  @db.Decimal(15, 4)
+  variance          Decimal  @db.Decimal(15, 4)
+  unitCostSnapshot  Decimal? @db.Decimal(15, 2)
+  varianceValue     Decimal? @db.Decimal(15, 2)
+  notes             String?
+  countedAt         DateTime @default(now())
 
   stockCount StockCount @relation(fields: [stockCountId], references: [id], onDelete: Cascade)
   product    Product    @relation(fields: [productId], references: [id])
 
   @@index([stockCountId])
+  @@index([productId])
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1410,7 +1432,8 @@ model BankAccount {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  transactions BankTransaction[]
+  transactions    BankTransaction[]
+  statementImports BankStatementImport[]
 
   @@unique([organizationId, accountNumber])
   @@index([organizationId])
@@ -1446,6 +1469,14 @@ model BankTransaction {
 enum TransactionType {
   CREDIT
   DEBIT
+}
+
+enum MatchStatus {
+  UNMATCHED
+  AUTO_MATCHED
+  MANUALLY_MATCHED
+  CONFIRMED
+  EXCLUDED
 }
 
 model Expense {
@@ -3618,4 +3649,169 @@ model ShopifyWebhookEvent {
   @@index([organizationId, externalConnectionId])
   @@index([status])
   @@index([topic, status])
+}
+
+// ─────────────────────────────────────────────────────────────
+// PHASE 24P — RETAIL OPERATIONAL CONTROLS
+// ─────────────────────────────────────────────────────────────
+
+model CycleCount {
+  id             String          @id @default(cuid())
+  organizationId String
+  locationId     String
+  reference      String
+  status         CycleCountStatus @default(SCHEDULED)
+  frequency      String
+  categoryId     String?
+  scheduledAt    DateTime
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdBy      String?
+  notes          String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  location Location          @relation(fields: [locationId], references: [id])
+  items    CycleCountItem[]
+
+  @@unique([organizationId, reference])
+  @@index([organizationId])
+  @@index([locationId])
+  @@index([organizationId, status])
+  @@index([scheduledAt])
+}
+
+enum CycleCountStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model CycleCountItem {
+  id             String     @id @default(cuid())
+  cycleCountId   String
+  productId      String
+  variantId      String?
+  systemQty      Decimal    @db.Decimal(15, 4)
+  countedQty     Decimal?   @db.Decimal(15, 4)
+  variance       Decimal?   @db.Decimal(15, 4)
+  countedAt      DateTime?
+
+  cycleCount CycleCount @relation(fields: [cycleCountId], references: [id], onDelete: Cascade)
+
+  @@index([cycleCountId])
+  @@index([productId])
+}
+
+model PriceHistory {
+  id             String        @id @default(cuid())
+  organizationId String
+  productId      String
+  variantId      String?
+  priceType      PriceType
+  oldPrice       Decimal       @db.Decimal(15, 2)
+  newPrice       Decimal       @db.Decimal(15, 2)
+  reason         String?
+  source         String?
+  changedBy      String?
+  effectiveAt    DateTime      @default(now())
+  createdAt      DateTime      @default(now())
+
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([organizationId])
+  @@index([productId])
+  @@index([productId, priceType])
+  @@index([organizationId, effectiveAt])
+}
+
+enum PriceType {
+  COST
+  SELLING
+}
+
+model PrintTemplate {
+  id             String             @id @default(cuid())
+  organizationId String
+  name           String
+  templateType   PrintTemplateType
+  isDefault      Boolean            @default(false)
+  isActive       Boolean            @default(true)
+  content        String
+  variables      Json               @default("[]")
+  paperSize      String             @default("A4")
+  orientation    String             @default("portrait")
+  createdBy      String?
+  updatedBy      String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@unique([organizationId, name, templateType])
+  @@index([organizationId])
+  @@index([organizationId, templateType])
+}
+
+enum PrintTemplateType {
+  RECEIPT
+  INVOICE
+  PO
+  GRN
+  QUOTATION
+  BARCODE_LABEL
+}
+
+model BankStatementImport {
+  id             String               @id @default(cuid())
+  organizationId String
+  bankAccountId  String
+  fileName       String
+  fileType       String
+  rowCount       Int                  @default(0)
+  matchedCount   Int                  @default(0)
+  unmatchedCount Int                  @default(0)
+  status         ImportStatus         @default(PENDING)
+  importedBy     String?
+  importedAt     DateTime             @default(now())
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  bankAccount  BankAccount            @relation(fields: [bankAccountId], references: [id])
+  transactions BankImportTransaction[]
+
+  @@index([organizationId])
+  @@index([bankAccountId])
+  @@index([status])
+}
+
+enum ImportStatus {
+  PENDING
+  PROCESSING
+  COMPLETE
+  FAILED
+}
+
+model BankImportTransaction {
+  id             String                  @id @default(cuid())
+  importId       String
+  organizationId String
+  bankAccountId  String
+  date           DateTime
+  description    String
+  amount         Decimal                 @db.Decimal(15, 2)
+  type           TransactionType
+  reference      String?
+  externalRef    String?
+  matchedTxnId   String?
+  matchStatus    MatchStatus             @default(UNMATCHED)
+  confirmedAt    DateTime?
+  confirmedBy    String?
+  createdAt      DateTime                @default(now())
+
+  import BankStatementImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  @@index([importId])
+  @@index([organizationId])
+  @@index([matchStatus])
+  @@index([date])
 }

@@ -287,6 +287,143 @@ export class SuppliersService {
     });
   }
 
+  // ── Supplier Ledger ───────────────────────────────────────────
+
+  async getLedger(
+    organizationId: string,
+    supplierId: string,
+    query: { page?: number; limit?: number; from?: string; to?: string },
+  ) {
+    const supplier = await this.prisma.supplier.findFirst({
+      where: { id: supplierId, organizationId },
+      select: { id: true, name: true, code: true, currency: true },
+    });
+    if (!supplier) throw new NotFoundException('Supplier not found');
+
+    const { page = 1, limit = 50, from, to } = query;
+    const skip = (page - 1) * limit;
+    const dateFilter: Record<string, unknown> = {};
+    if (from) dateFilter['gte'] = new Date(from);
+    if (to) dateFilter['lte'] = new Date(to);
+
+    const [invoices, payments, totalInvoices, totalPayments] = await Promise.all([
+      this.prisma.supplierInvoice.findMany({
+        where: {
+          supplierId,
+          organizationId,
+          ...(Object.keys(dateFilter).length ? { invoiceDate: dateFilter } : {}),
+        },
+        select: {
+          id: true,
+          invoiceNumber: true,
+          amount: true,
+          paidAmount: true,
+          status: true,
+          invoiceDate: true,
+          dueDate: true,
+        },
+        orderBy: { invoiceDate: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.supplierPayment.findMany({
+        where: {
+          supplierId,
+          organizationId,
+          ...(Object.keys(dateFilter).length ? { paidAt: dateFilter } : {}),
+        },
+        select: {
+          id: true,
+          amount: true,
+          method: true,
+          reference: true,
+          paidAt: true,
+        },
+        orderBy: { paidAt: 'desc' },
+        take: 100,
+      }),
+      this.prisma.supplierInvoice.aggregate({
+        where: { supplierId, organizationId },
+        _sum: { amount: true, paidAmount: true },
+      }),
+      this.prisma.supplierPayment.aggregate({
+        where: { supplierId, organizationId },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    const totalInvoiced = Number(totalInvoices._sum.amount ?? 0);
+    const totalPaid = Number(totalPayments._sum.amount ?? 0);
+    const outstanding = totalInvoiced - totalPaid;
+
+    return {
+      supplier,
+      summary: { totalInvoiced, totalPaid, outstanding },
+      invoices,
+      payments,
+      meta: { total: totalInvoices._sum.amount ?? 0, page, limit },
+    };
+  }
+
+  // ── AP Aging ─────────────────────────────────────────────────
+
+  async getApAging(organizationId: string) {
+    const now = new Date();
+
+    const unpaidInvoices = await this.prisma.supplierInvoice.findMany({
+      where: {
+        organizationId,
+        status: { in: ['UNPAID', 'PARTIAL', 'OVERDUE'] },
+      },
+      include: {
+        supplier: { select: { id: true, name: true, code: true } },
+      },
+    });
+
+    type AgingBucket = { current: number; days1_30: number; days31_60: number; days61_90: number; over90: number; total: number };
+    const supplierMap = new Map<string, { supplier: { id: string; name: string; code: string }; amounts: AgingBucket }>();
+
+    for (const inv of unpaidInvoices) {
+      const outstanding = Number(inv.amount) - Number(inv.paidAmount);
+      if (outstanding <= 0) continue;
+
+      const dueDate = inv.dueDate ?? inv.invoiceDate;
+      const daysOverdue = Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
+
+      const sid = inv.supplierId;
+      if (!supplierMap.has(sid)) {
+        supplierMap.set(sid, {
+          supplier: inv.supplier,
+          amounts: { current: 0, days1_30: 0, days31_60: 0, days61_90: 0, over90: 0, total: 0 },
+        });
+      }
+      const entry = supplierMap.get(sid)!;
+      entry.amounts.total += outstanding;
+      if (daysOverdue <= 0) entry.amounts.current += outstanding;
+      else if (daysOverdue <= 30) entry.amounts.days1_30 += outstanding;
+      else if (daysOverdue <= 60) entry.amounts.days31_60 += outstanding;
+      else if (daysOverdue <= 90) entry.amounts.days61_90 += outstanding;
+      else entry.amounts.over90 += outstanding;
+    }
+
+    const rows = Array.from(supplierMap.values()).sort((a, b) => b.amounts.total - a.amounts.total);
+
+    const totals = rows.reduce(
+      (acc, r) => {
+        acc.current += r.amounts.current;
+        acc.days1_30 += r.amounts.days1_30;
+        acc.days31_60 += r.amounts.days31_60;
+        acc.days61_90 += r.amounts.days61_90;
+        acc.over90 += r.amounts.over90;
+        acc.total += r.amounts.total;
+        return acc;
+      },
+      { current: 0, days1_30: 0, days31_60: 0, days61_90: 0, over90: 0, total: 0 },
+    );
+
+    return { asOf: now.toISOString(), rows, totals };
+  }
+
   // ── Helpers ───────────────────────────────────────────────────
 
   private async updateSearchVector(supplierId: string) {

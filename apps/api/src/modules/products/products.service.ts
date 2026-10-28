@@ -10,6 +10,7 @@ import { createId } from '@paralleldrive/cuid2';
 import { ProductStatus } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { PriceHistoryService } from '../price-history/price-history.service';
 import type { CreateProductDto } from './dto/create-product.dto';
 import type { UpdateProductDto } from './dto/update-product.dto';
 import type { ListProductsDto } from './dto/list-products.dto';
@@ -32,6 +33,7 @@ export class ProductsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly priceHistoryService: PriceHistoryService,
   ) {}
 
   async findAll(organizationId: string, query: ListProductsDto) {
@@ -267,6 +269,30 @@ export class ProductsService {
     });
 
     await this.updateSearchVector(id);
+
+    // Record price history for any cost/selling price changes
+    if (dto.costPrice && Number(dto.costPrice) !== Number(product.costPrice)) {
+      await this.priceHistoryService.record({
+        organizationId,
+        productId: id,
+        priceType: 'COST',
+        oldPrice: Number(product.costPrice),
+        newPrice: Number(dto.costPrice),
+        source: 'MANUAL',
+        changedBy: userId,
+      });
+    }
+    if (dto.sellingPrice && Number(dto.sellingPrice) !== Number(product.sellingPrice)) {
+      await this.priceHistoryService.record({
+        organizationId,
+        productId: id,
+        priceType: 'SELLING',
+        oldPrice: Number(product.sellingPrice),
+        newPrice: Number(dto.sellingPrice),
+        source: 'MANUAL',
+        changedBy: userId,
+      });
+    }
 
     await this.auditService.log({
       organizationId,

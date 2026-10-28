@@ -62,6 +62,11 @@ import { TestimonialsModule } from './modules/testimonials/testimonials.module';
 import { AdvertisingModule } from './modules/advertising/advertising.module';
 import { WhatsAppModule } from './modules/whatsapp/whatsapp.module';
 import { ShopifyModule } from './modules/shopify/shopify.module';
+import { CycleCountsModule } from './modules/cycle-counts/cycle-counts.module';
+import { PriceHistoryModule } from './modules/price-history/price-history.module';
+import { BankReconciliationModule } from './modules/bank-reconciliation/bank-reconciliation.module';
+import { DailyPulseModule } from './modules/daily-pulse/daily-pulse.module';
+import { PrintTemplatesModule } from './modules/print-templates/print-templates.module';
 
 @Module({
   imports: [
@@ -145,6 +150,11 @@ import { ShopifyModule } from './modules/shopify/shopify.module';
     AdvertisingModule,
     WhatsAppModule,
     ShopifyModule,
+    CycleCountsModule,
+    PriceHistoryModule,
+    BankReconciliationModule,
+    DailyPulseModule,
+    PrintTemplatesModule,
   ],
   providers: [
     // Rate limiting — must run before auth so unauthenticated bots are throttled
