@@ -35,6 +35,15 @@ export class SuppliersController {
     return this.suppliersService.findAll(user.organizationId, query);
   }
 
+  // ── Ledger & AP Aging (must be before :id to avoid route shadowing) ──────────
+
+  @Get('ap-aging')
+  @Permissions(PERMISSIONS.SUPPLIERS.VIEW_AP_AGING)
+  @ApiOperation({ summary: 'Accounts Payable aging report — all suppliers' })
+  getApAging(@CurrentUser() user: AuthUser) {
+    return this.suppliersService.getApAging(user.organizationId);
+  }
+
   @Get(':id')
   @Permissions(PERMISSIONS.SUPPLIERS.VIEW)
   @ApiOperation({ summary: 'Get supplier detail' })
@@ -120,7 +129,7 @@ export class SuppliersController {
     return this.suppliersService.getPurchaseHistory(user.organizationId, id);
   }
 
-  // ── Ledger & AP Aging ─────────────────────────────────────────
+  // ── Ledger ────────────────────────────────────────────────────
 
   @Get(':id/ledger')
   @Permissions(PERMISSIONS.SUPPLIERS.VIEW_LEDGER)
@@ -134,12 +143,5 @@ export class SuppliersController {
     @Query('to') to?: string,
   ) {
     return this.suppliersService.getLedger(user.organizationId, id, { page, limit, from, to });
-  }
-
-  @Get('ap-aging')
-  @Permissions(PERMISSIONS.SUPPLIERS.VIEW_AP_AGING)
-  @ApiOperation({ summary: 'Accounts Payable aging report — all suppliers' })
-  getApAging(@CurrentUser() user: AuthUser) {
-    return this.suppliersService.getApAging(user.organizationId);
   }
 }
