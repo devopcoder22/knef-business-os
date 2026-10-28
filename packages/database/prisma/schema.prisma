@@ -3815,3 +3815,32 @@ model BankImportTransaction {
   @@index([matchStatus])
   @@index([date])
 }
+
+// Phase 24P: Daily Pulse delivery config per organization
+model DailyPulseConfig {
+  id             String   @id @default(cuid())
+  organizationId String   @unique
+  enabled        Boolean  @default(false)
+  deliveryTime   String   @default("08:00")
+  timezone       String   @default("UTC")
+  channels       Json     @default("[]")
+  recipientIds   Json     @default("[]")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+// Phase 24P: Idempotency log for daily pulse deliveries
+model DailyPulseDelivery {
+  id             String    @id @default(cuid())
+  organizationId String
+  pulseDate      DateTime  @db.Date
+  channel        String
+  recipientRef   String
+  idempotencyKey String    @unique
+  status         String    @default("PENDING")
+  createdAt      DateTime  @default(now())
+  sentAt         DateTime?
+  error          String?
+
+  @@index([organizationId, pulseDate])
+}
