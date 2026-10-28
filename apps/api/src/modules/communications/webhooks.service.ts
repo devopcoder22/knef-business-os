@@ -1,8 +1,21 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
 import { createHmac } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
+
+const PRIVATE_HOST = /^(localhost$|127\.|::1$|0\.|169\.254\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/i;
+
+function isAllowedWebhookUrl(raw: string): boolean {
+  try {
+    const { protocol, hostname } = new URL(raw);
+    if (protocol !== 'https:') return false;
+    if (PRIVATE_HOST.test(hostname)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 interface DeliverParams {
   organizationId: string;
@@ -12,6 +25,8 @@ interface DeliverParams {
 
 @Injectable()
 export class WebhooksService {
+  private readonly logger = new Logger(WebhooksService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async deliver(params: DeliverParams): Promise<void> {
@@ -33,6 +48,24 @@ export class WebhooksService {
         let status = 'failed';
         let responseCode: number | null = null;
         let responseBody: string | null = null;
+
+        if (!isAllowedWebhookUrl(endpoint.url)) {
+          this.logger.warn(`Blocked webhook delivery to disallowed URL: ${endpoint.id}`);
+          await this.prisma.webhookDelivery.create({
+            data: {
+              id: deliveryId,
+              endpointId: endpoint.id,
+              event,
+              payload: payload as Prisma.InputJsonValue,
+              status: 'blocked',
+              responseCode: null,
+              responseBody: 'Blocked: URL not allowed (must be HTTPS and not a private address)',
+              attempts: 1,
+              deliveredAt: null,
+            },
+          });
+          return;
+        }
 
         try {
           const signature = createHmac('sha256', endpoint.secretHash)

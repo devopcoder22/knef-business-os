@@ -97,13 +97,38 @@ describe('JwtAuthGuard', () => {
 
   it('3: handleRequest with no user → throws UnauthorizedException', () => {
     const guard = new JwtAuthGuard(makeReflector());
-    expect(() => guard.handleRequest(null, null)).toThrow(UnauthorizedException);
+    const ctx = makeContext();
+    expect(() => guard.handleRequest(null, null as never, undefined, ctx)).toThrow(UnauthorizedException);
   });
 
   it('4: handleRequest with error → re-throws error', () => {
     const guard = new JwtAuthGuard(makeReflector());
+    const ctx = makeContext();
     const err = new UnauthorizedException('JWT expired');
-    expect(() => guard.handleRequest(err, null)).toThrow(err);
+    expect(() => guard.handleRequest(err, null as never, undefined, ctx)).toThrow(err);
+  });
+
+  it('4b: handleRequest with mustChangePassword=true on disallowed route → ForbiddenException', () => {
+    const guard = new JwtAuthGuard(makeReflector());
+    const ctx = makeContext();
+    // Add method and path to the mock request
+    const req = ctx.switchToHttp().getRequest() as Record<string, unknown>;
+    req['method'] = 'GET';
+    req['path'] = '/api/v1/products';
+    expect(() =>
+      guard.handleRequest(null, { mustChangePassword: true }, undefined, ctx),
+    ).toThrow(ForbiddenException);
+  });
+
+  it('4c: handleRequest with mustChangePassword=true on change-password route → allowed', () => {
+    const guard = new JwtAuthGuard(makeReflector());
+    const ctx = makeContext();
+    const req = ctx.switchToHttp().getRequest() as Record<string, unknown>;
+    req['method'] = 'POST';
+    req['path'] = '/api/v1/auth/change-password';
+    const user = { mustChangePassword: true, id: 'u1' };
+    const result = guard.handleRequest(null, user, undefined, ctx);
+    expect(result).toBe(user);
   });
 });
 
