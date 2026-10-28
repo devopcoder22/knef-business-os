@@ -57,6 +57,22 @@ export class InventoryController {
     return this.inventoryService.getValuation(user.organizationId, locationId, user.locationIds);
   }
 
+  @Get('health')
+  @Permissions(PERMISSIONS.INVENTORY.VIEW)
+  @ApiOperation({ summary: 'Get inventory health report with 6 classifications' })
+  getHealthReport(
+    @CurrentUser() user: AuthUser,
+    @Query('locationId') locationId?: string,
+    @Query('brandId') brandId?: string,
+    @Query('categoryId') categoryId?: string,
+  ) {
+    return this.inventoryService.getHealthReport(
+      user.organizationId,
+      { locationId, brandId, categoryId },
+      user.locationIds,
+    );
+  }
+
   @Get('low-stock')
   @Permissions(PERMISSIONS.INVENTORY.VIEW)
   @ApiOperation({ summary: 'Get low stock products with intelligence' })

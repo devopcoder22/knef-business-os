@@ -8,8 +8,13 @@ import {
   Query,
   HttpCode,
   HttpStatus,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { BankReconciliationService, ImportRow } from './bank-reconciliation.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
@@ -27,6 +32,51 @@ export class BankReconciliationController {
   @ApiOperation({ summary: 'Get reconciliation summary for a bank account' })
   getSummary(@CurrentUser() user: AuthUser, @Param('bankAccountId') bankAccountId: string) {
     return this.reconService.getReconciliationSummary(user.organizationId, bankAccountId);
+  }
+
+  @Post(':bankAccountId/imports/upload')
+  @Permissions(PERMISSIONS.FINANCE.RECONCILE)
+  @ApiOperation({ summary: 'Upload XLSX/XLS/CSV bank statement file and import' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 5 * 1024 * 1024 },
+      fileFilter: (_req: any, file: any, cb: any) => {
+        const allowed = [
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'application/vnd.ms-excel',
+          'text/csv',
+          'application/csv',
+          'application/octet-stream',
+        ];
+        const name: string = file.originalname ?? '';
+        const ext = name.slice(name.lastIndexOf('.')).toLowerCase();
+        if (!allowed.includes(file.mimetype) && !['.xlsx', '.xls', '.csv'].includes(ext)) {
+          return cb(new BadRequestException('Only .xlsx, .xls, or .csv files are accepted'), false);
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  uploadStatement(
+    @CurrentUser() user: AuthUser,
+    @Param('bankAccountId') bankAccountId: string,
+    @UploadedFile() file: any,
+  ) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    const rows: ImportRow[] = this.reconService.parseXlsxBuffer(
+      file.buffer as Buffer,
+      file.originalname as string,
+    );
+    return this.reconService.importStatement(
+      user.organizationId,
+      bankAccountId,
+      file.originalname as string,
+      'XLSX',
+      rows,
+      user.id,
+    );
   }
 
   @Get(':bankAccountId/imports')

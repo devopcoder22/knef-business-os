@@ -11,8 +11,10 @@
  * 7. excludeTransaction() sets status EXCLUDED
  */
 
-import { NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { NotFoundException, BadRequestException, ConflictException, UnsupportedMediaTypeException, PayloadTooLargeException } from '@nestjs/common';
 import { BankReconciliationService } from './bank-reconciliation.service';
+// @ts-ignore
+import * as XLSX from 'xlsx';
 
 function makePrisma(overrides: Record<string, unknown> = {}) {
   return {
@@ -189,6 +191,102 @@ describe('BankReconciliationService (Phase 24P)', () => {
     await expect(
       service.importStatement('org-1', 'ba-1', 'stmt.csv', 'CSV', BASE_ROWS, 'user-1'),
     ).rejects.toThrow(ConflictException);
+  });
+
+  // ── XLSX parsing tests ────────────────────────────────────────────────────────
+
+  function makeXlsxBuffer(headers: string[], rows: (string | number)[][]): Buffer {
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+    return Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
+  }
+
+  it('9: parseXlsxBuffer() parses debit/credit columns correctly', () => {
+    const { service } = makeService();
+    const buf = makeXlsxBuffer(
+      ['Date', 'Description', 'Debit', 'Credit', 'Reference'],
+      [
+        ['2026-10-01', 'Customer Payment', '', '50000', 'REF001'],
+        ['2026-10-02', 'Supplier Payment', '20000', '', 'REF002'],
+      ],
+    );
+    const rows = service.parseXlsxBuffer(buf, 'stmt.xlsx');
+    expect(rows).toHaveLength(2);
+    expect(rows[0].type).toBe('CREDIT');
+    expect(rows[0].amount).toBe(50000);
+    expect(rows[1].type).toBe('DEBIT');
+    expect(rows[1].amount).toBe(20000);
+  });
+
+  it('10: parseXlsxBuffer() parses signed amount column (negative = debit)', () => {
+    const { service } = makeService();
+    const buf = makeXlsxBuffer(
+      ['Date', 'Description', 'Amount'],
+      [
+        ['2026-10-01', 'Credit txn', '50000'],
+        ['2026-10-02', 'Debit txn', '-20000'],
+      ],
+    );
+    const rows = service.parseXlsxBuffer(buf, 'stmt.xlsx');
+    expect(rows).toHaveLength(2);
+    expect(rows[0].type).toBe('CREDIT');
+    expect(rows[1].type).toBe('DEBIT');
+    expect(rows[1].amount).toBe(20000);
+  });
+
+  it('11: parseXlsxBuffer() throws BadRequestException for missing date column', () => {
+    const { service } = makeService();
+    const buf = makeXlsxBuffer(
+      ['Description', 'Amount'],
+      [['Payment', '1000']],
+    );
+    expect(() => service.parseXlsxBuffer(buf, 'stmt.xlsx')).toThrow(BadRequestException);
+  });
+
+  it('12: parseXlsxBuffer() throws BadRequestException for missing amount columns', () => {
+    const { service } = makeService();
+    const buf = makeXlsxBuffer(
+      ['Date', 'Description'],
+      [['2026-10-01', 'Payment']],
+    );
+    expect(() => service.parseXlsxBuffer(buf, 'stmt.xlsx')).toThrow(BadRequestException);
+  });
+
+  it('13: parseXlsxBuffer() throws UnsupportedMediaTypeException for .xlsm files', () => {
+    const { service } = makeService();
+    const buf = Buffer.from('fake');
+    expect(() => service.parseXlsxBuffer(buf, 'stmt.xlsm')).toThrow(UnsupportedMediaTypeException);
+  });
+
+  it('14: parseXlsxBuffer() throws PayloadTooLargeException for oversized buffer', () => {
+    const { service } = makeService();
+    const buf = Buffer.alloc(6 * 1024 * 1024);
+    expect(() => service.parseXlsxBuffer(buf, 'stmt.xlsx')).toThrow(PayloadTooLargeException);
+  });
+
+  it('15: parseXlsxBuffer() skips empty rows, returns only valid rows', () => {
+    const { service } = makeService();
+    const buf = makeXlsxBuffer(
+      ['Date', 'Description', 'Amount'],
+      [
+        ['2026-10-01', 'Valid row', '1000'],
+        ['', '', ''],
+        ['2026-10-03', 'Another valid', '2000'],
+      ],
+    );
+    const rows = service.parseXlsxBuffer(buf, 'stmt.xlsx');
+    expect(rows).toHaveLength(2);
+  });
+
+  it('16: parseXlsxBuffer() maps reference column when present', () => {
+    const { service } = makeService();
+    const buf = makeXlsxBuffer(
+      ['Date', 'Description', 'Amount', 'Reference'],
+      [['2026-10-01', 'Payment', '5000', 'TXN-001']],
+    );
+    const rows = service.parseXlsxBuffer(buf, 'stmt.xlsx');
+    expect(rows[0].reference).toBe('TXN-001');
   });
 
   it('7: excludeTransaction() sets matchStatus to EXCLUDED', async () => {

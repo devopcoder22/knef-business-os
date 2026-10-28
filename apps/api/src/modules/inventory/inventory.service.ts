@@ -455,4 +455,144 @@ export class InventoryService {
       createdBy: params.createdBy,
     });
   }
+
+  async getHealthReport(
+    organizationId: string,
+    filters: { locationId?: string; brandId?: string; categoryId?: string },
+    locationIds: string[] | null = null,
+  ) {
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+
+    // Build level filter
+    const productFilter: Record<string, unknown> = { organizationId, trackInventory: true, status: 'ACTIVE' };
+    if (filters.brandId) productFilter['brandId'] = filters.brandId;
+    if (filters.categoryId) productFilter['categoryId'] = filters.categoryId;
+
+    const levelWhere: Record<string, unknown> = { product: productFilter };
+
+    if (filters.locationId) {
+      if (locationIds !== null && !locationIds.includes(filters.locationId)) {
+        return { summary: this.emptyHealthSummary(), items: [] };
+      }
+      levelWhere['locationId'] = filters.locationId;
+    } else if (locationIds !== null) {
+      levelWhere['locationId'] = { in: locationIds };
+    }
+
+    const levels = await this.prisma.inventoryLevel.findMany({
+      where: levelWhere,
+      include: {
+        product: {
+          select: {
+            id: true,
+            name: true,
+            sku: true,
+            lowStockAlert: true,
+            brandId: true,
+            categoryId: true,
+          },
+        },
+        location: { select: { id: true, name: true } },
+      },
+    });
+
+    if (!levels.length) return { summary: this.emptyHealthSummary(), items: [] };
+
+    const productIds = [...new Set(levels.map((l) => l.productId))];
+
+    const [sales30, sales90] = await Promise.all([
+      this.prisma.salesOrderItem.groupBy({
+        by: ['productId'],
+        where: {
+          productId: { in: productIds },
+          order: {
+            organizationId,
+            status: { notIn: ['CANCELLED', 'DRAFT'] },
+            createdAt: { gte: thirtyDaysAgo },
+          },
+        },
+        _sum: { quantity: true },
+      }),
+      this.prisma.salesOrderItem.groupBy({
+        by: ['productId'],
+        where: {
+          productId: { in: productIds },
+          order: {
+            organizationId,
+            status: { notIn: ['CANCELLED', 'DRAFT'] },
+            createdAt: { gte: ninetyDaysAgo },
+          },
+        },
+        _sum: { quantity: true },
+      }),
+    ]);
+
+    const sales30Map = new Map(sales30.map((s) => [s.productId, s._sum.quantity ?? 0]));
+    const sales90Map = new Map(sales90.map((s) => [s.productId, s._sum.quantity ?? 0]));
+
+    const OVERSTOCK_DAYS_THRESHOLD = 90;
+    const FAST_MOVING_DAILY_THRESHOLD = 1; // >= 1 unit/day in last 30 days
+
+    const items = levels.map((level) => {
+      const qty = level.quantity;
+      const lowStockAlert = level.product.lowStockAlert;
+      const sold30d = Number(sales30Map.get(level.productId) ?? 0);
+      const sold90d = Number(sales90Map.get(level.productId) ?? 0);
+      const avgDailySales = sold30d / 30;
+      const daysOfStock = avgDailySales > 0 ? qty / avgDailySales : null;
+
+      let classification: string;
+      if (qty === 0) {
+        classification = 'STOCKOUT';
+      } else if (sold90d === 0) {
+        // Zero velocity in 90 days: dead stock regardless of qty level
+        classification = 'DEAD_STOCK';
+      } else if (qty <= lowStockAlert) {
+        classification = 'LOW_STOCK';
+      } else if (avgDailySales >= FAST_MOVING_DAILY_THRESHOLD) {
+        classification = 'FAST_MOVING';
+      } else if (daysOfStock !== null && daysOfStock > OVERSTOCK_DAYS_THRESHOLD) {
+        classification = 'OVERSTOCK';
+      } else {
+        classification = 'SLOW_MOVING';
+      }
+
+      return {
+        productId: level.productId,
+        product: level.product,
+        location: level.location,
+        quantity: qty,
+        lowStockAlert,
+        sold30d,
+        sold90d,
+        avgDailySales: Math.round(avgDailySales * 100) / 100,
+        daysOfStock: daysOfStock !== null ? Math.round(daysOfStock) : null,
+        classification,
+      };
+    });
+
+    const counts: Record<string, number> = {};
+    for (const item of items) {
+      counts[item.classification] = (counts[item.classification] ?? 0) + 1;
+    }
+
+    return {
+      summary: {
+        total: items.length,
+        STOCKOUT: counts['STOCKOUT'] ?? 0,
+        LOW_STOCK: counts['LOW_STOCK'] ?? 0,
+        DEAD_STOCK: counts['DEAD_STOCK'] ?? 0,
+        SLOW_MOVING: counts['SLOW_MOVING'] ?? 0,
+        FAST_MOVING: counts['FAST_MOVING'] ?? 0,
+        OVERSTOCK: counts['OVERSTOCK'] ?? 0,
+      },
+      items,
+    };
+  }
+
+  private emptyHealthSummary() {
+    return { total: 0, STOCKOUT: 0, LOW_STOCK: 0, DEAD_STOCK: 0, SLOW_MOVING: 0, FAST_MOVING: 0, OVERSTOCK: 0 };
+  }
 }

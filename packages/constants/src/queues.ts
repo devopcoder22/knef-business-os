@@ -10,6 +10,7 @@ export const QUEUES = {
   INTEGRATIONS: 'integrations',
   MARKETING: 'marketing',
   ADVERTISING: 'advertising',
+  DAILY_PULSE: 'daily-pulse',
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -53,6 +54,8 @@ export const JOB_TYPES = {
   ADVERTISING_CAMPAIGN_SYNC: 'advertising-campaign-sync',
   ADVERTISING_METRICS_SYNC: 'advertising-metrics-sync',
   ADVERTISING_ACTION_SUBMIT: 'advertising-action-submit',
+  // daily pulse queue (Phase 24P)
+  DAILY_PULSE_DELIVER: 'daily-pulse-deliver',
   // Shopify integration queue (Phase 24L)
   SHOPIFY_PRODUCT_SYNC:     'shopify-product-sync',
   SHOPIFY_INVENTORY_SYNC:   'shopify-inventory-sync',
@@ -307,4 +310,9 @@ export interface ShopifyWebhookProcessJobData {
   organizationId: string;
   connectionId: string;
   topic: string;
+}
+
+export interface DailyPulseDeliverJobData {
+  organizationId: string;
+  pulseDate: string; // YYYY-MM-DD
 }

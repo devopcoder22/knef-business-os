@@ -17,6 +17,7 @@ import { WhatsAppSenderService } from './services/whatsapp-sender.service';
 import { ShopifyWorkerService } from './services/shopify-worker.service';
 import { RecipientEligibilityService } from './services/recipient-eligibility.service';
 import { ShopifySyncProcessor } from './processors/shopify-sync.processor';
+import { DailyPulseProcessor } from './processors/daily-pulse.processor';
 
 // Processors
 import { EmailProcessor } from './processors/email.processor';
@@ -38,6 +39,7 @@ import { AIAgentScheduler } from './schedulers/ai-agent.scheduler';
 import { CalendarSyncScheduler } from './schedulers/calendar-sync.scheduler';
 import { BackupScheduler } from './schedulers/backup.scheduler';
 import { AdvertisingScheduler } from './schedulers/advertising-scheduler';
+import { DailyPulseScheduler } from './schedulers/daily-pulse.scheduler';
 
 @Module({
   imports: [
@@ -78,6 +80,7 @@ import { AdvertisingScheduler } from './schedulers/advertising-scheduler';
     MarketingSchedulerProcessor,
     SocialPublishingProcessor,
     AdvertisingSyncProcessor,
+    DailyPulseProcessor,
 
     // Schedulers
     CampaignScheduler,
@@ -85,6 +88,7 @@ import { AdvertisingScheduler } from './schedulers/advertising-scheduler';
     CalendarSyncScheduler,
     BackupScheduler,
     AdvertisingScheduler,
+    DailyPulseScheduler,
   ],
 })
 export class WorkerModule {}
