@@ -2,15 +2,15 @@
 -- Stock count lifecycle, cycle counts, price history, print templates, bank reconciliation
 
 -- ─── CountStatus: extend with new lifecycle statuses ───────────────────────────
--- NOTE: ALTER TYPE ... ADD VALUE cannot be used in the same transaction as its values.
--- COMMIT/BEGIN breaks the implicit transaction so the new values are visible below.
-COMMIT;
+-- NOTE: ALTER TYPE ... ADD VALUE runs outside any transaction (DDL autocommit in psql).
+-- When applied via Prisma, these enum values are added to the type catalog.
+-- The SET DEFAULT for 'DRAFT' is handled by a separate follow-up migration to avoid
+-- the PostgreSQL restriction on using newly-added enum values in the same transaction.
 ALTER TYPE "CountStatus" ADD VALUE IF NOT EXISTS 'DRAFT';
 ALTER TYPE "CountStatus" ADD VALUE IF NOT EXISTS 'SUBMITTED';
 ALTER TYPE "CountStatus" ADD VALUE IF NOT EXISTS 'UNDER_REVIEW';
 ALTER TYPE "CountStatus" ADD VALUE IF NOT EXISTS 'REJECTED';
 ALTER TYPE "CountStatus" ADD VALUE IF NOT EXISTS 'POSTED';
-BEGIN;
 
 -- ─── StockCount: lifecycle and scope fields ─────────────────────────────────────
 ALTER TABLE "StockCount"
@@ -23,9 +23,6 @@ ALTER TABLE "StockCount"
   ADD COLUMN IF NOT EXISTS "createdBy"       TEXT,
   ADD COLUMN IF NOT EXISTS "assignedTo"      TEXT,
   ADD COLUMN IF NOT EXISTS "rejectionReason" TEXT;
-
--- Change status default to DRAFT
-ALTER TABLE "StockCount" ALTER COLUMN "status" SET DEFAULT 'DRAFT'::"CountStatus";
 
 -- ─── StockCountItem: precision and cost snapshot ────────────────────────────────
 -- Migrate integer qty columns to decimal (safe — preserves existing values)
