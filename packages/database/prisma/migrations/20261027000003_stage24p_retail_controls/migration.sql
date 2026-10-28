@@ -2,11 +2,15 @@
 -- Stock count lifecycle, cycle counts, price history, print templates, bank reconciliation
 
 -- ─── CountStatus: extend with new lifecycle statuses ───────────────────────────
+-- NOTE: ALTER TYPE ... ADD VALUE cannot be used in the same transaction as its values.
+-- COMMIT/BEGIN breaks the implicit transaction so the new values are visible below.
+COMMIT;
 ALTER TYPE "CountStatus" ADD VALUE IF NOT EXISTS 'DRAFT';
 ALTER TYPE "CountStatus" ADD VALUE IF NOT EXISTS 'SUBMITTED';
 ALTER TYPE "CountStatus" ADD VALUE IF NOT EXISTS 'UNDER_REVIEW';
 ALTER TYPE "CountStatus" ADD VALUE IF NOT EXISTS 'REJECTED';
 ALTER TYPE "CountStatus" ADD VALUE IF NOT EXISTS 'POSTED';
+BEGIN;
 
 -- ─── StockCount: lifecycle and scope fields ─────────────────────────────────────
 ALTER TABLE "StockCount"
