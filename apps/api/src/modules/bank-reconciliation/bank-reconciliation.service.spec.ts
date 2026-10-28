@@ -11,7 +11,7 @@
  * 7. excludeTransaction() sets status EXCLUDED
  */
 
-import { NotFoundException, BadRequestException } from '@nestjs/common';
+import { NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { BankReconciliationService } from './bank-reconciliation.service';
 
 function makePrisma(overrides: Record<string, unknown> = {}) {
@@ -25,7 +25,8 @@ function makePrisma(overrides: Record<string, unknown> = {}) {
     },
     bankStatementImport: {
       create: jest.fn(async (args: { data: unknown }) => ({ id: 'imp-1', ...(args.data as object) })),
-      findFirst: jest.fn(async () => ({ id: 'imp-1', organizationId: 'org-1' })),
+      // Default null: no existing import found (deduplication passes by default)
+      findFirst: jest.fn(async () => null),
       findUnique: jest.fn(async () => ({ id: 'imp-1' })),
       findMany: jest.fn(async () => []),
       update: jest.fn(async () => ({ id: 'imp-1' })),
@@ -171,6 +172,23 @@ describe('BankReconciliationService (Phase 24P)', () => {
     });
 
     await expect(service.confirmMatch('org-1', 'iti-1', 'user-1')).rejects.toThrow(BadRequestException);
+  });
+
+  it('8: importStatement() throws ConflictException when same fileName already imported', async () => {
+    const { service } = makeService({
+      bankStatementImport: {
+        create: jest.fn(),
+        findFirst: jest.fn(async () => ({ id: 'imp-existing', fileName: 'stmt.csv' })),
+        findUnique: jest.fn(async () => null),
+        findMany: jest.fn(async () => []),
+        update: jest.fn(),
+        count: jest.fn(async () => 1),
+      },
+    });
+
+    await expect(
+      service.importStatement('org-1', 'ba-1', 'stmt.csv', 'CSV', BASE_ROWS, 'user-1'),
+    ).rejects.toThrow(ConflictException);
   });
 
   it('7: excludeTransaction() sets matchStatus to EXCLUDED', async () => {

@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
 import { TransactionType } from '@prisma/client';
@@ -66,6 +67,14 @@ export class BankReconciliationService {
     if (!account) throw new NotFoundException('Bank account not found');
 
     if (!rows.length) throw new BadRequestException('No rows to import');
+
+    // Deduplicate: reject if this exact fileName was already imported for this account
+    const existing = await (this.prisma as any).bankStatementImport.findFirst({
+      where: { bankAccountId, organizationId, fileName },
+    });
+    if (existing) {
+      throw new ConflictException(`Statement file "${fileName}" was already imported (importId: ${existing.id}). Re-import is blocked to prevent duplicate transactions.`);
+    }
 
     const importId = createId();
 
