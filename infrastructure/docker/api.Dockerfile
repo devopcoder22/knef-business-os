@@ -71,6 +71,9 @@ COPY --from=builder --chown=nestjs:nodejs /app/packages/database/prisma ./packag
 
 RUN mkdir -p /app/uploads /app/backups && chown -R nestjs:nodejs /app/uploads /app/backups
 
+# Remove source maps — they expose TypeScript implementation details and are not needed at runtime
+RUN find ./dist -name '*.map' -delete
+
 USER nestjs
 
 EXPOSE 4000

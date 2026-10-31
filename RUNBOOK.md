@@ -1,8 +1,14 @@
 # KNEF Business OS — Operations Runbook
 
-## Starting the system
+## Starting the system (Production)
 ```bash
-docker compose up -d
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+REDIS_PASSWORD must be set in .env before starting. Example:
+```
+REDIS_PASSWORD=<strong-random-password-min-32-chars>
+REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
 ```
 
 ## Viewing logs

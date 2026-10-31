@@ -30,7 +30,6 @@ services:
 
   redis:
     restart: unless-stopped
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD:-changeme}
     deploy:
       resources:
         limits:

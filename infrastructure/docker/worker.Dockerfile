@@ -49,6 +49,9 @@ RUN mkdir -p /app/uploads /app/backups && \
     chown -R worker:nodejs /app/uploads /app/backups && \
     chmod +x /app/scripts/backup.sh /app/scripts/redis-healthcheck.js
 
+# Remove source maps from production image
+RUN find ./dist -name '*.map' -delete
+
 USER worker
 
 ENTRYPOINT ["dumb-init", "--"]
