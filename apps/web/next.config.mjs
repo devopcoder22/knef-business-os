@@ -14,13 +14,7 @@ const nextConfig = {
     optimizePackageImports: ['lucide-react', 'recharts'],
   },
   images: {
-    domains: ['localhost'],
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: '**',
-      },
-    ],
+    unoptimized: true,
   },
   async headers() {
     return [
