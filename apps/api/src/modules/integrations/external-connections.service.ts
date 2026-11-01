@@ -59,7 +59,7 @@ export class ExternalConnectionsService {
         ? [shopDomain, ...additionalScopes]
         : additionalScopes;
 
-    const url = providerImpl.getAuthorizationUrl(state, scopesArg);
+    const url = await providerImpl.getAuthorizationUrl(state, scopesArg);
     return { url, state };
   }
 

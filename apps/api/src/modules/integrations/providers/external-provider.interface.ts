@@ -27,7 +27,7 @@ export interface ExternalProviderInterface {
   readonly provider: string;
   readonly capabilities: ProviderCapabilities;
 
-  getAuthorizationUrl(state: string, additionalScopes?: string[]): string;
+  getAuthorizationUrl(state: string, additionalScopes?: string[]): Promise<string> | string;
   exchangeCode(code: string, shopDomain?: string): Promise<OAuthTokens>;
   refreshTokens(refreshToken: string): Promise<OAuthTokens>;
   getAccountInfo(accessToken: string, shopDomain?: string): Promise<ExternalAccountInfo>;
