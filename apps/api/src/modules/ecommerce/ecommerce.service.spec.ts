@@ -155,6 +155,7 @@ describe('EcommerceService.createPublicOrder — server-authoritative totals', (
       inventory as InventoryService,
       eventEmitter,
       { get: () => undefined } as never,
+      { resolve: jest.fn().mockResolvedValue(null) } as never,
     );
 
     // Common happy-path mocks

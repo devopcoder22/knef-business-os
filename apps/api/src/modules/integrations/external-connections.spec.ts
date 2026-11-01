@@ -19,7 +19,7 @@ const mockProvider = {
     supportsPublishing: false,
     supportsAds: true,
   },
-  getAuthorizationUrl: jest.fn().mockReturnValue('https://accounts.google.com/o/oauth2/v2/auth?state=abc'),
+  getAuthorizationUrl: jest.fn().mockResolvedValue('https://accounts.google.com/o/oauth2/v2/auth?state=abc'),
   exchangeCode: jest.fn().mockResolvedValue({
     accessToken: 'access-token-123',
     refreshToken: 'refresh-token-456',

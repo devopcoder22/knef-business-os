@@ -54,6 +54,7 @@ const makeEventEmitter = () => ({ emit: jest.fn() });
 const makeEmailService = () => ({ sendEmail: jest.fn(), sendSms: jest.fn() });
 const makeTelegramService = () => ({ sendMessage: jest.fn() });
 const makeConfig = () => ({ get: jest.fn() });
+const makeCredentialService = () => ({ resolve: jest.fn().mockResolvedValue(null) });
 
 function makeService(prismaOverrides: Parameters<typeof makePrisma>[0] = {}) {
   const prisma = makePrisma(prismaOverrides);
@@ -63,6 +64,7 @@ function makeService(prismaOverrides: Parameters<typeof makePrisma>[0] = {}) {
     makeEmailService() as never,
     makeTelegramService() as never,
     makeConfig() as never,
+    makeCredentialService() as never,
   );
   return { service, prisma };
 }
