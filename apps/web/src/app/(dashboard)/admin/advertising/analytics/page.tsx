@@ -83,7 +83,7 @@ export default function AdvertisingAnalyticsPage() {
   const { data: summaryRes, isLoading: loadingSummary } = useQuery({
     queryKey: ['advertising-summary', fromDate, toDate, providerFilter, accountFilter],
     queryFn: async () => {
-      const res = await api().get<{ data: MetricSummary }>(`/advertising/metrics/summary?${summaryParams}`);
+      const res = await api().get<{ data: MetricSummary[] }>(`/advertising/metrics/summary?${summaryParams}`);
       return res.data;
     },
   });
@@ -104,8 +104,8 @@ export default function AdvertisingAnalyticsPage() {
     },
   });
 
-  const summaryData: MetricSummary[] = summaryRes?.data ?? [];
-  const summary: MetricSummary | null = summaryData[0] ?? null;
+  const summaryArr: MetricSummary[] = summaryRes?.data ?? [];
+  const summary: MetricSummary | null = summaryArr[0] ?? null;
   const metrics: MetricSnapshot[] = metricsRes?.data ?? [];
 
   const currencies = [...new Set(metrics.map((m) => m.currency))];
