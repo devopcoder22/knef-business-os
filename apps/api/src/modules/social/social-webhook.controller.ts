@@ -14,6 +14,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Public } from '../../common/decorators/public.decorator';
 import { PublicationService } from './publication.service';
+import { CredentialService } from '../credentials/credential.service';
 import type { AppConfig } from '../../config/app.config';
 import * as crypto from 'crypto';
 
@@ -25,10 +26,11 @@ export class SocialWebhookController {
   constructor(
     private readonly publication: PublicationService,
     private readonly config: ConfigService<AppConfig>,
+    private readonly credentialService: CredentialService,
   ) {}
 
-  private verifyMetaSignature(body: string, signature: string): boolean {
-    const secret = this.config.get('META_APP_SECRET') ?? '';
+  private async verifyMetaSignature(body: string, signature: string): Promise<boolean> {
+    const secret = (await this.credentialService.resolve('META_APP_SECRET')) ?? '';
     if (!secret || !signature) return false;
     const expected =
       'sha256=' + crypto.createHmac('sha256', secret).update(body).digest('hex');
@@ -39,13 +41,13 @@ export class SocialWebhookController {
     }
   }
 
-  private verifyTikTokSignature(
+  private async verifyTikTokSignature(
     body: string,
     timestamp: string,
     nonce: string,
     signature: string,
-  ): boolean {
-    const clientKey = this.config.get('TIKTOK_CLIENT_KEY') ?? '';
+  ): Promise<boolean> {
+    const clientKey = (await this.credentialService.resolve('TIKTOK_CLIENT_KEY')) ?? '';
     if (!clientKey) return false;
     const message = `${timestamp}\n${nonce}\n${body}\n`;
     const expected = crypto
@@ -61,15 +63,13 @@ export class SocialWebhookController {
 
   // ── Meta Webhook Verification (GET) ─────────────────────────────────────────
   @Get('meta/:organizationId')
-  verifyMeta(
+  async verifyMeta(
     @Query('hub.mode') mode: string,
     @Query('hub.verify_token') verifyToken: string,
     @Query('hub.challenge') challenge: string,
   ) {
-    if (
-      mode === 'subscribe' &&
-      verifyToken === (this.config.get('META_WEBHOOK_VERIFY_TOKEN') ?? '')
-    ) {
+    const expectedToken = (await this.credentialService.resolve('META_WEBHOOK_VERIFY_TOKEN')) ?? '';
+    if (mode === 'subscribe' && verifyToken === expectedToken) {
       return parseInt(challenge, 10);
     }
     throw new BadRequestException('Webhook verification failed.');
@@ -84,7 +84,7 @@ export class SocialWebhookController {
     @Headers('x-hub-signature-256') signature: string,
     @Headers('x-raw-body') rawBody: string,
   ) {
-    if (!this.verifyMetaSignature(rawBody ?? JSON.stringify(body), signature)) {
+    if (!(await this.verifyMetaSignature(rawBody ?? JSON.stringify(body), signature))) {
       this.logger.warn(`Meta webhook signature mismatch for org ${organizationId}`);
       return { ok: true }; // return 200 to avoid Meta retries, log the failure
     }
@@ -113,7 +113,7 @@ export class SocialWebhookController {
     @Headers('x-raw-body') rawBody: string,
   ) {
     const bodyStr = rawBody ?? JSON.stringify(body);
-    if (!this.verifyTikTokSignature(bodyStr, timestamp, nonce, signature)) {
+    if (!(await this.verifyTikTokSignature(bodyStr, timestamp, nonce, signature))) {
       this.logger.warn(`TikTok webhook signature mismatch for org ${organizationId}`);
       return { ok: true };
     }

@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'crypto';
 import type { ExternalProviderInterface, OAuthTokens, ExternalAccountInfo, ProviderCapabilities } from './external-provider.interface';
+import { CredentialService } from '../../credentials/credential.service';
 
 const AUTH_URL = 'https://www.facebook.com/v26.0/dialog/oauth';
 const TOKEN_URL = 'https://graph.facebook.com/v26.0/oauth/access_token';
@@ -36,10 +37,25 @@ export class MetaExternalProvider implements ExternalProviderInterface {
     supportsAds: true,
   };
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly credentialService: CredentialService,
+  ) {}
 
-  getAuthorizationUrl(state: string, additionalScopes: string[] = []): string {
-    const appId = this.config.getOrThrow<string>('META_APP_ID');
+  private async resolveAppId(): Promise<string> {
+    const v = await this.credentialService.resolve('META_APP_ID');
+    if (!v) throw new InternalServerErrorException('META_APP_ID not configured');
+    return v;
+  }
+
+  private async resolveAppSecret(): Promise<string> {
+    const v = await this.credentialService.resolve('META_APP_SECRET');
+    if (!v) throw new InternalServerErrorException('META_APP_SECRET not configured');
+    return v;
+  }
+
+  async getAuthorizationUrl(state: string, additionalScopes: string[] = []): Promise<string> {
+    const appId = await this.resolveAppId();
     const redirectUri = this.config.getOrThrow<string>('INTEGRATIONS_META_REDIRECT_URI');
     const scopes = [...DEFAULT_SCOPES, ...additionalScopes];
 
@@ -55,8 +71,7 @@ export class MetaExternalProvider implements ExternalProviderInterface {
   }
 
   async exchangeCode(code: string): Promise<OAuthTokens> {
-    const appId = this.config.getOrThrow<string>('META_APP_ID');
-    const appSecret = this.config.getOrThrow<string>('META_APP_SECRET');
+    const [appId, appSecret] = await Promise.all([this.resolveAppId(), this.resolveAppSecret()]);
     const redirectUri = this.config.getOrThrow<string>('INTEGRATIONS_META_REDIRECT_URI');
 
     const params = new URLSearchParams({
@@ -82,8 +97,7 @@ export class MetaExternalProvider implements ExternalProviderInterface {
 
   async refreshTokens(refreshToken: string): Promise<OAuthTokens> {
     // Meta does not use standard refresh tokens; exchange for long-lived token instead
-    const appId = this.config.getOrThrow<string>('META_APP_ID');
-    const appSecret = this.config.getOrThrow<string>('META_APP_SECRET');
+    const [appId, appSecret] = await Promise.all([this.resolveAppId(), this.resolveAppSecret()]);
 
     const params = new URLSearchParams({
       grant_type: 'fb_exchange_token',
@@ -115,8 +129,7 @@ export class MetaExternalProvider implements ExternalProviderInterface {
   }
 
   async revokeToken(accessToken: string): Promise<void> {
-    const appId = this.config.getOrThrow<string>('META_APP_ID');
-    const appSecret = this.config.getOrThrow<string>('META_APP_SECRET');
+    const [appId, appSecret] = await Promise.all([this.resolveAppId(), this.resolveAppSecret()]);
 
     const data = await this.getAccountInfo(accessToken);
     await fetch(

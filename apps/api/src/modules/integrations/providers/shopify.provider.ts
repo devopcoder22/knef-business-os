@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'crypto';
 import type { ExternalProviderInterface, OAuthTokens, ExternalAccountInfo, ProviderCapabilities } from './external-provider.interface';
+import { CredentialService } from '../../credentials/credential.service';
 
 export const SHOPIFY_API_VERSION = '2026-10';
 
@@ -29,11 +30,26 @@ export class ShopifyExternalProvider implements ExternalProviderInterface {
     supportsAds: false,
   };
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly credentialService: CredentialService,
+  ) {}
+
+  private async resolveClientId(): Promise<string> {
+    const v = await this.credentialService.resolve('SHOPIFY_CLIENT_ID');
+    if (!v) throw new InternalServerErrorException('SHOPIFY_CLIENT_ID not configured');
+    return v;
+  }
+
+  private async resolveClientSecret(): Promise<string> {
+    const v = await this.credentialService.resolve('SHOPIFY_CLIENT_SECRET');
+    if (!v) throw new InternalServerErrorException('SHOPIFY_CLIENT_SECRET not configured');
+    return v;
+  }
 
   // shopDomain must be passed via additionalScopes[0] for Shopify (shop-specific redirect)
-  getAuthorizationUrl(state: string, additionalScopes: string[] = []): string {
-    const clientId = this.config.getOrThrow<string>('SHOPIFY_CLIENT_ID');
+  async getAuthorizationUrl(state: string, additionalScopes: string[] = []): Promise<string> {
+    const clientId = await this.resolveClientId();
     const redirectUri = this.config.getOrThrow<string>('INTEGRATIONS_SHOPIFY_REDIRECT_URI');
     const shopDomain = additionalScopes[0] ?? '';
     const scopes = DEFAULT_SCOPES.join(',');
@@ -51,8 +67,7 @@ export class ShopifyExternalProvider implements ExternalProviderInterface {
   async exchangeCode(code: string, shopDomain?: string): Promise<OAuthTokens> {
     if (!shopDomain) throw new Error('Shopify exchangeCode requires shopDomain as redirectUri param');
 
-    const clientId = this.config.getOrThrow<string>('SHOPIFY_CLIENT_ID');
-    const clientSecret = this.config.getOrThrow<string>('SHOPIFY_CLIENT_SECRET');
+    const [clientId, clientSecret] = await Promise.all([this.resolveClientId(), this.resolveClientSecret()]);
 
     const res = await fetch(`https://${shopDomain}/admin/oauth/access_token`, {
       method: 'POST',

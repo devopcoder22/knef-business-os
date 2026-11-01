@@ -11,6 +11,7 @@ import { Prisma, TaskStatus } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { EmailService } from '../communications/email.service';
 import { TelegramBotService } from '../telegram-bot/telegram-bot.service';
+import { CredentialService } from '../credentials/credential.service';
 import type { CreateTaskDto } from './dto/create-task.dto';
 import type { UpdateTaskDto } from './dto/update-task.dto';
 import type { ListTasksDto } from './dto/list-tasks.dto';
@@ -27,6 +28,7 @@ export class TasksService {
     private readonly emailService: EmailService,
     private readonly telegramService: TelegramBotService,
     private readonly config: ConfigService,
+    private readonly credentialService: CredentialService,
   ) {}
 
   async findAll(organizationId: string, query: ListTasksDto, requestingUserId?: string) {
@@ -178,7 +180,7 @@ export class TasksService {
         select: { telegramChatId: true },
       });
       if (link?.telegramChatId) {
-        const botToken = this.config.get<string>('TELEGRAM_BOT_TOKEN') ?? '';
+        const botToken = (await this.credentialService.resolve('TELEGRAM_BOT_TOKEN')) ?? '';
         if (botToken) {
           await this.telegramService.sendMessage(botToken, link.telegramChatId, message)
             .catch((err) => this.logger.warn('Task Telegram notification failed', err));

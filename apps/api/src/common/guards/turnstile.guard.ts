@@ -4,15 +4,15 @@ import {
   ExecutionContext,
   ForbiddenException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import type { Request } from 'express';
+import { CredentialService } from '../../modules/credentials/credential.service';
 
 @Injectable()
 export class TurnstileGuard implements CanActivate {
-  constructor(private readonly configService: ConfigService) {}
+  constructor(private readonly credentialService: CredentialService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const secret = this.configService.get<string>('CLOUDFLARE_TURNSTILE_SECRET');
+    const secret = await this.credentialService.resolve('CLOUDFLARE_TURNSTILE_SECRET');
     if (!secret) return true; // Skip when not configured (local dev)
 
     const request = context.switchToHttp().getRequest<Request>();

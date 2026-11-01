@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'crypto';
 import type { ExternalProviderInterface, OAuthTokens, ExternalAccountInfo, ProviderCapabilities } from './external-provider.interface';
+import { CredentialService } from '../../credentials/credential.service';
 
 const AUTH_URL = 'https://www.tiktok.com/v2/auth/authorize/';
 const TOKEN_URL = 'https://open.tiktokapis.com/v2/oauth/token/';
@@ -23,10 +24,25 @@ export class TikTokExternalProvider implements ExternalProviderInterface {
     supportsAds: true,
   };
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly credentialService: CredentialService,
+  ) {}
 
-  getAuthorizationUrl(state: string, additionalScopes: string[] = []): string {
-    const clientKey = this.config.getOrThrow<string>('TIKTOK_CLIENT_KEY');
+  private async resolveClientKey(): Promise<string> {
+    const v = await this.credentialService.resolve('TIKTOK_CLIENT_KEY');
+    if (!v) throw new InternalServerErrorException('TIKTOK_CLIENT_KEY not configured');
+    return v;
+  }
+
+  private async resolveClientSecret(): Promise<string> {
+    const v = await this.credentialService.resolve('TIKTOK_CLIENT_SECRET');
+    if (!v) throw new InternalServerErrorException('TIKTOK_CLIENT_SECRET not configured');
+    return v;
+  }
+
+  async getAuthorizationUrl(state: string, additionalScopes: string[] = []): Promise<string> {
+    const clientKey = await this.resolveClientKey();
     const redirectUri = this.config.getOrThrow<string>('INTEGRATIONS_TIKTOK_REDIRECT_URI');
     const scopes = [...DEFAULT_SCOPES, ...additionalScopes];
 
@@ -42,8 +58,7 @@ export class TikTokExternalProvider implements ExternalProviderInterface {
   }
 
   async exchangeCode(code: string): Promise<OAuthTokens> {
-    const clientKey = this.config.getOrThrow<string>('TIKTOK_CLIENT_KEY');
-    const clientSecret = this.config.getOrThrow<string>('TIKTOK_CLIENT_SECRET');
+    const [clientKey, clientSecret] = await Promise.all([this.resolveClientKey(), this.resolveClientSecret()]);
     const redirectUri = this.config.getOrThrow<string>('INTEGRATIONS_TIKTOK_REDIRECT_URI');
 
     const res = await fetch(TOKEN_URL, {
@@ -75,8 +90,7 @@ export class TikTokExternalProvider implements ExternalProviderInterface {
   }
 
   async refreshTokens(refreshToken: string): Promise<OAuthTokens> {
-    const clientKey = this.config.getOrThrow<string>('TIKTOK_CLIENT_KEY');
-    const clientSecret = this.config.getOrThrow<string>('TIKTOK_CLIENT_SECRET');
+    const [clientKey, clientSecret] = await Promise.all([this.resolveClientKey(), this.resolveClientSecret()]);
 
     const res = await fetch(TOKEN_URL, {
       method: 'POST',
@@ -115,8 +129,7 @@ export class TikTokExternalProvider implements ExternalProviderInterface {
   }
 
   async revokeToken(accessToken: string): Promise<void> {
-    const clientKey = this.config.getOrThrow<string>('TIKTOK_CLIENT_KEY');
-    const clientSecret = this.config.getOrThrow<string>('TIKTOK_CLIENT_SECRET');
+    const [clientKey, clientSecret] = await Promise.all([this.resolveClientKey(), this.resolveClientSecret()]);
 
     await fetch('https://open.tiktokapis.com/v2/oauth/revoke/', {
       method: 'POST',

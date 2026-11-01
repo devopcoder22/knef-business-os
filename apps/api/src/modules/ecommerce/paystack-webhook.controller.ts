@@ -9,10 +9,9 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
-import { ConfigService } from '@nestjs/config';
 import { Public } from '../../common/decorators/public.decorator';
 import { PrismaService } from '../../common/services/prisma.service';
-import type { AppConfig } from '../../config/app.config';
+import { CredentialService } from '../credentials/credential.service';
 
 @Controller('webhooks/paystack')
 @Public()
@@ -21,7 +20,7 @@ export class PaystackWebhookController {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly config: ConfigService<AppConfig>,
+    private readonly credentialService: CredentialService,
   ) {}
 
   @Post()
@@ -31,7 +30,7 @@ export class PaystackWebhookController {
     @Req() req: Request,
     @Res() res: Response,
   ): Promise<void> {
-    const secret = this.config.get('PAYSTACK_WEBHOOK_SECRET');
+    const secret = await this.credentialService.resolve('PAYSTACK_WEBHOOK_SECRET');
     if (!secret) {
       this.logger.error('PAYSTACK_WEBHOOK_SECRET not configured');
       res.status(200).json({ status: 'ignored' });

@@ -3829,6 +3829,17 @@ model DailyPulseConfig {
   updatedAt      DateTime @updatedAt
 }
 
+// System-level encrypted credentials (API keys, OAuth secrets, webhook secrets)
+model SystemCredential {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  ciphertext String
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+
+  @@index([key])
+}
+
 // Phase 24P: Idempotency log for daily pulse deliveries
 model DailyPulseDelivery {
   id             String    @id @default(cuid())

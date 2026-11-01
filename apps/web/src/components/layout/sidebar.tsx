@@ -320,6 +320,7 @@ const BOTTOM_ITEMS: NavItem[] = [
       { label: 'Feature Flags', href: '/admin/feature-flags', icon: Flag, adminOnly: true },
       { label: 'External Agents', href: '/admin/agents', icon: Webhook, adminOnly: true },
       { label: 'API Keys', href: '/admin/api-keys', icon: KeyRound, adminOnly: true },
+      { label: 'Credentials', href: '/admin/credentials', icon: ShieldCheck, adminOnly: true },
       { label: 'Approvals', href: '/admin/approvals', icon: CheckSquare, adminOnly: true },
       { label: 'Audit Logs', href: '/admin/audit', icon: FileText, adminOnly: true },
       { label: 'Security', href: '/admin/security', icon: ShieldAlert, adminOnly: true },

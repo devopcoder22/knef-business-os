@@ -20,6 +20,7 @@ import { PermissionsModule } from './modules/permissions/permissions.module';
 import { FeatureFlagsModule } from './modules/feature-flags/feature-flags.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { SettingsModule } from './modules/settings/settings.module';
+import { CredentialModule } from './modules/credentials/credential.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { BrandsModule } from './modules/brands/brands.module';
 import { ProductsModule } from './modules/products/products.module';
@@ -108,6 +109,7 @@ import { PrintTemplatesModule } from './modules/print-templates/print-templates.
     FeatureFlagsModule,
     AuditModule,
     SettingsModule,
+    CredentialModule,
     CategoriesModule,
     BrandsModule,
     ProductsModule,
