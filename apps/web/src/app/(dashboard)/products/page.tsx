@@ -14,6 +14,7 @@ import {
   Trash2,
   AlertTriangle,
   Printer,
+  Upload,
 } from 'lucide-react';
 import { PrintSingleLabelModal } from '@/components/barcode/print-labels-modal';
 import { api } from '@/lib/api';
@@ -122,13 +123,22 @@ export default function ProductsPage() {
             Manage your product catalog
           </p>
         </div>
-        <Link
-          href="/products/new"
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
-        >
-          <Plus size={16} />
-          New Product
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/products/import"
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+          >
+            <Upload size={16} />
+            Import
+          </Link>
+          <Link
+            href="/products/new"
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+          >
+            <Plus size={16} />
+            New Product
+          </Link>
+        </div>
       </div>
 
       {/* Filters */}

@@ -9,11 +9,18 @@ import {
   Query,
   HttpCode,
   HttpStatus,
+  Res,
+  UploadedFile,
+  UseInterceptors,
   BadRequestException,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
+import { Response } from 'express';
 import { ProductStatus } from '@prisma/client';
 import { ProductsService } from './products.service';
+import { ProductsImportService } from './products-import.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { PERMISSIONS } from '@knef/constants';
@@ -29,7 +36,10 @@ import { AddProductImageDto } from './dto/add-product-image.dto';
 @ApiBearerAuth('JWT')
 @Controller('products')
 export class ProductsController {
-  constructor(private readonly productsService: ProductsService) {}
+  constructor(
+    private readonly productsService: ProductsService,
+    private readonly importService: ProductsImportService,
+  ) {}
 
   @Get('low-stock')
   @Permissions(PERMISSIONS.INVENTORY.VIEW)
@@ -48,12 +58,58 @@ export class ProductsController {
     return this.productsService.findAll(user.organizationId, query);
   }
 
-  @Get('lookup')
-  @Permissions(PERMISSIONS.PRODUCTS.VIEW)
-  @ApiOperation({ summary: 'Look up a product by barcode, GTIN, or IMEI/serial' })
-  lookup(@CurrentUser() user: AuthUser, @Query('code') code: string) {
-    if (!code?.trim()) throw new BadRequestException('code query param is required');
-    return this.productsService.lookupByCode(user.organizationId, code.trim());
+  @Get('import/template')
+  @Permissions(PERMISSIONS.PRODUCTS.CREATE)
+  @ApiOperation({ summary: 'Download the product import Excel template' })
+  async downloadTemplate(@Res() res: Response) {
+    const buffer = this.importService.generateTemplate();
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="product-import-template.xlsx"',
+    );
+    res.end(buffer);
+  }
+
+  @Post('import')
+  @Permissions(PERMISSIONS.PRODUCTS.CREATE)
+  @ApiOperation({ summary: 'Import products from XLSX or CSV file' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 5 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        const allowed = [
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'application/vnd.ms-excel',
+          'text/csv',
+        ];
+        if (
+          allowed.includes(file.mimetype) ||
+          /\.(xlsx|xls|csv)$/i.test(file.originalname)
+        ) {
+          cb(null, true);
+        } else {
+          cb(new BadRequestException('Only .xlsx, .xls, and .csv files are allowed'), false);
+        }
+      },
+    }),
+  )
+  async importProducts(
+    @CurrentUser() user: AuthUser,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    return this.importService.importFile(
+      file.buffer,
+      file.originalname,
+      user.organizationId,
+      user.id,
+    );
   }
 
   @Get(':id')
@@ -164,18 +220,6 @@ export class ProductsController {
     return this.productsService.addImage(user.organizationId, id, dto);
   }
 
-  @Patch(':id/images/:imageId')
-  @Permissions(PERMISSIONS.PRODUCTS.EDIT)
-  @ApiOperation({ summary: 'Update a product image (e.g. set as primary)' })
-  updateImage(
-    @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
-    @Param('imageId') imageId: string,
-    @Body() body: { isPrimary?: boolean; altText?: string },
-  ) {
-    return this.productsService.updateImage(user.organizationId, id, imageId, body);
-  }
-
   @Delete(':id/images/:imageId')
   @Permissions(PERMISSIONS.PRODUCTS.EDIT)
   @HttpCode(HttpStatus.OK)
@@ -195,44 +239,5 @@ export class ProductsController {
   @ApiOperation({ summary: 'Get inventory levels per location for a product' })
   getInventory(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.productsService.getInventorySummary(user.organizationId, id);
-  }
-
-  // ── Label Printing ────────────────────────────────────────────
-
-  @Get(':id/label')
-  @Permissions(PERMISSIONS.PRODUCTS.VIEW)
-  @ApiOperation({ summary: 'Get label data for a product or variant' })
-  getLabelData(
-    @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
-    @Query('variantId') variantId?: string,
-  ) {
-    return this.productsService.getLabelData(user.organizationId, id, variantId);
-  }
-
-  @Post('labels/batch')
-  @Permissions(PERMISSIONS.PRODUCTS.VIEW)
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Get label data for multiple products/variants with quantities' })
-  getBatchLabelData(
-    @CurrentUser() user: AuthUser,
-    @Body() body: { items: Array<{ productId: string; variantId?: string; qty: number }> },
-  ) {
-    if (!Array.isArray(body.items) || body.items.length === 0) {
-      throw new BadRequestException('items must be a non-empty array');
-    }
-    if (body.items.length > 50) {
-      throw new BadRequestException('Maximum 50 items per batch');
-    }
-    return this.productsService.getBatchLabelData(user.organizationId, body.items);
-  }
-
-  @Get('ean13/validate')
-  @Permissions(PERMISSIONS.PRODUCTS.VIEW)
-  @ApiOperation({ summary: 'Validate an EAN-13 barcode checksum' })
-  validateEan13(@Query('value') value: string) {
-    if (!value) throw new BadRequestException('value is required');
-    const valid = this.productsService.validateEan13Checksum(value.trim());
-    return { value: value.trim(), valid };
   }
 }
