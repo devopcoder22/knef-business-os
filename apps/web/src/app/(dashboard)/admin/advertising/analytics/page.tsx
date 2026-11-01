@@ -104,7 +104,8 @@ export default function AdvertisingAnalyticsPage() {
     },
   });
 
-  const summary: MetricSummary | null = summaryRes?.data ?? null;
+  const summaryData: MetricSummary[] = summaryRes?.data ?? [];
+  const summary: MetricSummary | null = summaryData[0] ?? null;
   const metrics: MetricSnapshot[] = metricsRes?.data ?? [];
 
   const currencies = [...new Set(metrics.map((m) => m.currency))];

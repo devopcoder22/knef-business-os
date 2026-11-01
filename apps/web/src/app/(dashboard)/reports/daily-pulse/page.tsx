@@ -106,8 +106,8 @@ export default function DailyPulsePage() {
   const { data, isLoading, isFetching, error } = useQuery({
     queryKey: ['daily-pulse', date],
     queryFn: async () => {
-      const res = await api().get<DailyPulseData>(`/daily-pulse?date=${date}`);
-      return res.data as DailyPulseData;
+      const res = await api().get<{ data: DailyPulseData }>(`/daily-pulse?date=${date}`);
+      return res.data.data;
     },
   });
 

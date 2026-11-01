@@ -52,8 +52,8 @@ export default function MarketingCalendarPage() {
         from: weekStart.toISOString(),
         to: addDays(weekEnd, 1).toISOString(),
       });
-      const res = await api().get<ScheduledDraft[]>(`/marketing/calendar?${params}`);
-      return res.data;
+      const res = await api().get<{ data: ScheduledDraft[] }>(`/marketing/calendar?${params}`);
+      return res.data.data;
     },
   });
 

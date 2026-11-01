@@ -32,8 +32,8 @@ export default function MarketingDashboardPage() {
   const { data, isLoading } = useQuery<DashboardData>({
     queryKey: ['marketing-dashboard'],
     queryFn: async () => {
-      const res = await api().get<DashboardData>('/marketing/dashboard');
-      return res.data;
+      const res = await api().get<{ data: DashboardData }>('/marketing/dashboard');
+      return res.data.data;
     },
   });
 
