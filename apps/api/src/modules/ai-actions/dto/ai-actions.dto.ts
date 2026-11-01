@@ -198,3 +198,98 @@ export class ToggleAgentDto {
   @IsBoolean()
   isActive!: boolean;
 }
+
+// ── Autonomy Policies ─────────────────────────────────────────────
+
+export class ScopeLimitsDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  financialCapNgn?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  recipientCap?: number;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  locationIds?: string[];
+
+  @ApiPropertyOptional({ description: 'HH:MM 24-hour format' })
+  @IsOptional()
+  @IsString()
+  timeWindowStart?: string;
+
+  @ApiPropertyOptional({ description: 'HH:MM 24-hour format' })
+  @IsOptional()
+  @IsString()
+  timeWindowEnd?: string;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  allowedTools?: string[];
+}
+
+export class CreateAutonomyPolicyDto {
+  @ApiProperty({ enum: ['org', 'user', 'agent'] })
+  @IsString()
+  scope!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  scopeId?: string;
+
+  @ApiProperty({ enum: ['ADVISORY', 'DRAFT', 'APPROVAL_REQUIRED', 'LIMITED_AUTONOMY', 'SCHEDULED_AUTONOMY'] })
+  @IsString()
+  level!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ScopeLimitsDto)
+  scopeLimits?: ScopeLimitsDto;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
+
+export class UpdateAutonomyPolicyDto {
+  @ApiPropertyOptional({ enum: ['ADVISORY', 'DRAFT', 'APPROVAL_REQUIRED', 'LIMITED_AUTONOMY', 'SCHEDULED_AUTONOMY'] })
+  @IsOptional()
+  @IsString()
+  level?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ScopeLimitsDto)
+  scopeLimits?: ScopeLimitsDto;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
+
+export class EvaluatePolicyDto {
+  @ApiProperty()
+  @IsString()
+  toolName!: string;
+
+  @ApiProperty()
+  @IsObject()
+  parameters!: Record<string, unknown>;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  agentId?: string;
+}

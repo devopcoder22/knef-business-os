@@ -2,14 +2,21 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
+  ConflictException,
 } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
 import { createHash, randomBytes } from 'crypto';
 import { CampaignStatus } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { EmailService } from './email.service';
+import { AuditService } from '../audit/audit.service';
+import { EmailSubscriptionService } from './email-subscription.service';
+import { EmailComplianceService } from './email-compliance.service';
+import { QueueService } from '../../common/services/queue.service';
 import { encrypt } from '@knef/utils';
 import { ConfigService } from '@nestjs/config';
+import { QUEUES, JOB_TYPES, type CampaignEmailJobData } from '@knef/constants';
 import type { AppConfig } from '../../config/app.config';
 import type {
   CreateEmailProviderDto,
@@ -30,6 +37,10 @@ export class CommunicationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
+    private readonly audit: AuditService,
+    private readonly subscriptionService: EmailSubscriptionService,
+    private readonly complianceService: EmailComplianceService,
+    private readonly queue: QueueService,
     private readonly config: ConfigService<AppConfig>,
   ) {}
 
@@ -75,24 +86,32 @@ export class CommunicationsService {
       });
     }
 
-    const provider = await this.prisma.emailProvider.create({
-      data: {
-        id: createId(),
-        organizationId,
-        name: dto.name,
-        type: dto.type,
-        host: dto.host ?? null,
-        port: dto.port ?? null,
-        secure: dto.secure ?? false,
-        username: dto.username ?? null,
-        passwordEncrypted,
-        apiKeyEncrypted,
-        fromEmail: dto.fromEmail,
-        fromName: dto.fromName,
-        isDefault: dto.isDefault ?? false,
-        isActive: true,
-      },
-    });
+    let provider: Awaited<ReturnType<typeof this.prisma.emailProvider.create>>;
+    try {
+      provider = await this.prisma.emailProvider.create({
+        data: {
+          id: createId(),
+          organizationId,
+          name: dto.name,
+          type: dto.type,
+          host: dto.host ?? null,
+          port: dto.port ?? null,
+          secure: dto.secure ?? false,
+          username: dto.username ?? null,
+          passwordEncrypted,
+          apiKeyEncrypted,
+          fromEmail: dto.fromEmail,
+          fromName: dto.fromName,
+          isDefault: dto.isDefault ?? false,
+          isActive: true,
+        },
+      });
+    } catch (err: any) {
+      if (err?.code === 'P2002') {
+        throw new ConflictException(`An email provider named "${dto.name}" already exists. Use a different name.`);
+      }
+      throw err;
+    }
 
     return {
       id: provider.id,
@@ -319,19 +338,24 @@ export class CommunicationsService {
     return { data, meta: { total, page, limit } };
   }
 
-  async createCampaign(organizationId: string, dto: CreateCampaignDto) {
-    return this.prisma.emailCampaign.create({
+  async createCampaign(organizationId: string, userId: string, dto: CreateCampaignDto) {
+    const campaign = await this.prisma.emailCampaign.create({
       data: {
         id: createId(),
         organizationId,
         providerId: dto.providerId ?? null,
         name: dto.name,
         subject: dto.subject,
+        previewText: dto.previewText ?? null,
         fromEmail: dto.fromEmail ?? null,
         fromName: dto.fromName ?? null,
+        replyTo: dto.replyTo ?? null,
         htmlContent: dto.htmlContent ?? null,
         textContent: dto.textContent ?? null,
+        campaignType: dto.campaignType ?? 'MARKETING',
+        subscriptionList: dto.subscriptionList ?? 'GENERAL_MARKETING',
         status: CampaignStatus.DRAFT,
+        createdById: userId,
         totalRecipients: 0,
         sentCount: 0,
         openCount: 0,
@@ -339,6 +363,14 @@ export class CommunicationsService {
         bounceCount: 0,
       },
     });
+
+    await this.audit.log({
+      organizationId, userId, action: 'CAMPAIGN_CREATED',
+      entity: 'EmailCampaign', entityId: campaign.id,
+      metadata: { name: dto.name, campaignType: dto.campaignType ?? 'MARKETING' },
+    }).catch(() => {});
+
+    return campaign;
   }
 
   async getCampaign(organizationId: string, id: string) {
@@ -349,24 +381,130 @@ export class CommunicationsService {
     return campaign;
   }
 
-  async updateCampaign(organizationId: string, id: string, dto: UpdateCampaignDto) {
+  async updateCampaign(organizationId: string, id: string, userId: string, dto: UpdateCampaignDto) {
     const campaign = await this.getCampaign(organizationId, id);
-    if (campaign.status !== CampaignStatus.DRAFT) {
-      throw new BadRequestException('Only DRAFT campaigns can be updated');
+    if (campaign.status !== CampaignStatus.DRAFT && campaign.status !== 'REVIEW' as CampaignStatus) {
+      throw new BadRequestException('Only DRAFT or REVIEW campaigns can be updated');
     }
 
-    return this.prisma.emailCampaign.update({
+    const updated = await this.prisma.emailCampaign.update({
       where: { id },
       data: {
         ...(dto.name !== undefined && { name: dto.name }),
         ...(dto.subject !== undefined && { subject: dto.subject }),
+        ...(dto.previewText !== undefined && { previewText: dto.previewText }),
         ...(dto.fromEmail !== undefined && { fromEmail: dto.fromEmail }),
         ...(dto.fromName !== undefined && { fromName: dto.fromName }),
+        ...(dto.replyTo !== undefined && { replyTo: dto.replyTo }),
         ...(dto.htmlContent !== undefined && { htmlContent: dto.htmlContent }),
         ...(dto.textContent !== undefined && { textContent: dto.textContent }),
         ...(dto.providerId !== undefined && { providerId: dto.providerId }),
+        ...(dto.subscriptionList !== undefined && { subscriptionList: dto.subscriptionList }),
       },
     });
+
+    await this.audit.log({
+      organizationId, userId, action: 'CAMPAIGN_UPDATED',
+      entity: 'EmailCampaign', entityId: id,
+    }).catch(() => {});
+
+    return updated;
+  }
+
+  async submitCampaignForReview(organizationId: string, id: string, userId: string) {
+    const campaign = await this.getCampaign(organizationId, id);
+    if (campaign.status !== CampaignStatus.DRAFT) {
+      throw new BadRequestException('Only DRAFT campaigns can be submitted for review');
+    }
+    if (!campaign.subject || !campaign.htmlContent) {
+      throw new BadRequestException('Campaign must have subject and content before review');
+    }
+    const recipientCount = await this.prisma.emailCampaignRecipient.count({ where: { campaignId: id } });
+    if (recipientCount === 0) {
+      throw new BadRequestException('Campaign must have recipients before review');
+    }
+
+    const updated = await this.prisma.emailCampaign.update({
+      where: { id },
+      data: { status: 'REVIEW' as CampaignStatus },
+    });
+
+    await this.audit.log({
+      organizationId, userId, action: 'CAMPAIGN_SUBMITTED_FOR_REVIEW',
+      entity: 'EmailCampaign', entityId: id,
+    }).catch(() => {});
+
+    return updated;
+  }
+
+  async approveCampaign(organizationId: string, id: string, userId: string, note?: string) {
+    const campaign = await this.getCampaign(organizationId, id);
+    if (campaign.status !== ('REVIEW' as CampaignStatus)) {
+      throw new BadRequestException('Only campaigns in REVIEW status can be approved');
+    }
+
+    const updated = await this.prisma.emailCampaign.update({
+      where: { id },
+      data: {
+        status: 'APPROVED' as CampaignStatus,
+        approvedBy: userId,
+        approvedAt: new Date(),
+      },
+    });
+
+    await this.audit.log({
+      organizationId, userId, action: 'CAMPAIGN_APPROVED',
+      entity: 'EmailCampaign', entityId: id,
+      metadata: { note },
+    }).catch(() => {});
+
+    return updated;
+  }
+
+  async rejectCampaign(organizationId: string, id: string, userId: string, reason: string) {
+    const campaign = await this.getCampaign(organizationId, id);
+    if (campaign.status !== ('REVIEW' as CampaignStatus)) {
+      throw new BadRequestException('Only campaigns in REVIEW status can be rejected');
+    }
+
+    const updated = await this.prisma.emailCampaign.update({
+      where: { id },
+      data: { status: CampaignStatus.DRAFT, reviewedBy: userId, reviewedAt: new Date() },
+    });
+
+    await this.audit.log({
+      organizationId, userId, action: 'CAMPAIGN_REJECTED',
+      entity: 'EmailCampaign', entityId: id,
+      metadata: { reason },
+    }).catch(() => {});
+
+    return updated;
+  }
+
+  async cancelCampaign(organizationId: string, id: string, userId: string) {
+    const campaign = await this.getCampaign(organizationId, id);
+    const cancellable: string[] = [
+      CampaignStatus.DRAFT, CampaignStatus.SCHEDULED, 'REVIEW', 'APPROVED',
+    ];
+    if (!cancellable.includes(campaign.status as string)) {
+      throw new BadRequestException('Campaign cannot be cancelled in its current status');
+    }
+
+    const updated = await this.prisma.emailCampaign.update({
+      where: { id },
+      data: { status: CampaignStatus.CANCELLED },
+    });
+
+    await this.audit.log({
+      organizationId, userId, action: 'CAMPAIGN_CANCELLED',
+      entity: 'EmailCampaign', entityId: id,
+    }).catch(() => {});
+
+    return updated;
+  }
+
+  async getCampaignCompliance(organizationId: string, id: string) {
+    return this.complianceService.runChecks(organizationId, id);
   }
 
   async addRecipients(organizationId: string, campaignId: string, dto: AddRecipientsDto) {
@@ -439,73 +577,130 @@ export class CommunicationsService {
     return { data, meta: { total, page, limit } };
   }
 
-  async scheduleCampaign(organizationId: string, id: string, scheduledAt: string) {
+  async scheduleCampaign(organizationId: string, id: string, userId: string, scheduledAt: string) {
     const campaign = await this.getCampaign(organizationId, id);
-    if (campaign.status !== CampaignStatus.DRAFT) {
-      throw new BadRequestException('Only DRAFT campaigns can be scheduled');
+    const schedulable: string[] = [CampaignStatus.DRAFT, 'APPROVED'];
+    if (!schedulable.includes(campaign.status as string)) {
+      throw new BadRequestException('Only DRAFT or APPROVED campaigns can be scheduled');
     }
 
-    return this.prisma.emailCampaign.update({
+    const updated = await this.prisma.emailCampaign.update({
       where: { id },
       data: { status: CampaignStatus.SCHEDULED, scheduledAt: new Date(scheduledAt) },
     });
+
+    await this.audit.log({
+      organizationId, userId, action: 'CAMPAIGN_SCHEDULED',
+      entity: 'EmailCampaign', entityId: id,
+      metadata: { scheduledAt },
+    }).catch(() => {});
+
+    return updated;
   }
 
-  async sendCampaign(organizationId: string, id: string) {
+  async sendCampaign(organizationId: string, id: string, userId: string) {
     const campaign = await this.getCampaign(organizationId, id);
-    if (
-      campaign.status !== CampaignStatus.DRAFT &&
-      campaign.status !== CampaignStatus.SCHEDULED
-    ) {
+    const sendable: string[] = [
+      CampaignStatus.DRAFT, CampaignStatus.SCHEDULED, 'APPROVED',
+    ];
+    if (!sendable.includes(campaign.status as string)) {
       throw new BadRequestException('Campaign cannot be sent in current status');
     }
 
-    await this.prisma.emailCampaign.update({
-      where: { id },
-      data: { status: CampaignStatus.SENDING },
-    });
+    const isMarketing = campaign.campaignType !== 'TRANSACTIONAL';
 
-    const recipients = await this.prisma.emailCampaignRecipient.findMany({
+    // Re-check compliance before send
+    if (isMarketing) {
+      const compliance = await this.complianceService.runChecks(organizationId, id);
+      if (!compliance.allPassed) {
+        const failed = compliance.checks.filter((c) => !c.passed).map((c) => c.label).join(', ');
+        throw new BadRequestException(`Campaign failed compliance checks: ${failed}`);
+      }
+    }
+
+    const allRecipients = await this.prisma.emailCampaignRecipient.findMany({
       where: { campaignId: id, status: 'PENDING' },
     });
 
-    let sentCount = 0;
+    // Filter suppressed at send time
+    let eligibleRecipients = allRecipients;
+    let suppressedCount = 0;
+    if (isMarketing) {
+      const filterResult = await this.subscriptionService.filterEligibleRecipients(
+        allRecipients.map((r) => r.email),
+        organizationId,
+        campaign.subscriptionList ?? 'GENERAL_MARKETING',
+      );
+      const eligibleSet = new Set(filterResult.eligible);
+      eligibleRecipients = allRecipients.filter((r) => eligibleSet.has(r.email));
+      suppressedCount = filterResult.suppressed.length;
 
-    for (const recipient of recipients) {
-      const result = await this.emailService.sendEmail({
-        providerId: campaign.providerId ?? undefined,
+      const suppressedIds = allRecipients
+        .filter((r) => !eligibleSet.has(r.email))
+        .map((r) => r.id);
+      if (suppressedIds.length > 0) {
+        await this.prisma.emailCampaignRecipient.updateMany({
+          where: { id: { in: suppressedIds } },
+          data: { status: 'SUPPRESSED' },
+        });
+      }
+    }
+
+    // Build per-recipient email jobs
+    const fromAddress = campaign.fromEmail
+      ? campaign.fromName
+        ? `${campaign.fromName} <${campaign.fromEmail}>`
+        : campaign.fromEmail
+      : undefined;
+
+    const jobs: CampaignEmailJobData[] = eligibleRecipients.map((recipient) => {
+      const unsubUrl = this.subscriptionService.generateUnsubscribeToken(
+        recipient.email, organizationId, campaign.subscriptionList ?? 'GENERAL_MARKETING',
+      );
+      const html = (campaign.htmlContent ?? `<p>${campaign.subject}</p>`)
+        .replace('{{unsubscribe_url}}', `/unsubscribe/${unsubUrl}`)
+        .replace('{{preview_text}}', campaign.previewText ?? '');
+      return {
+        campaignId: id,
+        recipientId: recipient.id,
         organizationId,
         to: recipient.email,
         subject: campaign.subject,
-        html: campaign.htmlContent ?? `<p>${campaign.subject}</p>`,
+        html,
         text: campaign.textContent ?? campaign.subject,
-        from: campaign.fromEmail
-          ? campaign.fromName
-            ? `${campaign.fromName} <${campaign.fromEmail}>`
-            : campaign.fromEmail
-          : undefined,
-      });
+        from: fromAddress,
+        providerId: campaign.providerId ?? undefined,
+      };
+    });
 
-      await this.prisma.emailCampaignRecipient.update({
-        where: { id: recipient.id },
-        data: {
-          status: result.success ? 'SENT' : 'BOUNCED',
-          sentAt: result.success ? new Date() : null,
-          bouncedAt: result.success ? null : new Date(),
-        },
-      });
-
-      if (result.success) sentCount++;
-    }
-
-    return this.prisma.emailCampaign.update({
+    // Mark campaign SENDING and record expected counts before enqueuing
+    const updatedCampaign = await this.prisma.emailCampaign.update({
       where: { id },
       data: {
-        status: CampaignStatus.SENT,
-        sentAt: new Date(),
-        sentCount,
+        status: CampaignStatus.SENDING,
+        eligibleCount: eligibleRecipients.length,
+        suppressedCount,
       },
     });
+
+    // Enqueue all recipient jobs atomically
+    await this.queue.enqueueBulk(
+      QUEUES.EMAIL,
+      JOB_TYPES.SEND_CAMPAIGN_EMAIL,
+      jobs,
+    );
+
+    await this.audit.log({
+      organizationId, userId, action: 'CAMPAIGN_SENT',
+      entity: 'EmailCampaign', entityId: id,
+      metadata: {
+        queued: eligibleRecipients.length,
+        suppressedCount,
+        totalRecipients: allRecipients.length,
+      },
+    }).catch(() => {});
+
+    return updatedCampaign;
   }
 
   async deleteCampaign(organizationId: string, id: string) {

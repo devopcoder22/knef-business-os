@@ -59,6 +59,7 @@ export const EVENTS = {
     LOGIN: 'user.login',
     LOCKED: 'user.locked',
     PASSWORD_CHANGED: 'user.password_changed',
+    PASSWORD_RESET_REQUESTED: 'user.password_reset_requested',
   },
   SYSTEM: {
     BACKUP_COMPLETED: 'system.backup_completed',

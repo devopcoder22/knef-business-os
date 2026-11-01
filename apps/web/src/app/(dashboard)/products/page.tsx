@@ -13,7 +13,10 @@ import {
   Eye,
   Trash2,
   AlertTriangle,
+  Printer,
+  Upload,
 } from 'lucide-react';
+import { PrintSingleLabelModal } from '@/components/barcode/print-labels-modal';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -66,6 +69,7 @@ export default function ProductsPage() {
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(1);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
+  const [printProductId, setPrintProductId] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery<ProductsResponse>({
     queryKey: ['products', page, search, categoryId, brandId, status],
@@ -119,13 +123,22 @@ export default function ProductsPage() {
             Manage your product catalog
           </p>
         </div>
-        <Link
-          href="/products/new"
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
-        >
-          <Plus size={16} />
-          New Product
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/products/import"
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+          >
+            <Upload size={16} />
+            Import
+          </Link>
+          <Link
+            href="/products/new"
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+          >
+            <Plus size={16} />
+            New Product
+          </Link>
+        </div>
       </div>
 
       {/* Filters */}
@@ -307,6 +320,13 @@ export default function ProductsPage() {
                                   Edit
                                 </Link>
                                 <button
+                                  onClick={() => { setActiveMenu(null); setPrintProductId(product.id); }}
+                                  className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 w-full"
+                                >
+                                  <Printer size={14} />
+                                  Print Label
+                                </button>
+                                <button
                                   onClick={() => {
                                     if (confirm('Delete this product?')) {
                                       deleteMutation.mutate(product.id);
@@ -361,6 +381,13 @@ export default function ProductsPage() {
           </div>
         )}
       </div>
+
+      {printProductId && (
+        <PrintSingleLabelModal
+          productId={printProductId}
+          onClose={() => setPrintProductId(null)}
+        />
+      )}
     </div>
   );
 }

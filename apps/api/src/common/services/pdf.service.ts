@@ -1,196 +1,916 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { PrismaService } from './prisma.service';
+import { fmtDateNG } from '../utils/references';
+
+interface BankDetails {
+  bankName: string;
+  accountName: string;
+  accountNumber: string;
+  currency: string;
+}
+
+interface OrgBranding {
+  name: string;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  country: string;
+  phone: string | null;
+  email: string | null;
+  taxId: string | null;
+  logoUrl: string | null;
+  currency: string;
+}
 
 @Injectable()
 export class PdfService {
-  /**
-   * Generate a simple invoice PDF using HTML template.
-   * Uses puppeteer if available; otherwise returns an HTML buffer as fallback.
-   * Install puppeteer: pnpm add puppeteer -F @knef/api
-   */
-  async generateInvoicePdf(invoice: Record<string, unknown>): Promise<Buffer> {
-    const html = this.buildInvoiceHtml(invoice);
+  constructor(private readonly prisma: PrismaService) {}
 
+  // ── Private helpers ───────────────────────────────────────────
+
+  private async getOrg(organizationId: string): Promise<OrgBranding> {
+    const org = await this.prisma.organization.findFirst({
+      where: { id: organizationId },
+      select: {
+        name: true, address: true, city: true, state: true,
+        country: true, phone: true, email: true, taxId: true,
+        logoUrl: true, currency: true,
+      },
+    });
+    return {
+      name: org?.name ?? 'Business',
+      address: org?.address ?? null,
+      city: org?.city ?? null,
+      state: org?.state ?? null,
+      country: org?.country ?? 'Nigeria',
+      phone: org?.phone ?? null,
+      email: org?.email ?? null,
+      taxId: org?.taxId ?? null,
+      logoUrl: org?.logoUrl ?? null,
+      currency: org?.currency ?? 'NGN',
+    };
+  }
+
+  private async getUserName(userId: string | null | undefined): Promise<string | null> {
+    if (!userId) return null;
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId },
+      select: { firstName: true, lastName: true },
+    });
+    if (!user) return null;
+    return `${user.firstName} ${user.lastName}`.trim();
+  }
+
+  private esc(val: unknown): string {
+    return String(val ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#x27;');
+  }
+
+  private fmt(value: unknown, currency = 'NGN'): string {
+    const num = parseFloat(String(value ?? '0'));
     try {
-      // Dynamic require so the app doesn't crash if puppeteer isn't installed
+      return num.toLocaleString('en-NG', { style: 'currency', currency });
+    } catch {
+      return `${currency} ${num.toFixed(2)}`;
+    }
+  }
+
+  private fmtDate(val: unknown): string {
+    return fmtDateNG(val);
+  }
+
+  private async getBankDetails(organizationId: string): Promise<BankDetails | null> {
+    const bank = await this.prisma.bankAccount.findFirst({
+      where: { organizationId, isActive: true },
+      orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+      select: { bankName: true, accountName: true, accountNumber: true, currency: true },
+    });
+    if (!bank) return null;
+    return {
+      bankName: bank.bankName,
+      accountName: bank.accountName,
+      accountNumber: bank.accountNumber,
+      currency: bank.currency,
+    };
+  }
+
+  private amountInWords(amount: number, currency = 'NGN'): string {
+    const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
+      'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+    const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+    const toWords = (n: number): string => {
+      if (n === 0) return '';
+      if (n < 20) return ones[n] + ' ';
+      if (n < 100) return tens[Math.floor(n / 10)] + (n % 10 ? ' ' + ones[n % 10] : '') + ' ';
+      if (n < 1000) return ones[Math.floor(n / 100)] + ' Hundred ' + toWords(n % 100);
+      if (n < 1_000_000) return toWords(Math.floor(n / 1000)) + 'Thousand ' + toWords(n % 1000);
+      if (n < 1_000_000_000) return toWords(Math.floor(n / 1_000_000)) + 'Million ' + toWords(n % 1_000_000);
+      return toWords(Math.floor(n / 1_000_000_000)) + 'Billion ' + toWords(n % 1_000_000_000);
+    };
+
+    const intPart = Math.floor(Math.abs(amount));
+    const decPart = Math.round((Math.abs(amount) - intPart) * 100);
+    const currencyName = currency === 'NGN' ? 'Naira' : currency === 'USD' ? 'Dollars' : currency;
+    const centName = currency === 'NGN' ? 'Kobo' : currency === 'USD' ? 'Cents' : 'Cents';
+
+    let words = toWords(intPart).trim() || 'Zero';
+    words += ` ${currencyName}`;
+    if (decPart > 0) words += `, ${toWords(decPart).trim()} ${centName}`;
+    words += ' Only';
+    return words;
+  }
+
+  private logoHtml(org: OrgBranding): string {
+    if (org.logoUrl && /^https?:\/\//.test(org.logoUrl)) {
+      return `<img src="${this.esc(org.logoUrl)}" alt="${this.esc(org.name)}" style="max-height:48px;max-width:140px;object-fit:contain;" onerror="this.style.display='none'"/>`;
+    }
+    return '';
+  }
+
+  private orgHeaderHtml(org: OrgBranding): string {
+    const logo = this.logoHtml(org);
+    const addr = [org.address, org.city, org.state, org.country].filter(Boolean).join(', ');
+    return `
+      <div>
+        ${logo}
+        <div style="font-size:20px;font-weight:900;color:#1e40af;letter-spacing:-0.5px;">${this.esc(org.name)}</div>
+        ${addr ? `<div style="color:#64748b;font-size:11px;margin-top:2px;">${this.esc(addr)}</div>` : ''}
+        ${org.phone ? `<div style="color:#64748b;font-size:11px;">${this.esc(org.phone)}</div>` : ''}
+        ${org.email ? `<div style="color:#64748b;font-size:11px;">${this.esc(org.email)}</div>` : ''}
+        ${org.taxId ? `<div style="color:#64748b;font-size:11px;">Tax ID: ${this.esc(org.taxId)}</div>` : ''}
+      </div>`;
+  }
+
+  private baseStyles(): string {
+    return `
+      * { box-sizing: border-box; margin: 0; padding: 0; word-wrap: break-word; overflow-wrap: break-word; }
+      body { font-family: 'Segoe UI', Arial, sans-serif; color: #1e293b; font-size: 13px; }
+      .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; }
+      .doc-title { font-size: 26px; font-weight: 700; color: #1e40af; }
+      .doc-ref { font-size: 16px; font-weight: 600; color: #475569; margin-top: 4px; }
+      .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+      table { width: 100%; border-collapse: collapse; }
+      .section-title { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; margin-bottom: 6px; }
+      .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 28px; }
+      tfoot td { padding: 8px 12px; }
+      .total-row td { font-size: 14px; font-weight: 700; }
+      .divider { border: none; border-top: 1px solid #e2e8f0; margin: 20px 0; }
+      .footer { margin-top: 36px; font-size: 10px; color: #94a3b8; text-align: center; border-top: 1px solid #f1f5f9; padding-top: 12px; }
+      th { padding: 9px 12px; text-align: left; font-size: 11px; color: #64748b; background: #f1f5f9; }
+      td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; }
+      .text-right { text-align: right; }
+      .text-center { text-align: center; }`;
+  }
+
+  private async renderPdf(html: string): Promise<Buffer> {
+    let browser: { close: () => Promise<void> } | null = null;
+    try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
-      const puppeteer = require('puppeteer') as { launch: (opts: Record<string, unknown>) => Promise<{ newPage: () => Promise<{ setContent: (h: string, o: Record<string, unknown>) => Promise<void>; pdf: (o: Record<string, unknown>) => Promise<Uint8Array> }>; close: () => Promise<void> }> };
-      const browser = await puppeteer.launch({
+      const puppeteer = require('puppeteer-core') as {
+        launch: (opts: Record<string, unknown>) => Promise<{
+          newPage: () => Promise<{
+            setContent: (h: string, o: Record<string, unknown>) => Promise<void>;
+            pdf: (o: Record<string, unknown>) => Promise<Uint8Array>;
+          }>;
+          close: () => Promise<void>;
+        }>;
+      };
+      const executablePath =
+        process.env['CHROMIUM_PATH'] ??
+        '/usr/bin/chromium-browser';
+      browser = await puppeteer.launch({
         headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        executablePath,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--no-first-run',
+          '--no-zygote',
+          '--single-process',
+        ],
       });
-      const page = await browser.newPage();
+      const page = await (browser as any).newPage();
       await page.setContent(html, { waitUntil: 'networkidle0' });
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
-        margin: { top: '20mm', right: '20mm', bottom: '20mm', left: '20mm' },
+        margin: { top: '15mm', right: '15mm', bottom: '15mm', left: '15mm' },
       });
-      await browser.close();
       return Buffer.from(pdf);
-    } catch {
-      // Fallback: return HTML as buffer (client can render it)
-      return Buffer.from(html, 'utf-8');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new InternalServerErrorException(`PDF generation failed: ${msg}`);
+    } finally {
+      if (browser) await browser.close().catch(() => {});
     }
   }
 
-  private buildInvoiceHtml(invoice: Record<string, unknown>): string {
+  // ── Invoice ───────────────────────────────────────────────────
+
+  private buildInvoiceHtml(
+    invoice: Record<string, unknown>,
+    org: OrgBranding,
+    bank: BankDetails | null,
+  ): string {
     const customer = (invoice['customer'] as Record<string, string> | null) ?? null;
     const items = (invoice['items'] as Array<Record<string, unknown>>) ?? [];
     const payments = (invoice['payments'] as Array<Record<string, unknown>>) ?? [];
+    const order = (invoice['order'] as Record<string, unknown> | null) ?? null;
+    const cur = org.currency;
 
-    const formatMoney = (value: unknown): string => {
-      const num = parseFloat(String(value ?? '0'));
-      return num.toLocaleString('en-NG', { style: 'currency', currency: 'NGN' });
+    const statusBadgeStyle: Record<string, string> = {
+      PAID: 'background:#dcfce7;color:#16a34a;',
+      UNPAID: 'background:#fef2f2;color:#dc2626;',
+      PARTIAL: 'background:#fefce8;color:#ca8a04;',
+      OVERDUE: 'background:#fef2f2;color:#dc2626;',
+      VOID: 'background:#f1f5f9;color:#94a3b8;',
+      CANCELLED: 'background:#f1f5f9;color:#94a3b8;',
     };
+    const status = String(invoice['status'] ?? 'UNPAID').toUpperCase();
+    const badgeStyle = statusBadgeStyle[status] ?? 'background:#f1f5f9;color:#64748b;';
 
-    const itemRows = items
-      .map(
-        (item) => `
-        <tr>
-          <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;">${String(item['description'] ?? item['productId'] ?? 'Item')}</td>
-          <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;text-align:center;">${String(item['quantity'] ?? 1)}</td>
-          <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;text-align:right;">${formatMoney(item['unitPrice'])}</td>
-          <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;text-align:right;">${formatMoney(item['totalPrice'])}</td>
-        </tr>
-      `,
-      )
-      .join('');
+    const total = parseFloat(String(invoice['totalAmount'] ?? '0'));
+    const paid = parseFloat(String(invoice['paidAmount'] ?? '0'));
+    const subtotal = parseFloat(String(invoice['subtotal'] ?? '0'));
+    const taxAmount = parseFloat(String(invoice['taxAmount'] ?? '0'));
+    const discountAmount = parseFloat(String(invoice['discountAmount'] ?? '0'));
+    const balance = total - paid;
+    const amountWords = this.amountInWords(total, cur);
 
-    const paymentRows = payments
-      .map(
-        (p) => `
-        <tr>
-          <td style="padding:4px 8px;">${String(p['method'] ?? '')}</td>
-          <td style="padding:4px 8px;">${new Date(String(p['createdAt'] ?? '')).toLocaleDateString()}</td>
-          <td style="padding:4px 8px;text-align:right;">${formatMoney(p['amount'])}</td>
-        </tr>
-      `,
-      )
-      .join('');
-
-    return `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Segoe UI', Arial, sans-serif; color: #1e293b; font-size: 13px; }
-    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 32px; }
-    .logo { font-size: 24px; font-weight: 900; color: #f59e0b; letter-spacing: -1px; }
-    .logo span { color: #1e293b; }
-    .invoice-title { font-size: 28px; font-weight: 700; color: #1e40af; }
-    .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; }
-    .badge-paid { background: #dcfce7; color: #16a34a; }
-    .badge-unpaid { background: #fef2f2; color: #dc2626; }
-    .badge-partial { background: #fefce8; color: #ca8a04; }
-    table { width: 100%; border-collapse: collapse; }
-    .section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; margin-bottom: 8px; }
-    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 32px; }
-    .summary-box { background: #f8fafc; border-radius: 8px; padding: 16px; }
-    .total-row { font-size: 15px; font-weight: 700; }
-    tfoot td { padding: 10px 12px; }
-    .divider { border: none; border-top: 1px solid #e2e8f0; margin: 24px 0; }
-    .footer { margin-top: 40px; font-size: 11px; color: #94a3b8; text-align: center; }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <div>
-      <div class="logo">KNEF<span> Gadgets</span></div>
-      <div style="color:#64748b;font-size:12px;margin-top:4px;">Business OS</div>
-    </div>
-    <div style="text-align:right;">
-      <div class="invoice-title">INVOICE</div>
-      <div style="font-size:18px;font-weight:600;color:#475569;margin-top:4px;">${String(invoice['reference'] ?? '')}</div>
-      <div style="margin-top:8px;">
-        <span class="badge badge-${String(invoice['status'] ?? 'unpaid').toLowerCase()}">${String(invoice['status'] ?? '')}</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="info-grid">
-    <div>
-      <p class="section-title">Bill To</p>
-      ${
-        customer
-          ? `<p style="font-weight:600;">${customer['firstName'] ?? ''} ${customer['lastName'] ?? ''}</p>
-             <p style="color:#64748b;">${customer['phone'] ?? ''}</p>
-             <p style="color:#64748b;">${customer['email'] ?? ''}</p>`
-          : '<p style="color:#94a3b8;">Walk-in customer</p>'
-      }
-    </div>
-    <div style="text-align:right;">
-      <p class="section-title">Invoice Details</p>
-      <p><strong>Date:</strong> ${new Date(String(invoice['issuedAt'] ?? invoice['createdAt'] ?? '')).toLocaleDateString('en-NG')}</p>
-      ${invoice['dueDate'] ? `<p><strong>Due:</strong> ${new Date(String(invoice['dueDate'])).toLocaleDateString('en-NG')}</p>` : ''}
-      <p><strong>Currency:</strong> ${String(invoice['currency'] ?? 'NGN')}</p>
-    </div>
-  </div>
-
-  <table>
-    <thead>
-      <tr style="background:#f1f5f9;">
-        <th style="padding:10px 12px;text-align:left;font-size:12px;color:#64748b;">Description</th>
-        <th style="padding:10px 12px;text-align:center;font-size:12px;color:#64748b;">Qty</th>
-        <th style="padding:10px 12px;text-align:right;font-size:12px;color:#64748b;">Unit Price</th>
-        <th style="padding:10px 12px;text-align:right;font-size:12px;color:#64748b;">Total</th>
-      </tr>
-    </thead>
-    <tbody>${itemRows}</tbody>
-    <tfoot>
+    const itemRows = items.map((item, idx) => {
+      const product = (item['product'] as Record<string, unknown> | null) ?? null;
+      const spec = product ? String(product['sku'] ?? '') : '';
+      const discount = parseFloat(String(item['discountRate'] ?? '0'));
+      const tax = parseFloat(String(item['taxRate'] ?? '0'));
+      return `
       <tr>
-        <td colspan="3" style="text-align:right;padding-right:16px;color:#64748b;">Subtotal</td>
-        <td style="text-align:right;">${formatMoney(invoice['subtotal'])}</td>
-      </tr>
-      ${parseFloat(String(invoice['discountAmount'] ?? '0')) > 0 ? `
-      <tr>
-        <td colspan="3" style="text-align:right;padding-right:16px;color:#64748b;">Discount</td>
-        <td style="text-align:right;color:#dc2626;">-${formatMoney(invoice['discountAmount'])}</td>
-      </tr>` : ''}
-      ${parseFloat(String(invoice['taxAmount'] ?? '0')) > 0 ? `
-      <tr>
-        <td colspan="3" style="text-align:right;padding-right:16px;color:#64748b;">Tax</td>
-        <td style="text-align:right;">${formatMoney(invoice['taxAmount'])}</td>
-      </tr>` : ''}
-      <tr class="total-row" style="border-top:2px solid #1e40af;">
-        <td colspan="3" style="text-align:right;padding-right:16px;">Total</td>
-        <td style="text-align:right;color:#1e40af;">${formatMoney(invoice['totalAmount'])}</td>
-      </tr>
-      <tr>
-        <td colspan="3" style="text-align:right;padding-right:16px;color:#64748b;">Amount Paid</td>
-        <td style="text-align:right;color:#16a34a;">${formatMoney(invoice['paidAmount'])}</td>
-      </tr>
-      <tr style="font-weight:600;">
-        <td colspan="3" style="text-align:right;padding-right:16px;">Balance Due</td>
-        <td style="text-align:right;color:${parseFloat(String(invoice['totalAmount'] ?? '0')) - parseFloat(String(invoice['paidAmount'] ?? '0')) <= 0 ? '#16a34a' : '#dc2626'};">
-          ${formatMoney(parseFloat(String(invoice['totalAmount'] ?? '0')) - parseFloat(String(invoice['paidAmount'] ?? '0')))}
+        <td class="text-center" style="width:36px;">${idx + 1}</td>
+        <td>
+          <div style="font-weight:600;font-size:12px;">${this.esc(item['description'] ?? product?.['name'] ?? 'Item')}</div>
+          ${spec ? `<div style="color:#64748b;font-size:10px;font-family:monospace;">${this.esc(spec)}</div>` : ''}
         </td>
-      </tr>
+        <td class="text-center" style="width:48px;">${this.esc(item['quantity'] ?? 1)}</td>
+        <td class="text-right" style="width:110px;">${this.fmt(item['unitPrice'], cur)}</td>
+        <td class="text-right" style="width:80px;">${discount > 0 ? discount.toFixed(1) + '%' : '—'}</td>
+        <td class="text-right" style="width:100px;font-weight:600;">${this.fmt(item['totalPrice'], cur)}</td>
+      </tr>`;
+    }).join('');
+
+    const paymentRows = payments.map(p => `
+      <tr>
+        <td>${this.esc(p['method'] ?? '')}</td>
+        <td>${this.fmtDate(p['receivedAt'] ?? p['createdAt'])}</td>
+        <td class="text-right">${this.fmt(p['amount'], cur)}</td>
+        <td style="color:#64748b;">${this.esc(p['reference'] ?? '')}</td>
+      </tr>`).join('');
+
+    const addr = [org.address, org.city, org.state, org.country].filter(Boolean).join(', ');
+
+    return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/>
+<style>
+${this.baseStyles()}
+.inv-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:20px; border-bottom:3px solid #1e40af; padding-bottom:16px; }
+.inv-meta { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px; }
+.meta-box { background:#f8fafc; border-radius:6px; padding:10px 14px; }
+.meta-box .label { font-size:9px; text-transform:uppercase; letter-spacing:.06em; color:#94a3b8; margin-bottom:4px; }
+.meta-box .value { font-size:12px; font-weight:600; color:#1e293b; }
+.meta-box .sub { font-size:11px; color:#64748b; margin-top:2px; }
+.items-table thead tr { background:#1e40af; color:#fff; }
+.items-table thead th { padding:8px 10px; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+.items-table tbody tr:nth-child(even) { background:#f8fafc; }
+.items-table tbody td { padding:7px 10px; font-size:12px; border-bottom:1px solid #e2e8f0; vertical-align:middle; }
+.totals-section { display:flex; justify-content:flex-end; margin-top:8px; }
+.totals-table { width:260px; }
+.totals-table td { padding:4px 0; font-size:12px; }
+.totals-table .grand-total td { font-size:15px; font-weight:800; color:#1e40af; border-top:2px solid #1e40af; padding-top:8px; }
+.amount-words { background:#eff6ff; border-left:3px solid #1e40af; padding:8px 12px; border-radius:0 4px 4px 0; margin-top:12px; font-size:11px; color:#1e40af; font-style:italic; }
+.bottom-section { display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:20px; }
+.bank-box { background:#f0fdf4; border:1px solid #bbf7d0; border-radius:6px; padding:12px 14px; }
+.bank-box .bk-title { font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:#15803d; font-weight:700; margin-bottom:6px; }
+.bank-box .bk-row { display:flex; justify-content:space-between; font-size:11px; margin-bottom:3px; }
+.terms-box { background:#fefce8; border:1px solid #fef08a; border-radius:6px; padding:12px 14px; }
+.terms-box .t-title { font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:#854d0e; font-weight:700; margin-bottom:6px; }
+.sig-section { display:grid; grid-template-columns:1fr 1fr; gap:40px; margin-top:24px; }
+.sig-line { border-top:1px solid #cbd5e1; padding-top:6px; font-size:10px; color:#64748b; text-align:center; }
+</style>
+</head><body>
+
+<!-- HEADER -->
+<div class="inv-header">
+  <div style="display:flex;align-items:flex-start;gap:14px;">
+    ${org.logoUrl && /^https?:\/\//.test(org.logoUrl) ? `<img src="${this.esc(org.logoUrl)}" alt="${this.esc(org.name)}" style="max-height:56px;max-width:120px;object-fit:contain;" onerror="this.style.display='none'"/>` : ''}
+    <div>
+      <div style="font-size:22px;font-weight:900;color:#1e40af;letter-spacing:-0.5px;">${this.esc(org.name)}</div>
+      ${addr ? `<div style="color:#64748b;font-size:10px;margin-top:2px;">${this.esc(addr)}</div>` : ''}
+      ${org.phone ? `<div style="color:#64748b;font-size:10px;">Tel: ${this.esc(org.phone)}</div>` : ''}
+      ${org.email ? `<div style="color:#64748b;font-size:10px;">Email: ${this.esc(org.email)}</div>` : ''}
+      ${org.taxId ? `<div style="color:#64748b;font-size:10px;">TIN: ${this.esc(org.taxId)}</div>` : ''}
+    </div>
+  </div>
+  <div style="text-align:right;">
+    <div style="font-size:28px;font-weight:900;color:#1e40af;letter-spacing:1px;">INVOICE</div>
+    <div style="font-size:14px;font-weight:600;color:#475569;margin-top:2px;">${this.esc(String(invoice['reference'] ?? ''))}</div>
+    <div style="margin-top:6px;"><span class="badge" style="${badgeStyle}font-size:11px;padding:4px 12px;">${this.esc(status)}</span></div>
+  </div>
+</div>
+
+<!-- META GRID -->
+<div class="inv-meta">
+  <div class="meta-box">
+    <div class="label">Bill To</div>
+    ${customer
+      ? `<div class="value">${this.esc(customer['firstName'] ?? '')} ${this.esc(customer['lastName'] ?? '')}</div>
+         ${customer['phone'] ? `<div class="sub">Tel: ${this.esc(customer['phone'])}</div>` : ''}
+         ${customer['email'] ? `<div class="sub">Email: ${this.esc(customer['email'])}</div>` : ''}`
+      : `<div class="value">Walk-in Customer</div>`}
+  </div>
+  <div class="meta-box">
+    <div class="label">Invoice Details</div>
+    <table style="width:100%;font-size:11px;"><tbody>
+      <tr><td style="color:#64748b;padding:1px 0;">Invoice No.</td><td style="font-weight:600;text-align:right;">${this.esc(String(invoice['reference'] ?? ''))}</td></tr>
+      <tr><td style="color:#64748b;padding:1px 0;">Invoice Date</td><td style="font-weight:600;text-align:right;">${this.fmtDate(invoice['issuedAt'] ?? invoice['createdAt'])}</td></tr>
+      ${invoice['dueDate'] ? `<tr><td style="color:#64748b;padding:1px 0;">Due Date</td><td style="font-weight:600;text-align:right;">${this.fmtDate(invoice['dueDate'])}</td></tr>` : ''}
+      ${order ? `<tr><td style="color:#64748b;padding:1px 0;">Sales Order</td><td style="font-weight:600;text-align:right;">${this.esc(String(order['reference'] ?? ''))}</td></tr>` : ''}
+      <tr><td style="color:#64748b;padding:1px 0;">Currency</td><td style="font-weight:600;text-align:right;">${this.esc(cur)}</td></tr>
+    </tbody></table>
+  </div>
+</div>
+
+<!-- ITEMS TABLE -->
+<table class="items-table" style="width:100%;border-collapse:collapse;margin-top:4px;">
+  <thead>
+    <tr>
+      <th class="text-center" style="width:36px;">S/N</th>
+      <th>Item / Description</th>
+      <th class="text-center" style="width:48px;">Qty</th>
+      <th class="text-right" style="width:110px;">Unit Price</th>
+      <th class="text-right" style="width:80px;">Discount</th>
+      <th class="text-right" style="width:100px;">Total</th>
+    </tr>
+  </thead>
+  <tbody>${itemRows || `<tr><td colspan="6" style="padding:16px;text-align:center;color:#94a3b8;">No items</td></tr>`}</tbody>
+</table>
+
+<!-- TOTALS -->
+<div class="totals-section">
+  <table class="totals-table">
+    <tbody>
+      <tr><td style="color:#64748b;">Subtotal</td><td class="text-right">${this.fmt(subtotal, cur)}</td></tr>
+      ${discountAmount > 0 ? `<tr><td style="color:#64748b;">Discount</td><td class="text-right" style="color:#dc2626;">-${this.fmt(discountAmount, cur)}</td></tr>` : ''}
+      <tr><td style="color:#64748b;">VAT / Tax</td><td class="text-right">${taxAmount > 0 ? this.fmt(taxAmount, cur) : '—'}</td></tr>
+    </tbody>
+    <tfoot>
+      <tr class="grand-total"><td>Grand Total</td><td class="text-right">${this.fmt(total, cur)}</td></tr>
     </tfoot>
   </table>
+</div>
 
-  ${payments.length > 0 ? `
-  <hr class="divider" />
-  <p class="section-title">Payment History</p>
-  <table>
-    <tbody>${paymentRows}</tbody>
-  </table>` : ''}
+<!-- AMOUNT IN WORDS -->
+<div class="amount-words">
+  <strong>Amount in Words:</strong> ${this.esc(amountWords)}
+</div>
 
-  ${invoice['notes'] ? `
-  <hr class="divider" />
-  <p class="section-title">Notes</p>
-  <p style="color:#64748b;">${String(invoice['notes'])}</p>` : ''}
-
-  ${invoice['terms'] ? `
-  <hr class="divider" />
-  <p class="section-title">Terms & Conditions</p>
-  <p style="color:#64748b;">${String(invoice['terms'])}</p>` : ''}
-
-  <div class="footer">
-    <p>Thank you for your business! | KNEF Gadgets Business OS</p>
+<!-- BANK DETAILS + PAYMENT TERMS -->
+<div class="bottom-section">
+  ${bank ? `
+  <div class="bank-box">
+    <div class="bk-title">Payment / Bank Details</div>
+    <div class="bk-row"><span style="color:#166534;">Bank Name</span><span style="font-weight:600;">${this.esc(bank.bankName)}</span></div>
+    <div class="bk-row"><span style="color:#166534;">Account Name</span><span style="font-weight:600;">${this.esc(bank.accountName)}</span></div>
+    <div class="bk-row"><span style="color:#166534;">Account Number</span><span style="font-weight:700;font-family:monospace;font-size:13px;">${this.esc(bank.accountNumber)}</span></div>
+    ${bank.currency !== cur ? `<div class="bk-row"><span style="color:#166534;">Currency</span><span>${this.esc(bank.currency)}</span></div>` : ''}
+  </div>` : '<div></div>'}
+  <div class="terms-box">
+    <div class="t-title">Payment Terms &amp; Notes</div>
+    <div style="font-size:11px;color:#713f12;line-height:1.5;">
+      ${invoice['terms'] ? this.esc(String(invoice['terms'])) : 'Payment is due by the date specified above.'}
+    </div>
+    ${invoice['notes'] ? `<div style="font-size:10px;color:#64748b;margin-top:6px;border-top:1px solid #fef08a;padding-top:6px;">${this.esc(String(invoice['notes']))}</div>` : ''}
   </div>
-</body>
-</html>`;
+</div>
+
+${payments.length > 0 ? `
+<hr class="divider" style="margin:16px 0;"/>
+<p class="section-title">Payment History</p>
+<table>
+  <thead><tr><th>Method</th><th>Date</th><th class="text-right">Amount</th><th>Reference</th></tr></thead>
+  <tbody>${paymentRows}</tbody>
+</table>
+<div style="margin-top:6px;font-size:11px;display:flex;justify-content:flex-end;gap:24px;">
+  <span style="color:#64748b;">Amount Paid: <strong style="color:#16a34a;">${this.fmt(paid, cur)}</strong></span>
+  <span style="color:#64748b;">Balance Due: <strong style="color:${balance <= 0.001 ? '#16a34a' : '#dc2626'};">${this.fmt(balance, cur)}</strong></span>
+</div>` : ''}
+
+<!-- SIGNATURE LINE -->
+<div class="sig-section">
+  <div class="sig-line">Authorised Signature &amp; Company Stamp</div>
+  <div class="sig-line">Customer Signature &amp; Date</div>
+</div>
+
+<div class="footer">
+  <p>Thank you for your business! | ${this.esc(org.name)}${org.email ? ' | ' + this.esc(org.email) : ''}${org.phone ? ' | ' + this.esc(org.phone) : ''}</p>
+  <p style="margin-top:3px;font-size:9px;">This is a computer-generated document. No signature required unless specified.</p>
+</div>
+</body></html>`;
+  }
+
+  // ── Purchase Order ────────────────────────────────────────────
+
+  private buildPoHtml(
+    po: Record<string, unknown>,
+    org: OrgBranding,
+    approverName: string | null,
+  ): string {
+    const supplier = (po['supplier'] as Record<string, unknown>) ?? {};
+    const location = (po['location'] as Record<string, unknown>) ?? {};
+    const items = (po['items'] as Array<Record<string, unknown>>) ?? [];
+    const cur = org.currency;
+
+    const statusColors: Record<string, string> = {
+      DRAFT: 'background:#f1f5f9;color:#64748b;',
+      SUBMITTED: 'background:#dbeafe;color:#1d4ed8;',
+      APPROVED: 'background:#dcfce7;color:#16a34a;',
+      PARTIALLY_RECEIVED: 'background:#fefce8;color:#ca8a04;',
+      RECEIVED: 'background:#dcfce7;color:#16a34a;',
+      CANCELLED: 'background:#fef2f2;color:#dc2626;',
+      CLOSED: 'background:#f3f4f6;color:#6b7280;',
+    };
+    const status = String(po['status'] ?? 'DRAFT').toUpperCase();
+    const badgeStyle = statusColors[status] ?? 'background:#f1f5f9;color:#64748b;';
+
+    const itemRows = items.map(item => {
+      const prod = (item['product'] as Record<string, unknown>) ?? {};
+      return `<tr>
+        <td>${this.esc(prod['name'] ?? item['description'] ?? 'Item')}</td>
+        <td>${this.esc(prod['sku'] ?? '')}</td>
+        <td class="text-center">${this.esc(item['quantity'] ?? 0)}</td>
+        <td class="text-center" style="color:#64748b;">${this.esc(item['receivedQty'] ?? 0)}</td>
+        <td class="text-right">${this.fmt(item['unitCost'], cur)}</td>
+        ${parseFloat(String(item['taxRate'] ?? '0')) > 0 ? `<td class="text-right">${this.esc(item['taxRate'])}%</td>` : '<td class="text-right">—</td>'}
+        <td class="text-right">${this.fmt(item['totalCost'], cur)}</td>
+      </tr>`;
+    }).join('');
+
+    return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/>
+<style>${this.baseStyles()}</style>
+</head><body>
+<div class="header">
+  ${this.orgHeaderHtml(org)}
+  <div style="text-align:right;">
+    <div class="doc-title">PURCHASE ORDER</div>
+    <div class="doc-ref">${this.esc(po['reference'] ?? '')}</div>
+    <div style="margin-top:6px;"><span class="badge" style="${badgeStyle}">${this.esc(status)}</span></div>
+  </div>
+</div>
+
+<div class="info-grid">
+  <div>
+    <p class="section-title">Supplier</p>
+    <p style="font-weight:600;">${this.esc(supplier['name'] ?? '')}</p>
+    ${supplier['email'] ? `<p style="color:#64748b;">${this.esc(supplier['email'])}</p>` : ''}
+    ${supplier['phone'] ? `<p style="color:#64748b;">${this.esc(supplier['phone'])}</p>` : ''}
+    ${supplier['address'] ? `<p style="color:#64748b;">${this.esc(supplier['address'])}</p>` : ''}
+  </div>
+  <div style="text-align:right;">
+    <p class="section-title">Order Details</p>
+    <p><strong>Date:</strong> ${this.fmtDate(po['createdAt'])}</p>
+    ${po['expectedDate'] ? `<p><strong>Expected:</strong> ${this.fmtDate(po['expectedDate'])}</p>` : ''}
+    <p><strong>Deliver To:</strong> ${this.esc(location['name'] ?? '')}</p>
+    <p><strong>Currency:</strong> ${this.esc(cur)}</p>
+    ${po['approvedAt'] ? `<p><strong>Approved:</strong> ${this.fmtDate(po['approvedAt'])}${approverName ? ` by ${this.esc(approverName)}` : ''}</p>` : ''}
+  </div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Product</th>
+      <th>SKU</th>
+      <th class="text-center">Ordered</th>
+      <th class="text-center">Received</th>
+      <th class="text-right">Unit Cost</th>
+      <th class="text-right">Tax</th>
+      <th class="text-right">Total</th>
+    </tr>
+  </thead>
+  <tbody>${itemRows}</tbody>
+  <tfoot>
+    <tr><td colspan="6" class="text-right" style="color:#64748b;">Subtotal</td><td class="text-right">${this.fmt(po['subtotal'], cur)}</td></tr>
+    ${parseFloat(String(po['taxAmount'] ?? '0')) > 0 ? `<tr><td colspan="6" class="text-right" style="color:#64748b;">Tax</td><td class="text-right">${this.fmt(po['taxAmount'], cur)}</td></tr>` : ''}
+    ${parseFloat(String(po['shippingCost'] ?? '0')) > 0 ? `<tr><td colspan="6" class="text-right" style="color:#64748b;">Shipping</td><td class="text-right">${this.fmt(po['shippingCost'], cur)}</td></tr>` : ''}
+    ${parseFloat(String(po['clearingCost'] ?? '0')) > 0 ? `<tr><td colspan="6" class="text-right" style="color:#64748b;">Clearing</td><td class="text-right">${this.fmt(po['clearingCost'], cur)}</td></tr>` : ''}
+    ${parseFloat(String(po['discountAmount'] ?? '0')) > 0 ? `<tr><td colspan="6" class="text-right" style="color:#64748b;">Discount</td><td class="text-right" style="color:#dc2626;">-${this.fmt(po['discountAmount'], cur)}</td></tr>` : ''}
+    <tr class="total-row" style="border-top:2px solid #1e40af;">
+      <td colspan="6" class="text-right">Total</td>
+      <td class="text-right" style="color:#1e40af;">${this.fmt(po['totalAmount'], cur)}</td>
+    </tr>
+    <tr><td colspan="6" class="text-right" style="color:#64748b;">Amount Paid</td><td class="text-right" style="color:#16a34a;">${this.fmt(po['paidAmount'], cur)}</td></tr>
+    <tr style="font-weight:600;"><td colspan="6" class="text-right">Balance Outstanding</td><td class="text-right" style="color:${parseFloat(String(po['totalAmount'] ?? '0')) - parseFloat(String(po['paidAmount'] ?? '0')) <= 0 ? '#16a34a' : '#dc2626'};">${this.fmt(parseFloat(String(po['totalAmount'] ?? '0')) - parseFloat(String(po['paidAmount'] ?? '0')), cur)}</td></tr>
+  </tfoot>
+</table>
+
+${po['notes'] ? `<hr class="divider"/><p class="section-title">Notes</p><p style="color:#64748b;">${this.esc(po['notes'])}</p>` : ''}
+${po['cancelReason'] ? `<hr class="divider"/><p class="section-title">Cancellation Reason</p><p style="color:#dc2626;">${this.esc(po['cancelReason'])}</p>` : ''}
+
+<div class="footer">
+  <p>${this.esc(org.name)} | ${org.email ? this.esc(org.email) : ''} | ${org.phone ? this.esc(org.phone) : ''}</p>
+</div>
+</body></html>`;
+  }
+
+  // ── Goods Received Note ───────────────────────────────────────
+
+  private buildGrnHtml(
+    grn: Record<string, unknown>,
+    org: OrgBranding,
+    receivedByName: string | null,
+  ): string {
+    const po = (grn['purchaseOrder'] as Record<string, unknown>) ?? {};
+    const supplier = (po['supplier'] as Record<string, unknown>) ?? {};
+    const location = (po['location'] as Record<string, unknown>) ?? {};
+    const items = (grn['items'] as Array<Record<string, unknown>>) ?? [];
+    const cur = org.currency;
+
+    const itemRows = items.map(item => {
+      const ordered = Number(item['quantityOrdered'] ?? 0);
+      const received = Number(item['quantityReceived'] ?? 0);
+      const discrepancy = received - ordered;
+      const discColor = discrepancy < 0 ? 'color:#dc2626;' : discrepancy > 0 ? 'color:#ca8a04;' : 'color:#16a34a;';
+      return `<tr>
+        <td>${this.esc(item['productId'] ?? '')}</td>
+        <td class="text-center">${ordered}</td>
+        <td class="text-center">${received}</td>
+        <td class="text-center" style="${discColor};font-weight:600;">${discrepancy >= 0 ? '+' : ''}${discrepancy}</td>
+        <td class="text-right">${this.fmt(item['unitCost'], cur)}</td>
+        ${item['notes'] ? `<td>${this.esc(item['notes'])}</td>` : '<td style="color:#94a3b8;">—</td>'}
+      </tr>`;
+    }).join('');
+
+    return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/>
+<style>${this.baseStyles()}</style>
+</head><body>
+<div class="header">
+  ${this.orgHeaderHtml(org)}
+  <div style="text-align:right;">
+    <div class="doc-title">GOODS RECEIVED NOTE</div>
+    <div class="doc-ref">${this.esc(grn['reference'] ?? '')}</div>
+    <div style="margin-top:6px;"><span class="badge" style="background:#dcfce7;color:#16a34a;">RECEIVED</span></div>
+  </div>
+</div>
+
+<div class="info-grid">
+  <div>
+    <p class="section-title">Supplier</p>
+    <p style="font-weight:600;">${this.esc(supplier['name'] ?? '')}</p>
+    ${supplier['email'] ? `<p style="color:#64748b;">${this.esc(supplier['email'])}</p>` : ''}
+    ${supplier['phone'] ? `<p style="color:#64748b;">${this.esc(supplier['phone'])}</p>` : ''}
+  </div>
+  <div style="text-align:right;">
+    <p class="section-title">Receipt Details</p>
+    <p><strong>GRN:</strong> ${this.esc(grn['reference'] ?? '')}</p>
+    <p><strong>PO:</strong> ${this.esc(po['reference'] ?? '')}</p>
+    <p><strong>Date:</strong> ${this.fmtDate(grn['receivedAt'])}</p>
+    <p><strong>Location:</strong> ${this.esc(location['name'] ?? '')}</p>
+    ${receivedByName ? `<p><strong>Received By:</strong> ${this.esc(receivedByName)}</p>` : ''}
+  </div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Product</th>
+      <th class="text-center">Ordered</th>
+      <th class="text-center">Received</th>
+      <th class="text-center">Discrepancy</th>
+      <th class="text-right">Unit Cost</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>${itemRows}</tbody>
+</table>
+
+${grn['notes'] ? `<hr class="divider"/><p class="section-title">Notes</p><p style="color:#64748b;">${this.esc(grn['notes'])}</p>` : ''}
+
+<div class="footer">
+  <p>${this.esc(org.name)} | Goods Received Note | ${this.fmtDate(grn['receivedAt'])}</p>
+</div>
+</body></html>`;
+  }
+
+  // ── Sales Receipt (A4) ────────────────────────────────────────
+
+  private buildReceiptHtml(receipt: Record<string, unknown>, org: OrgBranding): string {
+    const customer = (receipt['customer'] as Record<string, string> | null) ?? null;
+    const invoice = (receipt['invoice'] as Record<string, unknown> | null) ?? null;
+    const items = invoice
+      ? ((invoice['items'] as Array<Record<string, unknown>>) ?? [])
+      : [];
+    const cur = org.currency;
+
+    const itemRows = items.map(item => `
+      <tr>
+        <td>${this.esc(item['description'] ?? item['productId'] ?? 'Item')}</td>
+        <td class="text-center">${this.esc(item['quantity'] ?? 1)}</td>
+        <td class="text-right">${this.fmt(item['unitPrice'], cur)}</td>
+        <td class="text-right">${this.fmt(item['totalPrice'], cur)}</td>
+      </tr>`).join('');
+
+    return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/>
+<style>
+${this.baseStyles()}
+@media print { body { -webkit-print-color-adjust: exact; } }
+</style>
+</head><body>
+<div class="header">
+  ${this.orgHeaderHtml(org)}
+  <div style="text-align:right;">
+    <div class="doc-title">RECEIPT</div>
+    <div class="doc-ref">${this.esc(receipt['reference'] ?? '')}</div>
+  </div>
+</div>
+
+<div class="info-grid">
+  <div>
+    <p class="section-title">Customer</p>
+    ${customer
+      ? `<p style="font-weight:600;">${this.esc(customer['firstName'] ?? '')} ${this.esc(customer['lastName'] ?? '')}</p>
+         ${customer['phone'] ? `<p style="color:#64748b;">${this.esc(customer['phone'])}</p>` : ''}
+         ${customer['email'] ? `<p style="color:#64748b;">${this.esc(customer['email'])}</p>` : ''}`
+      : '<p style="color:#94a3b8;">Walk-in customer</p>'}
+  </div>
+  <div style="text-align:right;">
+    <p class="section-title">Payment Details</p>
+    <p><strong>Date:</strong> ${this.fmtDate(receipt['issuedAt'])}</p>
+    <p><strong>Method:</strong> ${this.esc(receipt['method'] ?? '')}</p>
+    ${invoice ? `<p><strong>Invoice:</strong> ${this.esc((invoice as Record<string, unknown>)['reference'] ?? '')}</p>` : ''}
+    <p><strong>Currency:</strong> ${this.esc(cur)}</p>
+  </div>
+</div>
+
+${items.length > 0 ? `
+<table>
+  <thead>
+    <tr>
+      <th>Description</th>
+      <th class="text-center">Qty</th>
+      <th class="text-right">Unit Price</th>
+      <th class="text-right">Total</th>
+    </tr>
+  </thead>
+  <tbody>${itemRows}</tbody>
+</table>
+<br/>` : ''}
+
+<div style="background:#f8fafc;border-radius:8px;padding:16px;margin-top:16px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <span style="font-size:16px;font-weight:700;">Amount Received</span>
+    <span style="font-size:20px;font-weight:900;color:#1e40af;">${this.fmt(receipt['amount'], cur)}</span>
+  </div>
+  <div style="margin-top:8px;color:#64748b;font-size:12px;">Payment Method: ${this.esc(receipt['method'] ?? '')}</div>
+</div>
+
+${receipt['notes'] ? `<hr class="divider"/><p class="section-title">Notes</p><p style="color:#64748b;">${this.esc(receipt['notes'])}</p>` : ''}
+
+<div class="footer">
+  <p>Thank you for your payment! | ${this.esc(org.name)}</p>
+  ${org.phone ? `<p>${this.esc(org.phone)}</p>` : ''}
+</div>
+</body></html>`;
+  }
+
+  // ── Thermal Receipt ───────────────────────────────────────────
+
+  private buildThermalHtml(receipt: Record<string, unknown>, org: OrgBranding): string {
+    const customer = (receipt['customer'] as Record<string, string> | null) ?? null;
+    const invoice = (receipt['invoice'] as Record<string, unknown> | null) ?? null;
+    const items = invoice
+      ? ((invoice['items'] as Array<Record<string, unknown>>) ?? [])
+      : [];
+    const cur = org.currency;
+
+    const sep = '--------------------------------';
+    const itemLines = items.map(item => {
+      const name = String(item['description'] ?? item['productId'] ?? 'Item').slice(0, 20);
+      const qty = String(item['quantity'] ?? 1);
+      const total = this.fmt(item['totalPrice'], cur);
+      const pad = Math.max(0, 32 - name.length - qty.length - total.length - 2);
+      return `<div style="display:flex;justify-content:space-between;"><span>${this.esc(name)} ×${qty}</span><span>${this.esc(total)}</span></div>`;
+    }).join('');
+
+    return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
+  color: #000;
+  width: 302px;
+  padding: 8px;
+}
+.center { text-align: center; }
+.sep { border-top: 1px dashed #000; margin: 6px 0; }
+.total-line { font-size: 16px; font-weight: bold; display: flex; justify-content: space-between; margin: 8px 0; }
+@media print {
+  @page { size: 80mm auto; margin: 0; }
+  body { width: 80mm; }
+}
+</style>
+</head><body>
+<div class="center" style="font-size:15px;font-weight:bold;margin-bottom:4px;">${this.esc(org.name)}</div>
+${org.address ? `<div class="center" style="font-size:10px;color:#444;">${this.esc(org.address)}</div>` : ''}
+${org.phone ? `<div class="center" style="font-size:10px;">${this.esc(org.phone)}</div>` : ''}
+<div class="sep"></div>
+<div class="center" style="font-size:13px;font-weight:bold;">RECEIPT</div>
+<div class="center" style="font-size:10px;">${this.esc(receipt['reference'] ?? '')}</div>
+<div class="center" style="font-size:10px;">${this.fmtDate(receipt['issuedAt'])}</div>
+<div class="sep"></div>
+${customer ? `<div>${this.esc(customer['firstName'] ?? '')} ${this.esc(customer['lastName'] ?? '')}</div>
+${customer['phone'] ? `<div style="font-size:10px;color:#444;">${this.esc(customer['phone'])}</div>` : ''}` : '<div style="color:#666;">Walk-in</div>'}
+<div class="sep"></div>
+${itemLines}
+<div class="sep"></div>
+<div class="total-line">
+  <span>TOTAL</span>
+  <span>${this.esc(this.fmt(receipt['amount'], cur))}</span>
+</div>
+<div style="display:flex;justify-content:space-between;font-size:11px;">
+  <span>Method</span><span>${this.esc(receipt['method'] ?? '')}</span>
+</div>
+<div class="sep"></div>
+<div class="center" style="font-size:10px;margin-top:8px;">Thank you for your business!</div>
+<div class="center" style="font-size:10px;">${this.esc(org.name)}</div>
+</body></html>`;
+  }
+
+  // ── Customer Statement ────────────────────────────────────────
+
+  private buildStatementHtml(statement: Record<string, unknown>, org: OrgBranding): string {
+    const customer = (statement['customer'] as Record<string, unknown>) ?? {};
+    const invoices = (statement['invoices'] as Array<Record<string, unknown>>) ?? [];
+    const payments = (statement['payments'] as Array<Record<string, unknown>>) ?? [];
+    const refunds = (statement['refunds'] as Array<Record<string, unknown>>) ?? [];
+    const summary = (statement['summary'] as Record<string, unknown>) ?? {};
+    const dateRange = (statement['dateRange'] as Record<string, unknown>) ?? {};
+    const cur = org.currency;
+
+    const invoiceRows = invoices.map(inv => `
+      <tr>
+        <td>${this.esc(inv['reference'] ?? '')}</td>
+        <td>${this.fmtDate(inv['issuedAt'])}</td>
+        <td>${this.fmtDate(inv['dueDate'])}</td>
+        <td><span class="badge" style="background:#f1f5f9;color:#64748b;">${this.esc(inv['status'] ?? '')}</span></td>
+        <td class="text-right">${this.fmt(inv['totalAmount'], cur)}</td>
+        <td class="text-right" style="color:#16a34a;">${this.fmt(inv['paidAmount'], cur)}</td>
+      </tr>`).join('');
+
+    const paymentRows = payments.map(p => `
+      <tr>
+        <td>${this.esc(p['reference'] ?? '')}</td>
+        <td>${this.fmtDate(p['receivedAt'])}</td>
+        <td>${this.esc(p['method'] ?? '')}</td>
+        <td class="text-right" style="color:#16a34a;">${this.fmt(p['amount'], cur)}</td>
+      </tr>`).join('');
+
+    const refundRows = refunds.map(r => `
+      <tr>
+        <td>${this.esc(r['reference'] ?? '')}</td>
+        <td>${this.fmtDate(r['receivedAt'])}</td>
+        <td>${this.esc(r['method'] ?? '')}</td>
+        <td class="text-right" style="color:#dc2626;">(${this.fmt(r['amount'], cur)})</td>
+      </tr>`).join('');
+
+    const balance = Number(summary['outstandingBalance'] ?? 0);
+    const balanceColor = balance <= 0 ? '#16a34a' : '#dc2626';
+
+    return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/>
+<style>${this.baseStyles()}</style>
+</head><body>
+<div class="header">
+  ${this.orgHeaderHtml(org)}
+  <div style="text-align:right;">
+    <div class="doc-title">ACCOUNT STATEMENT</div>
+    <div class="doc-ref">${this.esc(customer['code'] ?? customer['id'] ?? '')}</div>
+    <div style="margin-top:6px;font-size:11px;color:#64748b;">
+      ${dateRange['start'] ? `${this.fmtDate(dateRange['start'])} – ${this.fmtDate(dateRange['end'])}` : 'All dates'}
+    </div>
+  </div>
+</div>
+
+<div class="info-grid">
+  <div>
+    <p class="section-title">Customer</p>
+    <p style="font-weight:600;">${this.esc(customer['firstName'] ?? '')} ${this.esc(customer['lastName'] ?? '')}</p>
+    ${customer['phone'] ? `<p style="color:#64748b;">${this.esc(customer['phone'])}</p>` : ''}
+    ${customer['email'] ? `<p style="color:#64748b;">${this.esc(customer['email'])}</p>` : ''}
+  </div>
+  <div style="text-align:right;">
+    <p class="section-title">Summary</p>
+    <p><strong>Total Billed:</strong> ${this.fmt(summary['totalBilled'], cur)}</p>
+    <p><strong>Total Paid:</strong> <span style="color:#16a34a;">${this.fmt(summary['totalPaid'], cur)}</span></p>
+    ${Number(summary['totalRefunded'] ?? 0) > 0 ? `<p><strong>Total Refunded:</strong> <span style="color:#dc2626;">(${this.fmt(summary['totalRefunded'], cur)})</span></p>` : ''}
+    <p style="font-weight:700;font-size:14px;"><strong>Balance Due:</strong> <span style="color:${balanceColor};">${this.fmt(balance, cur)}</span></p>
+  </div>
+</div>
+
+${invoices.length > 0 ? `
+<p class="section-title">Invoices</p>
+<table>
+  <thead>
+    <tr>
+      <th>Reference</th>
+      <th>Date</th>
+      <th>Due Date</th>
+      <th>Status</th>
+      <th class="text-right">Amount</th>
+      <th class="text-right">Paid</th>
+    </tr>
+  </thead>
+  <tbody>${invoiceRows}</tbody>
+</table>
+<br/>` : ''}
+
+${payments.length > 0 ? `
+<p class="section-title">Payments Received</p>
+<table>
+  <thead>
+    <tr><th>Reference</th><th>Date</th><th>Method</th><th class="text-right">Amount</th></tr>
+  </thead>
+  <tbody>${paymentRows}</tbody>
+</table>
+<br/>` : ''}
+
+${refunds.length > 0 ? `
+<p class="section-title">Refunds</p>
+<table>
+  <thead>
+    <tr><th>Reference</th><th>Date</th><th>Method</th><th class="text-right">Amount</th></tr>
+  </thead>
+  <tbody>${refundRows}</tbody>
+</table>` : ''}
+
+<div class="footer">
+  <p>Statement generated by ${this.esc(org.name)} | ${this.fmtDate(new Date())}</p>
+  ${org.email ? `<p>${this.esc(org.email)}</p>` : ''}
+</div>
+</body></html>`;
+  }
+
+  // ── Public API ────────────────────────────────────────────────
+
+  async generateInvoicePdf(invoice: Record<string, unknown>, organizationId?: string): Promise<Buffer> {
+    const org = organizationId
+      ? await this.getOrg(organizationId)
+      : { name: 'Business', address: null, city: null, state: null, country: 'Nigeria', phone: null, email: null, taxId: null, logoUrl: null, currency: 'NGN' };
+    const bank = organizationId ? await this.getBankDetails(organizationId) : null;
+    const html = this.buildInvoiceHtml(invoice, org, bank);
+    return this.renderPdf(html);
+  }
+
+  async generatePoPdf(po: Record<string, unknown>, organizationId: string): Promise<Buffer> {
+    const [org, approverName] = await Promise.all([
+      this.getOrg(organizationId),
+      this.getUserName(po['approvedBy'] as string | null),
+    ]);
+    const html = this.buildPoHtml(po, org, approverName);
+    return this.renderPdf(html);
+  }
+
+  async generateGrnPdf(grn: Record<string, unknown>, organizationId: string): Promise<Buffer> {
+    const [org, receivedByName] = await Promise.all([
+      this.getOrg(organizationId),
+      this.getUserName(grn['receivedBy'] as string | null),
+    ]);
+    const html = this.buildGrnHtml(grn, org, receivedByName);
+    return this.renderPdf(html);
+  }
+
+  async generateReceiptPdf(receipt: Record<string, unknown>, organizationId: string): Promise<Buffer> {
+    const org = await this.getOrg(organizationId);
+    const html = this.buildReceiptHtml(receipt, org);
+    return this.renderPdf(html);
+  }
+
+  async generateThermalReceiptHtml(receipt: Record<string, unknown>, organizationId: string): Promise<string> {
+    const org = await this.getOrg(organizationId);
+    return this.buildThermalHtml(receipt, org);
+  }
+
+  async generateStatementPdf(statement: Record<string, unknown>, organizationId: string): Promise<Buffer> {
+    const org = await this.getOrg(organizationId);
+    const html = this.buildStatementHtml(statement, org);
+    return this.renderPdf(html);
   }
 }

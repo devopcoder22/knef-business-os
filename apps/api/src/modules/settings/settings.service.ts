@@ -72,4 +72,29 @@ export class SettingsService {
     });
     return setting?.value ?? null;
   }
+
+  async upsertMany(
+    organizationId: string,
+    entries: Array<{ key: string; value: string; label: string; group: string; type?: string; isPublic?: boolean }>,
+    userId: string,
+  ) {
+    const results = await Promise.all(
+      entries.map(({ key, value, label, group, type = 'string', isPublic = true }) =>
+        this.prisma.systemSetting.upsert({
+          where: { organizationId_key: { organizationId, key } },
+          create: { organizationId, key, value, label, group, type, isPublic, updatedBy: userId },
+          update: { value, updatedBy: userId },
+        }),
+      ),
+    );
+    return { data: results };
+  }
+
+  async findByGroup(organizationId: string, group: string) {
+    const settings = await this.prisma.systemSetting.findMany({
+      where: { organizationId, group },
+      select: { key: true, value: true, label: true, type: true, isPublic: true },
+    });
+    return { data: settings };
+  }
 }

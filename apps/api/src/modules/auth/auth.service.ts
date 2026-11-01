@@ -15,6 +15,7 @@ import * as qrcode from 'qrcode';
 import { createId } from '@paralleldrive/cuid2';
 import { PrismaService } from '../../common/services/prisma.service';
 import { RedisService } from '../../common/services/redis.service';
+import { AuditService } from '../audit/audit.service';
 import { hashToken, generateSecureToken } from '@knef/utils';
 import type { JwtPayload, AuthUser, LoginResponse, RefreshResponse } from '@knef/types';
 import { EVENTS } from '@knef/constants';
@@ -38,6 +39,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly audit: AuditService,
   ) {}
 
   // ─── Validate local strategy ────────────────────────────────────────────────
@@ -68,6 +70,15 @@ export class AuthService {
       const newAttempts = await this.redis.incr(lockoutKey);
       await this.redis.expire(lockoutKey, LOCKOUT_TTL_SECONDS);
       this.logger.warn(`Failed login attempt ${newAttempts} for ${email}`);
+
+      await this.audit.log({
+        organizationId: user.organizationId,
+        userId: user.id,
+        action: 'LOGIN_FAILED',
+        entity: 'User',
+        entityId: user.id,
+        metadata: { email: user.email, attemptCount: newAttempts },
+      }).catch(() => {});
 
       if (newAttempts >= LOCKOUT_MAX_ATTEMPTS) {
         this.eventEmitter.emit(EVENTS.USER.LOCKED, { userId: user.id, email });
@@ -121,17 +132,21 @@ export class AuthService {
     firstName: string,
     lastName: string,
   ): Promise<AuthUser> {
-    // Get roles
-    const userRoles = await this.prisma.userRole.findMany({
-      where: { userId },
-      include: {
-        role: {
-          include: { permissions: true },
-        },
-      },
-    });
+    // Get roles and mustChangePassword flag in parallel
+    const [userRoles, userRecord, overrides] = await Promise.all([
+      this.prisma.userRole.findMany({
+        where: { userId },
+        include: { role: { include: { permissions: true } } },
+      }),
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { mustChangePassword: true },
+      }),
+      this.prisma.userPermissionOverride.findMany({ where: { userId } }),
+    ]);
 
     const roles = [...new Set(userRoles.map((ur) => ur.role.name))];
+    const isSuperAdmin = roles.includes('SUPER_ADMIN');
     const locationIds = userRoles
       .filter((ur) => ur.locationId !== null)
       .map((ur) => ur.locationId as string);
@@ -143,11 +158,6 @@ export class AuthService {
         rolePerms.add(rp.permission);
       }
     }
-
-    // Get user permission overrides
-    const overrides = await this.prisma.userPermissionOverride.findMany({
-      where: { userId },
-    });
 
     // Apply overrides: granted = add, denied = remove
     const finalPerms = new Set(rolePerms);
@@ -167,7 +177,9 @@ export class AuthService {
       lastName,
       roles,
       permissions: Array.from(finalPerms),
-      locationIds: locationIds.length > 0 ? locationIds : null,
+      // SUPER_ADMIN always gets org-wide access regardless of location assignments
+      locationIds: isSuperAdmin ? null : (locationIds.length > 0 ? locationIds : null),
+      mustChangePassword: userRecord?.mustChangePassword ?? false,
     };
   }
 
@@ -199,6 +211,15 @@ export class AuthService {
     });
 
     this.eventEmitter.emit(EVENTS.USER.LOGIN, { userId: user.id, email: user.email });
+
+    this.audit.log({
+      organizationId: user.organizationId,
+      userId: user.id,
+      action: 'LOGIN',
+      entity: 'User',
+      entityId: user.id,
+      metadata: { email: user.email },
+    }).catch(() => {});
 
     return {
       user,
@@ -260,9 +281,24 @@ export class AuthService {
 
   async logout(rawToken: string): Promise<void> {
     const tokenHash = hashToken(rawToken);
+    const stored = await this.prisma.refreshToken
+      .findUnique({ where: { tokenHash }, include: { user: { select: { id: true, organizationId: true, email: true } } } })
+      .catch(() => null);
+
     await this.prisma.refreshToken
       .delete({ where: { tokenHash } })
       .catch(() => {}); // Ignore if already deleted
+
+    if (stored?.user) {
+      this.audit.log({
+        organizationId: stored.user.organizationId,
+        userId: stored.user.id,
+        action: 'LOGOUT',
+        entity: 'User',
+        entityId: stored.user.id,
+        metadata: { email: stored.user.email },
+      }).catch(() => {});
+    }
   }
 
   async logoutAll(userId: string): Promise<void> {
@@ -369,8 +405,14 @@ export class AuthService {
       },
     });
 
-    // TODO-PHASE1: Send email with reset link
-    this.logger.log(`Password reset token generated for ${email} (not sent — SMTP not configured in Phase 0)`);
+    this.eventEmitter.emit(EVENTS.USER.PASSWORD_RESET_REQUESTED, {
+      userId: user.id,
+      organizationId: user.organizationId,
+      email: user.email,
+      firstName: user.firstName ?? null,
+      token, // plaintext — used by listener to construct the reset URL
+      expires,
+    });
   }
 
   // ─── Reset password ──────────────────────────────────────────────────────────
@@ -399,6 +441,7 @@ export class AuthService {
         resetPasswordToken: null,
         resetPasswordExpires: null,
         passwordChangedAt: new Date(),
+        mustChangePassword: false,
       },
     });
 
@@ -423,7 +466,7 @@ export class AuthService {
 
     await this.prisma.user.update({
       where: { id: userId },
-      data: { passwordHash, passwordChangedAt: new Date() },
+      data: { passwordHash, passwordChangedAt: new Date(), mustChangePassword: false },
     });
 
     await this.logoutAll(userId);

@@ -140,8 +140,8 @@ function ApprovalsContent() {
   const { data: pending, isLoading: pendingLoading } = useQuery<Approval[]>({
     queryKey: ['ai-approvals-pending'],
     queryFn: async () => {
-      const res = await api().get<Approval[]>('/ai/approvals');
-      return res.data;
+      const res = await api().get<{ data: Approval[] }>('/ai/approvals');
+      return res.data.data;
     },
   });
 

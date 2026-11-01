@@ -12,12 +12,17 @@ import {
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiSecurity } from '@nestjs/swagger';
 import { Request } from 'express';
 import { EcommerceService } from './ecommerce.service';
+import { SettingsService } from '../settings/settings.service';
+import { TestimonialService } from '../testimonials/testimonial.service';
 import { ApiKeyGuard } from '../../common/guards/api-key.guard';
+import { ApiKeyScopeGuard } from '../../common/guards/api-key-scope.guard';
+import { RequireApiScope } from '../../common/decorators/require-api-scope.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
+import { Public } from '../../common/decorators/public.decorator';
 import { PERMISSIONS } from '@knef/constants';
 import type { AuthUser } from '@knef/types';
-import type { PublicProductsQueryDto } from './dto/public-products-query.dto';
+import { PublicProductsQueryDto } from './dto/public-products-query.dto';
 import { CreatePublicOrderDto } from './dto/create-public-order.dto';
 import { CreateApiKeyDto } from './dto/create-api-key.dto';
 import type { ListEcommerceOrdersDto } from './dto/list-ecommerce-orders.dto';
@@ -31,12 +36,18 @@ interface ApiKeyRequest extends Request {
 
 @ApiTags('ecommerce-public')
 @ApiSecurity('x-api-key')
-@UseGuards(ApiKeyGuard)
+@Public() // JWT guard skips this controller; ApiKeyGuard handles auth
+@UseGuards(ApiKeyGuard, ApiKeyScopeGuard)
 @Controller('ecommerce/public')
 export class EcommercePublicController {
-  constructor(private readonly ecommerceService: EcommerceService) {}
+  constructor(
+    private readonly ecommerceService: EcommerceService,
+    private readonly settingsService: SettingsService,
+    private readonly testimonialService: TestimonialService,
+  ) {}
 
   @Get('products')
+  @RequireApiScope('products:read')
   @ApiOperation({ summary: 'List active products (public)' })
   getProducts(
     @Req() req: ApiKeyRequest,
@@ -46,6 +57,7 @@ export class EcommercePublicController {
   }
 
   @Get('products/:id')
+  @RequireApiScope('products:read')
   @ApiOperation({ summary: 'Get a single active product (public)' })
   getProduct(
     @Req() req: ApiKeyRequest,
@@ -55,12 +67,14 @@ export class EcommercePublicController {
   }
 
   @Get('categories')
+  @RequireApiScope('products:read')
   @ApiOperation({ summary: 'Get category tree (public)' })
   getCategories(@Req() req: ApiKeyRequest) {
     return this.ecommerceService.getPublicCategories(req.organizationId);
   }
 
   @Get('search')
+  @RequireApiScope('products:read')
   @ApiOperation({ summary: 'Full-text product search (public)' })
   searchProducts(
     @Req() req: ApiKeyRequest,
@@ -77,6 +91,7 @@ export class EcommercePublicController {
   }
 
   @Post('orders')
+  @RequireApiScope('sales:write')
   @ApiOperation({ summary: 'Create online order (public)' })
   createOrder(
     @Req() req: ApiKeyRequest,
@@ -86,6 +101,7 @@ export class EcommercePublicController {
   }
 
   @Get('orders/:reference')
+  @RequireApiScope('sales:read')
   @ApiOperation({ summary: 'Get order status (public, email verification)' })
   getOrder(
     @Req() req: ApiKeyRequest,
@@ -96,6 +112,7 @@ export class EcommercePublicController {
   }
 
   @Get('inventory')
+  @RequireApiScope('inventory:read')
   @ApiOperation({ summary: 'Get inventory levels (public)' })
   getInventory(
     @Req() req: ApiKeyRequest,
@@ -103,6 +120,20 @@ export class EcommercePublicController {
     @Query('locationId') locationId?: string,
   ) {
     return this.ecommerceService.getPublicInventory(req.organizationId, productIds, locationId);
+  }
+
+  @Get('settings')
+  @RequireApiScope('products:read')
+  @ApiOperation({ summary: 'Get public storefront settings' })
+  getStorefrontSettings(@Req() req: ApiKeyRequest) {
+    return this.settingsService.findByGroup(req.organizationId, 'storefront');
+  }
+
+  @Get('testimonials')
+  @RequireApiScope('products:read')
+  @ApiOperation({ summary: 'Get active testimonials (public)' })
+  getTestimonials(@Req() req: ApiKeyRequest) {
+    return this.testimonialService.listPublic(req.organizationId);
   }
 }
 

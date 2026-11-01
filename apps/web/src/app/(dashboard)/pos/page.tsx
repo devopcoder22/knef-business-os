@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Search, Plus, Minus, Trash2, ShoppingCart, X, CheckCircle, Printer } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, ShoppingCart, X, CheckCircle, Printer, UserPlus } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -46,6 +46,10 @@ interface CartItem {
   unitPrice: number;
   costPrice: number;
   discountRate: number;
+  // Serialized unit fields (only set when isSerialized and unit scanned)
+  unitId?: string;
+  imei1?: string;
+  locationId?: string;
 }
 
 interface PaymentSplit {
@@ -65,7 +69,39 @@ interface ReceiptData {
   timestamp: string;
 }
 
-const PAYMENT_METHODS = ['CASH', 'CARD', 'BANK_TRANSFER', 'POS_TERMINAL', 'USSD'];
+interface LookupResult {
+  type: 'PRODUCT' | 'VARIANT' | 'SERIALIZED_UNIT';
+  product: {
+    id: string;
+    name: string;
+    sku: string;
+    sellingPrice: unknown;
+    costPrice: unknown;
+    isSerialized: boolean;
+    hasVariants: boolean;
+  };
+  variant?: {
+    id: string;
+    name: string;
+    sku: string;
+    sellingPrice?: string;
+  };
+  unit?: {
+    id: string;
+    imei1: string;
+    imei2: string | null;
+    serialNumber: string | null;
+    status: string;
+    locationId: string | null;
+  };
+}
+
+const PAYMENT_METHODS: { value: string; label: string }[] = [
+  { value: 'CASH', label: 'Cash' },
+  { value: 'POS_CARD', label: 'Card / POS' },
+  { value: 'BANK_TRANSFER', label: 'Bank Transfer' },
+  { value: 'MOBILE_MONEY', label: 'Mobile Money' },
+];
 
 // ---- Receipt Modal ----
 function ReceiptModal({ receipt, onClose }: { receipt: ReceiptData; onClose: () => void }) {
@@ -151,6 +187,99 @@ function ReceiptModal({ receipt, onClose }: { receipt: ReceiptData; onClose: () 
           <div className="text-center text-xs text-gray-400 pt-3 border-t border-dashed border-gray-300">
             Thank you for shopping at KNEF Gadgets!
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- Quick Add Customer Modal ----
+const COUNTRIES = ['Nigeria','Ghana','Kenya','South Africa','United Kingdom','United States','Canada','UAE','India','Other'];
+
+function QuickAddCustomerModal({
+  onCreated,
+  onClose,
+}: {
+  onCreated: (id: string, name: string) => void;
+  onClose: () => void;
+}) {
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [country, setCountry] = useState('Nigeria');
+  const [error, setError] = useState('');
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const res = await api().post('/customers', {
+        firstName,
+        lastName,
+        phone,
+        email: email || undefined,
+        country: country || undefined,
+        notes: companyName ? `Company: ${companyName}` : undefined,
+      });
+      return (res.data as any).data.id as string;
+    },
+    onSuccess: (id) => onCreated(id, `${firstName} ${lastName}`),
+    onError: (err: any) => {
+      const msg = err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to create customer';
+      setError(Array.isArray(msg) ? msg.join(', ') : msg);
+    },
+  });
+
+  const handleSubmit = () => {
+    if (!firstName.trim() || !lastName.trim() || !phone.trim()) {
+      setError('First name, last name and phone are required');
+      return;
+    }
+    setError('');
+    mutation.mutate();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl max-w-md w-full shadow-2xl p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-gray-900">New Customer</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="col-span-2">
+            <label className="block text-xs font-medium text-gray-700 mb-1">Company Name <span className="text-gray-400">(optional)</span></label>
+            <input type="text" value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="e.g. Acme Ltd." className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">First Name *</label>
+            <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Last Name *</label>
+            <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Phone *</label>
+            <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+2348..." className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Email</label>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div className="col-span-2">
+            <label className="block text-xs font-medium text-gray-700 mb-1">Country</label>
+            <select value={country} onChange={(e) => setCountry(e.target.value)} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+              {COUNTRIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+        </div>
+        {error && <p className="text-xs text-red-500">{error}</p>}
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
+          <button onClick={handleSubmit} disabled={mutation.isPending} className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+            {mutation.isPending ? 'Creating...' : 'Create Customer'}
+          </button>
         </div>
       </div>
     </div>
@@ -307,10 +436,39 @@ function CloseSessionModal({
   );
 }
 
+// ---- Barcode scanner hook ----
+function useBarcodeScanner(onScan: (code: string) => void) {
+  const bufferRef = useRef('');
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        const code = bufferRef.current.trim();
+        bufferRef.current = '';
+        if (timerRef.current) clearTimeout(timerRef.current);
+        if (code.length >= 4) onScan(code);
+        return;
+      }
+      if (e.key.length === 1) {
+        bufferRef.current += e.key;
+        if (timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(() => { bufferRef.current = ''; }, 100);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onScan]);
+
+  return { focus: () => inputRef.current?.focus(), inputRef };
+}
+
 // ---- Main POS Page ----
 export default function POSPage() {
   const queryClient = useQueryClient();
   const searchRef = useRef<HTMLInputElement>(null);
+  const scanPendingRef = useRef(false);
 
   // Session state
   const [showOpenModal, setShowOpenModal] = useState(false);
@@ -323,32 +481,45 @@ export default function POSPage() {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [selectedCustomerName, setSelectedCustomerName] = useState('');
 
+  // Scanner feedback
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [scanSuccess, setScanSuccess] = useState<string | null>(null);
+
   // Payment state
   const [showPaymentScreen, setShowPaymentScreen] = useState(false);
   const [payments, setPayments] = useState<PaymentSplit[]>([{ method: 'CASH', amount: '' }]);
+  const [saleError, setSaleError] = useState<string | null>(null);
 
   // Receipt
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
 
+  // New customer modal
+  const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
+
   // --- Queries ---
-  const { data: sessionData, isLoading: sessionLoading } = useQuery<POSSession>({
+  const { data: sessionData, isLoading: sessionLoading } = useQuery<POSSession | null>({
     queryKey: ['pos-current-session'],
     queryFn: async () => {
-      const res = await api().get<POSSession>('/pos/sessions/current');
-      return res.data;
+      try {
+        const res = await api().get<{ data: POSSession }>('/pos/sessions/current');
+        return res.data.data;
+      } catch (err: any) {
+        if (err?.response?.status === 404) return null;
+        throw err;
+      }
     },
     retry: false,
   });
   const session = sessionData;
 
   const { data: locationsData } = useQuery<{ data: Location[] }>({
-    queryKey: ['locations-list'],
+    queryKey: ['locations-accessible'],
     queryFn: async () => {
-      const res = await api().get<{ data: Location[] }>('/locations?limit=100');
-      return res.data;
+      const res = await api().get('/locations/accessible');
+      return ((res.data as any)?.data ?? res.data) as { data: Location[] };
     },
   });
-  const locations = locationsData?.data ?? [];
+  const locations = Array.isArray(locationsData) ? locationsData : (locationsData?.data ?? []);
 
   const { data: productsData } = useQuery<ProductsResponse>({
     queryKey: ['pos-products', productSearch],
@@ -368,9 +539,97 @@ export default function POSPage() {
       const res = await api().get(`/customers?search=${customerSearch}&limit=10`);
       return res.data;
     },
-    enabled: !!session && customerSearch.length >= 2,
+    enabled: !!session && customerSearch.length >= 1,
   });
   const customers = customersData?.data ?? [];
+
+  // --- Lookup mutation (barcode/IMEI scan) ---
+  const lookupMutation = useMutation({
+    mutationFn: async (code: string) => {
+      const res = await api().get<{ data: LookupResult }>(`/products/lookup?code=${encodeURIComponent(code)}`);
+      return res.data.data;
+    },
+    onSuccess: (data: LookupResult) => {
+      const p = data.product;
+      const v = data.variant;
+      const u = data.unit;
+
+      if (data.type === 'SERIALIZED_UNIT' && u) {
+        // Status check
+        if (!['IN_STOCK', 'RETURNED'].includes(u.status)) {
+          setScanError(`Unit ${u.imei1} has status ${u.status} — cannot be sold`);
+          setTimeout(() => setScanError(null), 3000);
+          return;
+        }
+        // Location check
+        if (session && u.locationId && u.locationId !== session.location.id) {
+          setScanError(`Unit ${u.imei1} belongs to a different location`);
+          setTimeout(() => setScanError(null), 3000);
+          return;
+        }
+        // Duplicate unit check
+        if (cart.some((item) => item.unitId === u.id)) {
+          setScanError(`Device ${u.imei1} already added to cart`);
+          setTimeout(() => setScanError(null), 3000);
+          return;
+        }
+        // Add as distinct serialized cart entry
+        setCart((prev) => [
+          ...prev,
+          {
+            productId: p.id,
+            variantId: v?.id,
+            name: v ? `${p.name} — ${v.name}` : p.name,
+            sku: v?.sku ?? p.sku,
+            quantity: 1,
+            unitPrice: parseFloat((v?.sellingPrice ?? p.sellingPrice)?.toString() ?? '0'),
+            costPrice: parseFloat(p.costPrice?.toString() ?? '0'),
+            discountRate: 0,
+            unitId: u.id,
+            imei1: u.imei1,
+            locationId: u.locationId ?? undefined,
+          },
+        ]);
+        setScanSuccess(`${v ? `${p.name} — ${v.name}` : p.name} (${u.imei1})`);
+      } else {
+        // Non-serialized: increment quantity as before
+        addToCart({
+          id: p.id,
+          name: v ? `${p.name} — ${v.name}` : p.name,
+          sku: v?.sku ?? p.sku,
+          sellingPrice: (v?.sellingPrice ?? p.sellingPrice)?.toString() ?? '0',
+          costPrice: p.costPrice?.toString() ?? '0',
+          hasVariants: false,
+          category: null,
+        });
+        setScanSuccess(v ? `${p.name} — ${v.name}` : p.name);
+      }
+      setScanError(null);
+      setTimeout(() => setScanSuccess(null), 2000);
+    },
+    onError: (err: any) => {
+      const msg = err?.response?.data?.error?.message ?? err?.response?.data?.message ?? err.message ?? 'Not found';
+      setScanError(msg);
+      setTimeout(() => setScanError(null), 3000);
+    },
+  });
+
+  // --- Barcode scanner ---
+  const scanner = useBarcodeScanner((code) => {
+    if (scanPendingRef.current) return;
+    setScanError(null);
+    scanPendingRef.current = true;
+    lookupMutation.mutate(code, {
+      onSettled: () => { scanPendingRef.current = false; },
+    });
+  });
+
+  // Auto-focus scanner when session becomes available
+  useEffect(() => {
+    if (session) {
+      setTimeout(() => scanner.focus(), 100);
+    }
+  }, [session]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- Mutations ---
   const openSessionMutation = useMutation({
@@ -398,39 +657,45 @@ export default function POSPage() {
   const processSaleMutation = useMutation({
     mutationFn: async () => {
       const validPayments = payments.filter((p) => parseFloat(p.amount) > 0);
-      const res = await api().post<{ receipt: ReceiptData }>(`/pos/sessions/${session!.id}/sale`, {
+      const res = await api().post<{ data: { receipt: ReceiptData } }>(`/pos/sessions/${session!.id}/sale`, {
         items: cart.map((item) => ({
           productId: item.productId,
-          variantId: undefined,
+          variantId: item.variantId,
           quantity: item.quantity,
           unitPrice: String(item.unitPrice),
           costPrice: String(item.costPrice),
           discountRate: String(item.discountRate),
+          ...(item.unitId ? { serializedUnitId: item.unitId } : {}),
         })),
         payments: validPayments.map((p) => ({ method: p.method, amount: p.amount })),
         customerId: selectedCustomerId,
       });
-      return res.data;
+      return res.data.data;
     },
     onSuccess: (data) => {
       setReceipt(data.receipt);
       setCart([]);
       setPayments([{ method: 'CASH', amount: '' }]);
       setShowPaymentScreen(false);
+      setSaleError(null);
       setSelectedCustomerId(null);
       setSelectedCustomerName('');
       queryClient.invalidateQueries({ queryKey: ['pos-current-session'] });
     },
+    onError: (err: any) => {
+      const msg = err?.response?.data?.error?.message ?? err?.response?.data?.message ?? err.message ?? 'Sale failed';
+      setSaleError(Array.isArray(msg) ? msg.join(', ') : msg);
+    },
   });
 
   // --- Cart helpers ---
-  const addToCart = useCallback((product: Product) => {
+  const addToCart = useCallback((product: { id: string; name: string; sku: string; sellingPrice: string; costPrice: string; hasVariants: boolean; category: null | { name: string } }) => {
     const key = product.id;
     setCart((prev) => {
-      const existing = prev.find((item) => item.productId === key);
+      const existing = prev.find((item) => item.productId === key && !item.unitId);
       if (existing) {
         return prev.map((item) =>
-          item.productId === key ? { ...item, quantity: item.quantity + 1 } : item,
+          item.productId === key && !item.unitId ? { ...item, quantity: item.quantity + 1 } : item,
         );
       }
       return [
@@ -452,21 +717,24 @@ export default function POSPage() {
   const updateQty = (key: string, delta: number) => {
     setCart((prev) =>
       prev
-        .map((item) =>
-          item.productId === key ? { ...item, quantity: Math.max(1, item.quantity + delta) } : item,
-        )
+        .map((item) => {
+          const itemKey = item.unitId ?? item.productId;
+          if (itemKey !== key) return item;
+          if (item.unitId && delta > 0) return item; // Cannot increase serialized item quantity
+          return { ...item, quantity: Math.max(1, item.quantity + delta) };
+        })
         .filter((item) => item.quantity > 0),
     );
   };
 
   const removeFromCart = (key: string) => {
-    setCart((prev) => prev.filter((item) => item.productId !== key));
+    setCart((prev) => prev.filter((item) => (item.unitId ?? item.productId) !== key));
   };
 
   const setDiscount = (key: string, discount: number) => {
     setCart((prev) =>
       prev.map((item) =>
-        item.productId === key ? { ...item, discountRate: Math.min(100, Math.max(0, discount)) } : item,
+        (item.unitId ?? item.productId) === key ? { ...item, discountRate: Math.min(100, Math.max(0, discount)) } : item,
       ),
     );
   };
@@ -555,7 +823,7 @@ export default function POSPage() {
                 className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 {PAYMENT_METHODS.map((m) => (
-                  <option key={m} value={m}>{m.replace('_', ' ')}</option>
+                  <option key={m.value} value={m.value}>{m.label}</option>
                 ))}
               </select>
               <input
@@ -610,6 +878,12 @@ export default function POSPage() {
           )}
         </div>
 
+        {saleError && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+            {saleError}
+          </div>
+        )}
+
         <button
           onClick={() => processSaleMutation.mutate()}
           disabled={totalPaid < cartTotal - 0.001 || processSaleMutation.isPending || cart.length === 0}
@@ -645,6 +919,16 @@ export default function POSPage() {
           </button>
         </div>
 
+        {/* Scan feedback */}
+        {(scanError || scanSuccess) && (
+          <div className={cn(
+            'px-4 py-2 rounded-lg text-sm font-medium',
+            scanError ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'
+          )}>
+            {scanError ?? `Added: ${scanSuccess}`}
+          </div>
+        )}
+
         {/* Product Search */}
         <div className="relative">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -664,7 +948,7 @@ export default function POSPage() {
             {products.map((product) => (
               <button
                 key={product.id}
-                onClick={() => addToCart(product)}
+                onClick={() => addToCart(product as { id: string; name: string; sku: string; sellingPrice: string; costPrice: string; hasVariants: boolean; category: null | { name: string } })}
                 className="bg-white border border-gray-200 rounded-xl p-3 text-left hover:border-blue-400 hover:shadow-sm transition-all group"
               >
                 <div className="text-xs font-mono text-gray-400 mb-1">{product.sku}</div>
@@ -719,30 +1003,39 @@ export default function POSPage() {
 
         {/* Customer Search */}
         <div className="px-3 py-2 border-b border-gray-100">
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Search customer (optional)..."
-              value={selectedCustomerName || customerSearch}
-              onChange={(e) => {
-                setCustomerSearch(e.target.value);
-                if (selectedCustomerId) {
-                  setSelectedCustomerId(null);
-                  setSelectedCustomerName('');
-                }
-              }}
-              className="w-full px-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-            {selectedCustomerId && (
-              <button
-                onClick={() => { setSelectedCustomerId(null); setSelectedCustomerName(''); setCustomerSearch(''); }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-              >
-                <X size={12} />
-              </button>
-            )}
+          <div className="flex gap-1.5">
+            <div className="relative flex-1">
+              <input
+                type="text"
+                placeholder="Search customer (optional)..."
+                value={selectedCustomerName || customerSearch}
+                onChange={(e) => {
+                  setCustomerSearch(e.target.value);
+                  if (selectedCustomerId) {
+                    setSelectedCustomerId(null);
+                    setSelectedCustomerName('');
+                  }
+                }}
+                className="w-full px-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              {selectedCustomerId && (
+                <button
+                  onClick={() => { setSelectedCustomerId(null); setSelectedCustomerName(''); setCustomerSearch(''); }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+            <button
+              onClick={() => setShowNewCustomerModal(true)}
+              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-200 flex-shrink-0"
+              title="Add new customer"
+            >
+              <UserPlus size={14} />
+            </button>
           </div>
-          {customers.length > 0 && !selectedCustomerId && customerSearch.length >= 2 && (
+          {customers.length > 0 && !selectedCustomerId && customerSearch.length >= 1 && (
             <div className="mt-1 border border-gray-200 rounded-lg overflow-hidden shadow-sm">
               {customers.map((c) => (
                 <button
@@ -774,7 +1067,7 @@ export default function POSPage() {
           ) : (
             <div className="divide-y divide-gray-100">
               {cart.map((item) => {
-                const key = item.productId;
+                const key = item.unitId ?? item.productId;
                 const lineSubtotal = item.unitPrice * item.quantity;
                 const lineDiscount = (lineSubtotal * item.discountRate) / 100;
                 const lineTotal = lineSubtotal - lineDiscount;
@@ -784,30 +1077,37 @@ export default function POSPage() {
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium text-gray-900 truncate">{item.name}</p>
                         <p className="text-xs text-gray-400 font-mono">{item.sku}</p>
+                        {item.imei1 && (
+                          <p className="text-xs text-purple-600 font-mono">{item.imei1}</p>
+                        )}
                       </div>
                       <button
                         onClick={() => removeFromCart(key)}
-                        className="text-gray-300 hover:text-red-500 flex-shrink-0"
+                        className="p-2 text-gray-300 hover:text-red-500 flex-shrink-0"
                       >
-                        <Trash2 size={12} />
+                        <Trash2 size={14} />
                       </button>
                     </div>
                     <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-1 border border-gray-200 rounded-lg overflow-hidden">
-                        <button
-                          onClick={() => updateQty(key, -1)}
-                          className="px-2 py-1 text-gray-500 hover:bg-gray-100"
-                        >
-                          <Minus size={10} />
-                        </button>
-                        <span className="text-xs font-medium px-1 min-w-[24px] text-center">{item.quantity}</span>
-                        <button
-                          onClick={() => updateQty(key, 1)}
-                          className="px-2 py-1 text-gray-500 hover:bg-gray-100"
-                        >
-                          <Plus size={10} />
-                        </button>
-                      </div>
+                      {item.unitId ? (
+                        <span className="text-xs font-medium px-2 py-1 bg-purple-50 text-purple-700 rounded-lg">Serialized &times; 1</span>
+                      ) : (
+                        <div className="flex items-center gap-1 border border-gray-200 rounded-lg overflow-hidden">
+                          <button
+                            onClick={() => updateQty(key, -1)}
+                            className="px-3 py-2 text-gray-500 hover:bg-gray-100"
+                          >
+                            <Minus size={10} />
+                          </button>
+                          <span className="text-xs font-medium px-1 min-w-[24px] text-center">{item.quantity}</span>
+                          <button
+                            onClick={() => updateQty(key, 1)}
+                            className="px-3 py-2 text-gray-500 hover:bg-gray-100"
+                          >
+                            <Plus size={10} />
+                          </button>
+                        </div>
+                      )}
                       <span className="text-xs text-gray-500">
                         @{Number(item.unitPrice).toLocaleString()}
                       </span>
@@ -888,6 +1188,18 @@ export default function POSPage() {
         <ReceiptModal
           receipt={receipt}
           onClose={() => setReceipt(null)}
+        />
+      )}
+
+      {showNewCustomerModal && (
+        <QuickAddCustomerModal
+          onCreated={(id, name) => {
+            setSelectedCustomerId(id);
+            setSelectedCustomerName(name);
+            setCustomerSearch('');
+            setShowNewCustomerModal(false);
+          }}
+          onClose={() => setShowNewCustomerModal(false)}
         />
       )}
     </div>

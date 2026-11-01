@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, MinLength, MaxLength, Matches } from 'class-validator';
+import { IsString, IsNotEmpty, MinLength, MaxLength, Matches, IsOptional } from 'class-validator';
 
 export class ResetPasswordDto {
   @ApiProperty()
@@ -15,4 +15,9 @@ export class ResetPasswordDto {
     message: 'Password must contain uppercase, lowercase, number, and special character',
   })
   password!: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  turnstileToken?: string;
 }

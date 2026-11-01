@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { Search, FileText } from 'lucide-react';
+import { Search, FileText, Plus, Download } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -32,6 +32,16 @@ const STATUS_COLORS: Record<string, string> = {
   VOID: 'bg-gray-100 text-gray-400',
 };
 
+async function downloadInvoicePdf(invoiceId: string, reference: string) {
+  const res = await api().get(`/invoices/${invoiceId}/pdf`, { responseType: 'blob' });
+  const url = URL.createObjectURL(new Blob([res.data as BlobPart], { type: 'application/pdf' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${reference}.pdf`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function InvoicesPage() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
@@ -58,6 +68,13 @@ export default function InvoicesPage() {
           <h1 className="text-2xl font-bold text-gray-900">Invoices</h1>
           <p className="text-gray-500 text-sm mt-1">Manage customer invoices and payments</p>
         </div>
+        <Link
+          href="/sales/invoices/new"
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+        >
+          <Plus size={16} />
+          New Invoice
+        </Link>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 p-4">
@@ -101,13 +118,14 @@ export default function InvoicesPage() {
                 <th className="text-right px-4 py-3 font-medium text-gray-700">Balance</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-700">Due Date</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-700">Issued</th>
+                <th className="px-4 py-3" />
               </tr>
             </thead>
             <tbody>
               {isLoading
                 ? Array.from({ length: 5 }).map((_, i) => (
                     <tr key={i} className="border-b border-gray-100">
-                      {Array.from({ length: 8 }).map((__, j) => (
+                      {Array.from({ length: 9 }).map((__, j) => (
                         <td key={j} className="px-4 py-3">
                           <div className="h-4 bg-gray-100 rounded animate-pulse" />
                         </td>
@@ -182,12 +200,21 @@ export default function InvoicesPage() {
                         <td className="px-4 py-3 text-right text-gray-500 text-xs">
                           {new Date(invoice.issuedAt).toLocaleDateString()}
                         </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={() => downloadInvoicePdf(invoice.id, invoice.reference)}
+                            title="Download PDF"
+                            className="p-1.5 text-gray-400 hover:text-blue-600 rounded transition-colors"
+                          >
+                            <Download size={14} />
+                          </button>
+                        </td>
                       </tr>
                     );
                   })}
               {!isLoading && invoices.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-gray-400">
+                  <td colSpan={9} className="px-4 py-12 text-center text-gray-400">
                     <FileText size={32} className="mx-auto mb-2 opacity-50" />
                     <p>No invoices found</p>
                   </td>

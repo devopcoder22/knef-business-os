@@ -10,6 +10,7 @@ import { createId } from '@paralleldrive/cuid2';
 import { ProductStatus } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { PriceHistoryService } from '../price-history/price-history.service';
 import type { CreateProductDto } from './dto/create-product.dto';
 import type { UpdateProductDto } from './dto/update-product.dto';
 import type { ListProductsDto } from './dto/list-products.dto';
@@ -32,6 +33,7 @@ export class ProductsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly priceHistoryService: PriceHistoryService,
   ) {}
 
   async findAll(organizationId: string, query: ListProductsDto) {
@@ -130,6 +132,8 @@ export class ProductsService {
       throw new ConflictException(`SKU '${dto.sku}' already exists in this organization`);
     }
 
+    await this.validateBarcodeUniqueness(organizationId, dto.barcode, dto.gtin);
+
     const slug = await this.generateUniqueSlug(organizationId, dto.name);
 
     // Validate category and brand if provided
@@ -170,6 +174,7 @@ export class ProductsService {
         weight: dto.weight,
         weightUnit: dto.weightUnit ?? 'kg',
         status: dto.status ?? ProductStatus.ACTIVE,
+        barcodeType: dto.barcodeType,
         metaTitle: dto.metaTitle,
         metaDesc: dto.metaDesc,
       },
@@ -214,6 +219,8 @@ export class ProductsService {
       }
     }
 
+    await this.validateBarcodeUniqueness(organizationId, dto.barcode, dto.gtin, id);
+
     let slug = product.slug;
     if (dto.name && dto.name !== product.name) {
       slug = await this.generateUniqueSlug(organizationId, dto.name, id);
@@ -240,6 +247,7 @@ export class ProductsService {
         sku: dto.sku,
         barcode: dto.barcode,
         gtin: dto.gtin,
+        barcodeType: dto.barcodeType,
         categoryId: dto.categoryId,
         brandId: dto.brandId,
         description: dto.description,
@@ -261,6 +269,30 @@ export class ProductsService {
     });
 
     await this.updateSearchVector(id);
+
+    // Record price history for any cost/selling price changes
+    if (dto.costPrice && Number(dto.costPrice) !== Number(product.costPrice)) {
+      await this.priceHistoryService.record({
+        organizationId,
+        productId: id,
+        priceType: 'COST',
+        oldPrice: Number(product.costPrice),
+        newPrice: Number(dto.costPrice),
+        source: 'MANUAL',
+        changedBy: userId,
+      });
+    }
+    if (dto.sellingPrice && Number(dto.sellingPrice) !== Number(product.sellingPrice)) {
+      await this.priceHistoryService.record({
+        organizationId,
+        productId: id,
+        priceType: 'SELLING',
+        oldPrice: Number(product.sellingPrice),
+        newPrice: Number(dto.sellingPrice),
+        source: 'MANUAL',
+        changedBy: userId,
+      });
+    }
 
     await this.auditService.log({
       organizationId,
@@ -363,6 +395,8 @@ export class ProductsService {
       throw new ConflictException(`Variant SKU '${dto.sku}' already exists for this product`);
     }
 
+    await this.validateVariantBarcodeUniqueness(organizationId, dto.barcode, dto.gtin);
+
     const variant = await this.prisma.productVariant.create({
       data: {
         id: createId(),
@@ -371,6 +405,7 @@ export class ProductsService {
         sku: dto.sku,
         barcode: dto.barcode,
         gtin: dto.gtin,
+        barcodeType: dto.barcodeType,
         costPrice: dto.costPrice,
         sellingPrice: dto.sellingPrice,
         options: dto.options ?? {},
@@ -402,6 +437,8 @@ export class ProductsService {
       if (existing) throw new ConflictException(`Variant SKU '${dto.sku}' already exists`);
     }
 
+    await this.validateVariantBarcodeUniqueness(organizationId, dto.barcode, dto.gtin, variantId);
+
     return this.prisma.productVariant.update({
       where: { id: variantId },
       data: {
@@ -409,6 +446,7 @@ export class ProductsService {
         sku: dto.sku,
         barcode: dto.barcode,
         gtin: dto.gtin,
+        barcodeType: dto.barcodeType,
         costPrice: dto.costPrice,
         sellingPrice: dto.sellingPrice,
         options: dto.options,
@@ -477,6 +515,23 @@ export class ProductsService {
         isPrimary: dto.isPrimary ?? count === 0,
         sortOrder: count,
       },
+    });
+  }
+
+  async updateImage(
+    organizationId: string,
+    productId: string,
+    imageId: string,
+    dto: { isPrimary?: boolean; altText?: string },
+  ) {
+    const product = await this.prisma.product.findFirst({ where: { id: productId, organizationId } });
+    if (!product) throw new NotFoundException('Product not found');
+    if (dto.isPrimary) {
+      await this.prisma.productImage.updateMany({ where: { productId }, data: { isPrimary: false } });
+    }
+    return this.prisma.productImage.update({
+      where: { id: imageId },
+      data: { ...(dto.isPrimary !== undefined && { isPrimary: dto.isPrimary }), ...(dto.altText !== undefined && { altText: dto.altText }) },
     });
   }
 
@@ -632,13 +687,17 @@ export class ProductsService {
   }
 
   private async updateSearchVector(productId: string) {
-    await this.prisma.$executeRaw`
-      UPDATE products SET search_vector = to_tsvector('english',
-        coalesce(name,'') || ' ' || coalesce(sku,'') || ' ' ||
-        coalesce(barcode,'') || ' ' || coalesce(gtin,'') || ' ' ||
-        coalesce(description,'')
-      ) WHERE id = ${productId}
-    `;
+    try {
+      await this.prisma.$executeRaw`
+        UPDATE "Product" SET "searchVector" = to_tsvector('english',
+          coalesce(name,'') || ' ' || coalesce(sku,'') || ' ' ||
+          coalesce(barcode,'') || ' ' || coalesce(gtin,'') || ' ' ||
+          coalesce(description,'')
+        ) WHERE id = ${productId}
+      `;
+    } catch {
+      // silently skip if searchVector column is not present
+    }
   }
 
   private async generateUniqueSlug(
@@ -663,5 +722,248 @@ export class ProductsService {
     }
 
     return slug;
+  }
+
+  private async validateBarcodeUniqueness(
+    organizationId: string,
+    barcode: string | undefined,
+    gtin: string | undefined,
+    excludeProductId?: string,
+  ) {
+    if (barcode) {
+      const existingProduct = await this.prisma.product.findFirst({
+        where: { organizationId, barcode, NOT: excludeProductId ? { id: excludeProductId } : undefined },
+        select: { id: true },
+      });
+      if (existingProduct) throw new ConflictException(`Barcode '${barcode}' is already used by another product`);
+      const existingVariant = await this.prisma.productVariant.findFirst({
+        where: { product: { organizationId }, barcode },
+        select: { id: true },
+      });
+      if (existingVariant) throw new ConflictException(`Barcode '${barcode}' is already used by a product variant`);
+    }
+    if (gtin) {
+      const existingProduct = await this.prisma.product.findFirst({
+        where: { organizationId, gtin, NOT: excludeProductId ? { id: excludeProductId } : undefined },
+        select: { id: true },
+      });
+      if (existingProduct) throw new ConflictException(`GTIN '${gtin}' is already used by another product`);
+      const existingVariant = await this.prisma.productVariant.findFirst({
+        where: { product: { organizationId }, gtin },
+        select: { id: true },
+      });
+      if (existingVariant) throw new ConflictException(`GTIN '${gtin}' is already used by a product variant`);
+    }
+  }
+
+  private async validateVariantBarcodeUniqueness(
+    organizationId: string,
+    barcode: string | undefined,
+    gtin: string | undefined,
+    excludeVariantId?: string,
+  ) {
+    if (barcode) {
+      const existingProduct = await this.prisma.product.findFirst({
+        where: { organizationId, barcode },
+        select: { id: true },
+      });
+      if (existingProduct) throw new ConflictException(`Barcode '${barcode}' is already used by a product`);
+      const existingVariant = await this.prisma.productVariant.findFirst({
+        where: { product: { organizationId }, barcode, NOT: excludeVariantId ? { id: excludeVariantId } : undefined },
+        select: { id: true },
+      });
+      if (existingVariant) throw new ConflictException(`Barcode '${barcode}' is already used by another variant`);
+    }
+    if (gtin) {
+      const existingProduct = await this.prisma.product.findFirst({
+        where: { organizationId, gtin },
+        select: { id: true },
+      });
+      if (existingProduct) throw new ConflictException(`GTIN '${gtin}' is already used by a product`);
+      const existingVariant = await this.prisma.productVariant.findFirst({
+        where: { product: { organizationId }, gtin, NOT: excludeVariantId ? { id: excludeVariantId } : undefined },
+        select: { id: true },
+      });
+      if (existingVariant) throw new ConflictException(`GTIN '${gtin}' is already used by another variant`);
+    }
+  }
+
+  async lookupByCode(organizationId: string, code: string) {
+    const serializedSelect = {
+      id: true, imei1: true, imei2: true, serialNumber: true,
+      status: true, locationId: true,
+      product: { select: { id: true, name: true, sku: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true, status: true } },
+      variant: { select: { id: true, isActive: true } },
+    } as const;
+
+    // 1. SerializedUnit by imei1 — highest priority (unique per org)
+    const byImei1 = await this.prisma.serializedUnit.findFirst({
+      where: { organizationId, imei1: code },
+      select: serializedSelect,
+    });
+    if (byImei1) {
+      if (byImei1.product.status === ProductStatus.DISCONTINUED) throw new NotFoundException('No product found for code');
+      if (byImei1.variant && !byImei1.variant.isActive) throw new NotFoundException('No product found for code');
+      return this._unitResult(byImei1);
+    }
+
+    // 2. SerializedUnit by imei2
+    if (code.length >= 8) {
+      const byImei2 = await this.prisma.serializedUnit.findFirst({
+        where: { organizationId, imei2: code },
+        select: serializedSelect,
+      });
+      if (byImei2) {
+        if (byImei2.product.status === ProductStatus.DISCONTINUED) throw new NotFoundException('No product found for code');
+        if (byImei2.variant && !byImei2.variant.isActive) throw new NotFoundException('No product found for code');
+        return this._unitResult(byImei2);
+      }
+    }
+
+    // 3. SerializedUnit by serialNumber
+    const bySerial = await this.prisma.serializedUnit.findFirst({
+      where: { organizationId, serialNumber: code },
+      select: serializedSelect,
+    });
+    if (bySerial) {
+      if (bySerial.product.status === ProductStatus.DISCONTINUED) throw new NotFoundException('No product found for code');
+      if (bySerial.variant && !bySerial.variant.isActive) throw new NotFoundException('No product found for code');
+      return this._unitResult(bySerial);
+    }
+
+    // 4. Product by barcode — check for multiple matches (ambiguity)
+    const productsByBarcode = await this.prisma.product.findMany({
+      where: { organizationId, barcode: code, status: { not: ProductStatus.DISCONTINUED } },
+      select: { id: true, name: true, sku: true, barcode: true, gtin: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true },
+      take: 2,
+    });
+    if (productsByBarcode.length > 1) throw new ConflictException(`Ambiguous barcode '${code}': matches multiple products`);
+    if (productsByBarcode.length === 1) return { type: 'PRODUCT' as const, product: productsByBarcode[0] };
+
+    // 5. Product by GTIN
+    const productsByGtin = await this.prisma.product.findMany({
+      where: { organizationId, gtin: code, status: { not: ProductStatus.DISCONTINUED } },
+      select: { id: true, name: true, sku: true, barcode: true, gtin: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true },
+      take: 2,
+    });
+    if (productsByGtin.length > 1) throw new ConflictException(`Ambiguous GTIN '${code}': matches multiple products`);
+    if (productsByGtin.length === 1) return { type: 'PRODUCT' as const, product: productsByGtin[0] };
+
+    // 6. ProductVariant by barcode (active only)
+    const variantByBarcode = await this.prisma.productVariant.findFirst({
+      where: { product: { organizationId }, barcode: code, isActive: true },
+      select: {
+        id: true, name: true, sku: true, barcode: true, sellingPrice: true,
+        product: { select: { id: true, name: true, sku: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true } },
+      },
+    });
+    if (variantByBarcode) {
+      return {
+        type: 'VARIANT' as const,
+        product: variantByBarcode.product,
+        variant: { id: variantByBarcode.id, name: variantByBarcode.name, sku: variantByBarcode.sku, sellingPrice: variantByBarcode.sellingPrice?.toString() },
+      };
+    }
+
+    // 7. ProductVariant by GTIN (active only)
+    const variantByGtin = await this.prisma.productVariant.findFirst({
+      where: { product: { organizationId }, gtin: code, isActive: true },
+      select: {
+        id: true, name: true, sku: true, gtin: true, sellingPrice: true,
+        product: { select: { id: true, name: true, sku: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true } },
+      },
+    });
+    if (variantByGtin) {
+      return {
+        type: 'VARIANT' as const,
+        product: variantByGtin.product,
+        variant: { id: variantByGtin.id, name: variantByGtin.name, sku: variantByGtin.sku, sellingPrice: variantByGtin.sellingPrice?.toString() },
+      };
+    }
+
+    // 8. Product by SKU (indexed @@unique([organizationId, sku]))
+    const bySkuProduct = await this.prisma.product.findFirst({
+      where: { organizationId, sku: code, status: { not: ProductStatus.DISCONTINUED } },
+      select: { id: true, name: true, sku: true, barcode: true, gtin: true, sellingPrice: true, costPrice: true, isSerialized: true, hasVariants: true },
+    });
+    if (bySkuProduct) return { type: 'PRODUCT' as const, product: bySkuProduct };
+
+    throw new NotFoundException('No product found for code');
+  }
+
+  private _unitResult(unit: {
+    id: string; imei1: string; imei2: string | null; serialNumber: string | null;
+    status: string; locationId: string | null;
+    product: { id: string; name: string; sku: string; sellingPrice: unknown; costPrice: unknown; isSerialized: boolean; hasVariants: boolean; status?: string };
+    variant?: { id: string; isActive: boolean } | null;
+  }) {
+    return {
+      type: 'SERIALIZED_UNIT' as const,
+      product: { id: unit.product.id, name: unit.product.name, sku: unit.product.sku, sellingPrice: unit.product.sellingPrice, costPrice: unit.product.costPrice, isSerialized: unit.product.isSerialized, hasVariants: unit.product.hasVariants },
+      unit: { id: unit.id, imei1: unit.imei1, imei2: unit.imei2, serialNumber: unit.serialNumber, status: unit.status, locationId: unit.locationId },
+    };
+  }
+
+  // ── EAN-13 Validation ──────────────────────────────────────────────────────
+
+  validateEan13Checksum(gtin: string): boolean {
+    if (!/^\d{13}$/.test(gtin)) return false;
+    const digits = gtin.split('').map(Number);
+    const sum = digits.slice(0, 12).reduce((acc, d, i) => acc + d * (i % 2 === 0 ? 1 : 3), 0);
+    const check = (10 - (sum % 10)) % 10;
+    return check === digits[12];
+  }
+
+  // ── Label Data ────────────────────────────────────────────────────────────
+
+  async getLabelData(organizationId: string, productId: string, variantId?: string) {
+    const product = await this.prisma.product.findFirst({
+      where: { id: productId, organizationId },
+      select: {
+        id: true, name: true, sku: true, barcode: true, gtin: true, barcodeType: true,
+        sellingPrice: true,
+        brand: { select: { name: true } },
+        variants: variantId
+          ? { where: { id: variantId }, select: { id: true, name: true, sku: true, barcode: true, gtin: true, barcodeType: true, sellingPrice: true, options: true }, take: 1 }
+          : false,
+      },
+    });
+    if (!product) throw new NotFoundException('Product not found');
+
+    const org = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { name: true, currency: true },
+    });
+
+    const variant = variantId ? (product.variants as any[])[0] ?? null : null;
+    if (variantId && !variant) throw new NotFoundException('Variant not found');
+
+    const barcodeValue = variant?.barcode ?? variant?.gtin ?? product.barcode ?? product.gtin ?? product.sku;
+    const barcodeType = variant?.barcodeType ?? product.barcodeType ?? 'CODE128';
+    const sellingPrice = variant?.sellingPrice ?? product.sellingPrice;
+
+    return {
+      productId: product.id,
+      variantId: variant?.id ?? null,
+      productName: product.name,
+      variantName: variant?.name ?? null,
+      variantOptions: variant?.options ?? null,
+      sku: variant?.sku ?? product.sku,
+      barcodeValue,
+      barcodeType,
+      sellingPrice: sellingPrice?.toString() ?? '0',
+      currency: org?.currency ?? 'NGN',
+      brandName: product.brand?.name ?? null,
+      orgName: org?.name ?? 'KNEF',
+    };
+  }
+
+  async getBatchLabelData(organizationId: string, items: Array<{ productId: string; variantId?: string; qty: number }>) {
+    const results = [];
+    for (const item of items) {
+      const data = await this.getLabelData(organizationId, item.productId, item.variantId);
+      results.push({ ...data, qty: Math.min(Math.max(item.qty, 1), 200) });
+    }
+    return results;
   }
 }

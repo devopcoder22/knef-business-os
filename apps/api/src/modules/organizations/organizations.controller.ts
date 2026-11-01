@@ -3,6 +3,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { OrganizationsService } from './organizations.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
+import { Public } from '../../common/decorators/public.decorator';
 import { PERMISSIONS } from '@knef/constants';
 import type { AuthUser } from '@knef/types';
 import { UpdateOrganizationDto } from './dto/update-organization.dto';
@@ -12,6 +13,13 @@ import { UpdateOrganizationDto } from './dto/update-organization.dto';
 @Controller('organization')
 export class OrganizationsController {
   constructor(private readonly organizationsService: OrganizationsService) {}
+
+  @Get('branding')
+  @Public()
+  @ApiOperation({ summary: 'Get public organization branding (no auth required)' })
+  publicBranding() {
+    return this.organizationsService.publicBranding();
+  }
 
   @Get()
   @ApiOperation({ summary: 'Get current organization details' })

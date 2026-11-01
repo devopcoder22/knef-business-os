@@ -289,8 +289,8 @@ function AIToolsContent() {
   const { data: tools, isLoading: toolsLoading } = useQuery<AITool[]>({
     queryKey: ['ai-tools'],
     queryFn: async () => {
-      const res = await api().get<AITool[]>('/ai/tools');
-      return res.data;
+      const res = await api().get('/ai/tools');
+      return (res.data as any).data ?? res.data;
     },
   });
 

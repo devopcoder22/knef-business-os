@@ -63,6 +63,11 @@ export class FeatureFlagsService {
     return { data: updated };
   }
 
+  /**
+   * Stores rolloutPercent for future use.
+   * Percentage-based rollout evaluation is deferred to V1.2 —
+   * requires deterministic per-user hashing. Currently stored but not evaluated.
+   */
   async setRollout(
     organizationId: string,
     key: string,

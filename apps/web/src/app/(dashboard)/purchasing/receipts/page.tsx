@@ -79,7 +79,7 @@ export default function GoodsReceiptsPage() {
                 : receipts.map((receipt) => (
                     <tr key={receipt.id} className="border-b border-gray-100 hover:bg-gray-50">
                       <td className="px-4 py-3">
-                        <span className="font-mono text-xs text-blue-600">{receipt.reference}</span>
+                        <Link href={`/purchasing/receipts/${receipt.id}`} className="font-mono text-xs text-blue-600 hover:underline">{receipt.reference}</Link>
                       </td>
                       <td className="px-4 py-3">
                         <Link

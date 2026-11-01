@@ -50,16 +50,16 @@ export default function NewEmployeePage() {
   const { data: departments = [] } = useQuery<Department[]>({
     queryKey: ['departments'],
     queryFn: async () => {
-      const res = await api().get<Department[]>('/departments');
-      return res.data;
+      const res = await api().get<{ data: Department[] }>('/departments');
+      return (res.data as any).data as Department[];
     },
   });
 
   const { data: locations = [] } = useQuery<Location[]>({
     queryKey: ['locations-list'],
     queryFn: async () => {
-      const res = await api().get<Location[]>('/locations');
-      return res.data;
+      const res = await api().get<{ data: Location[] }>('/locations');
+      return (res.data as any).data as Location[];
     },
   });
 
@@ -91,11 +91,11 @@ export default function NewEmployeePage() {
         emergencyPhone: emergencyPhone || undefined,
         notes: notes || undefined,
       });
-      return (res.data as { id: string }).id;
+      return (res.data as any).data.id as string;
     },
     onSuccess: (id) => router.push(`/staff/${id}`),
-    onError: (err: { response?: { data?: { message?: string | string[] } } }) => {
-      const msg = err?.response?.data?.message ?? 'Failed to create employee';
+    onError: (err: any) => {
+      const msg = err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to create employee';
       setErrors({ submit: Array.isArray(msg) ? msg.join(', ') : msg });
     },
   });

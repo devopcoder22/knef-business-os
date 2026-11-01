@@ -37,12 +37,39 @@ import {
   FileText,
   Server,
   BookOpen,
+  Calendar,
+  Map,
+  Shield,
+  Building2,
+  MapPin,
+  Flag,
+  KeyRound,
+  ShieldAlert,
+  Activity,
+  BrainCircuit,
+  Scale,
+  ShoppingBag,
+  Trash2,
+  Megaphone,
+  Image,
+  Star,
+  TrendingUp,
+  Clock,
+  DollarSign,
+  RotateCcw,
+  History,
+  GitMerge,
+  BookOpenCheck,
+  Zap,
+  Printer,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/auth.store';
 import { PERMISSIONS } from '@knef/constants';
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/api';
 
 interface NavItem {
   label: string;
@@ -63,6 +90,7 @@ const NAV_ITEMS: NavItem[] = [
     children: [
       { label: 'Orders', href: '/sales/orders', icon: ShoppingCart, permission: PERMISSIONS.SALES.VIEW },
       { label: 'Invoices', href: '/sales/invoices', icon: Receipt, permission: PERMISSIONS.SALES.VIEW },
+      { label: 'Receipts', href: '/sales/receipts', icon: Receipt, permission: PERMISSIONS.SALES.VIEW },
     ],
   },
   { label: 'POS', href: '/pos', icon: Monitor, permission: PERMISSIONS.POS.ACCESS },
@@ -88,6 +116,8 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Transfers', href: '/inventory/transfers', icon: ArrowLeftRight, permission: PERMISSIONS.INVENTORY.TRANSFER },
       { label: 'Adjustments', href: '/inventory/adjustments', icon: ClipboardList, permission: PERMISSIONS.INVENTORY.ADJUST },
       { label: 'Stock Count', href: '/inventory/counts', icon: CheckSquare, permission: PERMISSIONS.INVENTORY.COUNT },
+      { label: 'Cycle Counts', href: '/inventory/cycle-counts', icon: RotateCcw, permission: PERMISSIONS.INVENTORY.CYCLE_COUNT },
+      { label: 'Price History', href: '/inventory/price-history', icon: History, permission: PERMISSIONS.INVENTORY.VIEW_PRICE_HISTORY },
     ],
   },
   {
@@ -98,6 +128,9 @@ const NAV_ITEMS: NavItem[] = [
     children: [
       { label: 'Orders', href: '/purchasing/orders', icon: ClipboardList, permission: PERMISSIONS.PURCHASING.VIEW },
       { label: 'Receipts', href: '/purchasing/receipts', icon: CheckSquare, permission: PERMISSIONS.PURCHASING.RECEIVE },
+      { label: 'AP Aging', href: '/purchasing/ap-aging', icon: ClipboardList, permission: PERMISSIONS.SUPPLIERS.VIEW_AP_AGING },
+      { label: '3-Way Match', href: '/purchasing/three-way-matching', icon: GitMerge, permission: PERMISSIONS.PURCHASING.VIEW },
+      { label: 'Supplier Ledger', href: '/purchasing/supplier-ledger', icon: BookOpenCheck, permission: PERMISSIONS.SUPPLIERS.VIEW_LEDGER },
     ],
   },
   { label: 'Customers', href: '/customers', icon: Users, permission: PERMISSIONS.CUSTOMERS.VIEW },
@@ -111,7 +144,9 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Dashboard', href: '/finance', icon: BarChart3, permission: PERMISSIONS.FINANCE.VIEW },
       { label: 'Bank Accounts', href: '/finance/bank-accounts', icon: Banknote, permission: PERMISSIONS.FINANCE.BANK_ACCOUNTS },
       { label: 'Expenses', href: '/finance/expenses', icon: Receipt, permission: PERMISSIONS.FINANCE.EXPENSES.VIEW },
+      { label: 'Expense Categories', href: '/finance/expense-categories', icon: Tag, permission: PERMISSIONS.FINANCE.MANAGE },
       { label: 'Tax Rates', href: '/finance/tax-rates', icon: ListOrdered, permission: PERMISSIONS.FINANCE.MANAGE },
+      { label: 'Reconciliation', href: '/finance/reconciliation', icon: Zap, permission: PERMISSIONS.FINANCE.RECONCILE },
     ],
   },
   {
@@ -121,11 +156,38 @@ const NAV_ITEMS: NavItem[] = [
     permission: PERMISSIONS.STAFF.VIEW,
     children: [
       { label: 'Employees', href: '/staff', icon: UserCog, permission: PERMISSIONS.STAFF.VIEW },
-      { label: 'Departments', href: '/departments', icon: Users, permission: PERMISSIONS.STAFF.MANAGE },
+      { label: 'Attendance', href: '/attendance', icon: Clock, permission: PERMISSIONS.STAFF.MANAGE_ATTENDANCE },
+      { label: 'My Attendance', href: '/my-attendance', icon: Clock, permission: PERMISSIONS.STAFF.CLOCK },
     ],
   },
   { label: 'Tasks', href: '/tasks', icon: CheckSquare, permission: PERMISSIONS.TASKS.VIEW },
   { label: 'Goals', href: '/goals', icon: Target, permission: PERMISSIONS.GOALS.VIEW },
+  {
+    label: 'Planner',
+    href: '/planner',
+    icon: Map,
+    permission: PERMISSIONS.PLANNER.VIEW,
+    children: [
+      { label: 'My Day', href: '/planner', icon: Calendar, permission: PERMISSIONS.PLANNER.VIEW },
+      { label: 'Plans', href: '/planner/plans', icon: ClipboardList, permission: PERMISSIONS.PLANNER.VIEW },
+    ],
+  },
+  {
+    label: 'Calendar',
+    href: '/calendar',
+    icon: Calendar,
+    permission: PERMISSIONS.CALENDAR.VIEW,
+    children: [
+      { label: 'My Calendar', href: '/calendar', icon: Calendar, permission: PERMISSIONS.CALENDAR.VIEW },
+      { label: 'Settings', href: '/calendar/settings', icon: Settings, permission: PERMISSIONS.CALENDAR.MANAGE_CONNECTIONS },
+    ],
+  },
+  {
+    label: 'Intelligence',
+    href: '/business-intelligence',
+    icon: BrainCircuit,
+    permission: PERMISSIONS.REPORTS.VIEW,
+  },
   {
     label: 'Reports',
     href: '/reports',
@@ -138,6 +200,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Purchasing', href: '/reports/purchasing', icon: Truck, permission: PERMISSIONS.REPORTS.VIEW },
       { label: 'Finance', href: '/reports/finance', icon: Banknote, permission: PERMISSIONS.REPORTS.VIEW },
       { label: 'Staff', href: '/reports/staff', icon: UserCog, permission: PERMISSIONS.REPORTS.VIEW },
+      { label: 'Daily Pulse', href: '/reports/daily-pulse', icon: Activity, permission: PERMISSIONS.REPORTS.VIEW },
     ],
   },
   {
@@ -154,16 +217,63 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Tools', href: '/ai/tools', icon: ClipboardList, permission: PERMISSIONS.AI.TOOLS },
       { label: 'Approvals', href: '/ai/approvals', icon: CheckSquare, permission: PERMISSIONS.AI.APPROVALS },
       { label: 'Agents', href: '/ai/agents', icon: Bot, permission: PERMISSIONS.AI.AGENTS },
+      { label: 'AI Config', href: '/admin/ai', icon: Settings, adminOnly: true },
+      { label: 'AI Autonomy', href: '/settings/ai-autonomy', icon: BrainCircuit, adminOnly: true },
     ],
   },
   {
-    label: 'Channels',
+    label: 'Ecommerce',
     href: '/ecommerce',
     icon: Globe,
     permission: PERMISSIONS.ECOMMERCE.MANAGE,
     children: [
       { label: 'E-commerce', href: '/ecommerce', icon: Globe, permission: PERMISSIONS.ECOMMERCE.MANAGE },
-      { label: 'Integrations', href: '/integrations', icon: Plug, permission: PERMISSIONS.INTEGRATIONS.MANAGE },
+      { label: 'Storefront', href: '/admin/storefront', icon: ShoppingBag, adminOnly: true },
+      { label: 'Testimonials', href: '/admin/storefront/testimonials', icon: Star, adminOnly: true },
+      { label: 'Monetization', href: '/admin/storefront/monetization', icon: DollarSign, adminOnly: true },
+    ],
+  },
+  {
+    label: 'Integrations',
+    href: '/admin/integrations',
+    icon: Plug,
+    adminOnly: true,
+    children: [
+      { label: 'Overview', href: '/admin/integrations', icon: Plug, adminOnly: true },
+      { label: 'Connections', href: '/integrations/connections', icon: Webhook, adminOnly: true },
+      { label: 'Shopify', href: '/integrations/shopify', icon: ShoppingBag, adminOnly: true },
+      { label: '  › Products', href: '/integrations/shopify/products', icon: Package, adminOnly: true },
+      { label: '  › Locations', href: '/integrations/shopify/locations', icon: MapPin, adminOnly: true },
+      { label: '  › Orders', href: '/integrations/shopify/orders', icon: ShoppingCart, adminOnly: true },
+      { label: '  › Reconcile', href: '/integrations/shopify/reconciliation', icon: BarChart3, adminOnly: true },
+    ],
+  },
+  { label: 'Business Rules', href: '/admin/business-rules', icon: Scale, adminOnly: true },
+  {
+    label: 'Advertising',
+    href: '/admin/advertising',
+    icon: TrendingUp,
+    adminOnly: true,
+    children: [
+      { label: 'Overview', href: '/admin/advertising', icon: LayoutDashboard, adminOnly: true },
+      { label: 'Accounts', href: '/admin/advertising/accounts', icon: Target, adminOnly: true },
+      { label: 'Campaigns', href: '/admin/advertising/campaigns', icon: Megaphone, adminOnly: true },
+      { label: 'Analytics', href: '/admin/advertising/analytics', icon: BarChart3, adminOnly: true },
+      { label: 'Actions', href: '/admin/advertising/actions', icon: Clock, adminOnly: true },
+    ],
+  },
+  {
+    label: 'Marketing',
+    href: '/marketing',
+    icon: Megaphone,
+    permission: PERMISSIONS.MARKETING.VIEW,
+    children: [
+      { label: 'Dashboard', href: '/marketing', icon: LayoutDashboard, permission: PERMISSIONS.MARKETING.VIEW },
+      { label: 'Campaigns', href: '/marketing/campaigns', icon: Megaphone, permission: PERMISSIONS.MARKETING.VIEW },
+      { label: 'Content', href: '/marketing/content', icon: FileText, permission: PERMISSIONS.MARKETING.VIEW },
+      { label: 'Calendar', href: '/marketing/calendar', icon: Calendar, permission: PERMISSIONS.MARKETING.VIEW },
+      { label: 'Audiences', href: '/marketing/audiences', icon: Users, permission: PERMISSIONS.MARKETING.AUDIENCE_VIEW },
+      { label: 'Media', href: '/marketing/media', icon: Image, permission: PERMISSIONS.MARKETING.VIEW },
     ],
   },
   {
@@ -173,8 +283,11 @@ const NAV_ITEMS: NavItem[] = [
     permission: PERMISSIONS.COMMUNICATIONS.EMAIL_PROVIDERS,
     children: [
       { label: 'Email Providers', href: '/communications/email-providers', icon: Mail, permission: PERMISSIONS.COMMUNICATIONS.EMAIL_PROVIDERS },
+      { label: 'SMS Providers', href: '/communications/sms-providers', icon: MessageSquare, permission: PERMISSIONS.COMMUNICATIONS.EMAIL_PROVIDERS },
+      { label: 'SMS Campaigns', href: '/communications/sms-campaigns', icon: MessageSquare, permission: PERMISSIONS.COMMUNICATIONS.CAMPAIGNS },
       { label: 'Campaigns', href: '/communications/campaigns', icon: MessageSquare, permission: PERMISSIONS.COMMUNICATIONS.CAMPAIGNS },
       { label: 'Templates', href: '/communications/templates', icon: FileText, permission: PERMISSIONS.COMMUNICATIONS.TEMPLATES },
+      { label: 'Subscriptions', href: '/communications/subscriptions', icon: Users, permission: PERMISSIONS.COMMUNICATIONS.SUBSCRIPTIONS },
       { label: 'Telegram', href: '/communications/telegram', icon: MessageSquare, permission: PERMISSIONS.COMMUNICATIONS.TELEGRAM },
       { label: 'Webhooks', href: '/communications/webhooks', icon: Webhook, permission: PERMISSIONS.COMMUNICATIONS.WEBHOOKS },
     ],
@@ -182,8 +295,39 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 const BOTTOM_ITEMS: NavItem[] = [
-  { label: 'Settings', href: '/settings', icon: Settings, permission: PERMISSIONS.SETTINGS.VIEW },
-  { label: 'Admin', href: '/admin', icon: ShieldCheck, adminOnly: true },
+  {
+    label: 'Settings',
+    href: '/settings',
+    icon: Settings,
+    permission: PERMISSIONS.SETTINGS.VIEW,
+    children: [
+      { label: 'Business Settings', href: '/settings', icon: Settings, permission: PERMISSIONS.SETTINGS.VIEW },
+      { label: 'Organization', href: '/settings/organization', icon: Building2, permission: PERMISSIONS.SETTINGS.VIEW },
+      { label: 'Print Templates', href: '/settings/print-templates', icon: Printer, permission: PERMISSIONS.SETTINGS.PRINT_TEMPLATES },
+    ],
+  },
+  {
+    label: 'Admin',
+    href: '/admin',
+    icon: ShieldCheck,
+    adminOnly: true,
+    children: [
+      { label: 'Overview', href: '/admin', icon: LayoutDashboard, adminOnly: true },
+      { label: 'Users', href: '/admin/users', icon: Users, adminOnly: true },
+      { label: 'Roles', href: '/admin/roles', icon: Shield, adminOnly: true },
+      { label: 'Departments', href: '/admin/departments', icon: Building2, adminOnly: true },
+      { label: 'Locations', href: '/admin/locations', icon: MapPin, adminOnly: true },
+      { label: 'Feature Flags', href: '/admin/feature-flags', icon: Flag, adminOnly: true },
+      { label: 'External Agents', href: '/admin/agents', icon: Webhook, adminOnly: true },
+      { label: 'API Keys', href: '/admin/api-keys', icon: KeyRound, adminOnly: true },
+      { label: 'Credentials', href: '/admin/credentials', icon: ShieldCheck, adminOnly: true },
+      { label: 'Approvals', href: '/admin/approvals', icon: CheckSquare, adminOnly: true },
+      { label: 'Audit Logs', href: '/admin/audit', icon: FileText, adminOnly: true },
+      { label: 'Security', href: '/admin/security', icon: ShieldAlert, adminOnly: true },
+      { label: 'System Health', href: '/admin/health', icon: Activity, adminOnly: true },
+      { label: 'Data Reset', href: '/admin/reset', icon: Trash2, adminOnly: true },
+    ],
+  },
 ];
 
 interface SidebarProps {
@@ -278,6 +422,26 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     ['SUPER_ADMIN', 'MANAGING_DIRECTOR', 'GENERAL_MANAGER'].includes(r),
   );
 
+  const { data: orgData } = useQuery({
+    queryKey: ['organization'],
+    queryFn: async () => {
+      const res = await api().get('/organization');
+      return (res.data as any).data;
+    },
+    staleTime: 5 * 60 * 1000,
+    enabled: !!user,
+  });
+
+  const { data: userProfile } = useQuery({
+    queryKey: ['user-profile', user?.id],
+    queryFn: async () => {
+      const res = await api().get(`/users/${user!.id}`);
+      return (res.data as any).data;
+    },
+    staleTime: 5 * 60 * 1000,
+    enabled: !!user?.id,
+  });
+
   const isActive = (href: string) => {
     // Exact match for root module pages to avoid matching children as root active
     if (href === '/inventory') return pathname === '/inventory';
@@ -286,6 +450,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     if (href === '/purchasing') return pathname === '/purchasing';
     if (href === '/ecommerce') return pathname === '/ecommerce';
     if (href === '/ai') return pathname === '/ai';
+    if (href === '/admin/ai') return pathname === '/admin/ai' || pathname.startsWith('/admin/ai/');
+    if (href === '/admin') return pathname === '/admin';
+    if (href === '/settings') return pathname === '/settings';
     return pathname === href || pathname.startsWith(`${href}/`);
   };
 
@@ -304,14 +471,25 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     >
       {/* Logo */}
       <div className={cn('flex items-center gap-3 p-4 border-b border-slate-700', collapsed && 'justify-center')}>
-        <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-amber-500 flex items-center justify-center">
-          <span className="text-white font-black text-lg">K</span>
-        </div>
-        {!collapsed && (
-          <div>
-            <p className="font-bold text-sm leading-tight">KNEF Gadgets</p>
-            <p className="text-xs text-slate-400">Business OS</p>
-          </div>
+        {orgData?.logoUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={orgData.logoUrl}
+            alt={orgData?.name ?? 'Logo'}
+            className={cn('object-contain', collapsed ? 'h-8 w-8' : 'h-10 w-auto max-w-[140px]')}
+          />
+        ) : (
+          <>
+            <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-amber-500 flex items-center justify-center">
+              <span className="text-white font-black text-lg">K</span>
+            </div>
+            {!collapsed && (
+              <div>
+                <p className="font-bold text-sm leading-tight">{orgData?.name ?? 'KNEF Gadgets'}</p>
+                <p className="text-xs text-slate-400">Business OS</p>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -339,30 +517,27 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
       {/* Bottom items */}
       <div className="border-t border-slate-700 py-3 px-2 space-y-0.5">
-        {BOTTOM_ITEMS.filter(canSee).map((item) => (
-          <Link
+        {BOTTOM_ITEMS.map((item) => (
+          <NavItemComponent
             key={item.href}
-            href={item.href}
-            className={cn(
-              'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-              isActive(item.href)
-                ? 'bg-blue-600 text-white'
-                : 'text-slate-300 hover:bg-slate-800 hover:text-white',
-              collapsed && 'justify-center px-2',
-            )}
-            title={collapsed ? item.label : undefined}
-          >
-            <item.icon size={18} className="flex-shrink-0" />
-            {!collapsed && <span>{item.label}</span>}
-          </Link>
+            item={item}
+            collapsed={collapsed}
+            isActive={isActive}
+            canSee={canSee}
+          />
         ))}
 
         {/* User info + logout */}
         <div className={cn('flex items-center gap-3 px-3 py-2 mt-2', collapsed && 'justify-center')}>
-          <div className="w-8 h-8 rounded-full bg-slate-600 flex items-center justify-center flex-shrink-0">
-            <span className="text-xs font-bold text-white uppercase">
-              {user?.firstName?.[0]}{user?.lastName?.[0]}
-            </span>
+          <div className="w-8 h-8 rounded-full bg-slate-600 flex items-center justify-center flex-shrink-0 overflow-hidden">
+            {userProfile?.avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={userProfile.avatarUrl} alt="avatar" className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-xs font-bold text-white uppercase">
+                {user?.firstName?.[0]}{user?.lastName?.[0]}
+              </span>
+            )}
           </div>
           {!collapsed && (
             <div className="flex-1 min-w-0">

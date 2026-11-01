@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../common/services/prisma.service';
 import { decrypt } from '@knef/utils';
@@ -24,6 +24,8 @@ export interface SendEmailResult {
 
 @Injectable()
 export class EmailService {
+  private readonly logger = new Logger(EmailService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<AppConfig>,
@@ -56,6 +58,8 @@ export class EmailService {
         return await this.sendViaSendgrid(provider, encryptionKey, toAddresses, fromAddress, params);
       } else if (provider.type === 'mailgun') {
         return await this.sendViaMailgun(provider, encryptionKey, toAddresses, fromAddress, params);
+      } else if (provider.type === 'brevo') {
+        return await this.sendViaBrevo(provider, encryptionKey, toAddresses, fromAddress, params);
       }
 
       return { success: false, error: `Unsupported provider type: ${provider.type}` };
@@ -142,6 +146,112 @@ export class EmailService {
       return { success: true, messageId };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
+      return { success: false, error: message };
+    }
+  }
+
+  private async sendViaBrevo(
+    provider: { apiKeyEncrypted: string | null; fromEmail: string; fromName: string },
+    encryptionKey: string,
+    to: string[],
+    _from: string,
+    params: SendEmailParams,
+  ): Promise<SendEmailResult> {
+    try {
+      if (!provider.apiKeyEncrypted) {
+        return { success: false, error: 'Brevo API key not configured' };
+      }
+      const apiKey = decrypt(provider.apiKeyEncrypted, encryptionKey);
+
+      const body = {
+        sender: { name: provider.fromName, email: provider.fromEmail },
+        to: to.map((email) => ({ email })),
+        subject: params.subject,
+        htmlContent: params.html,
+        ...(params.text ? { textContent: params.text } : {}),
+      };
+
+      const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'api-key': apiKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        return { success: false, error: `Brevo error ${response.status}: ${errorText}` };
+      }
+
+      const data = (await response.json()) as { messageId?: string };
+      return { success: true, messageId: data.messageId ?? `brevo-${Date.now()}` };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { success: false, error: message };
+    }
+  }
+
+  async sendSms(organizationId: string, to: string, message: string): Promise<SendEmailResult> {
+    try {
+      // Prefer per-org DB setting, fall back to env var
+      const dbApiKey = await this.prisma.systemSetting.findFirst({
+        where: { organizationId, key: 'sms.apiKey' },
+        select: { value: true },
+      });
+      const dbSenderId = await this.prisma.systemSetting.findFirst({
+        where: { organizationId, key: 'sms.senderId' },
+        select: { value: true },
+      });
+      const apiKey = dbApiKey?.value || this.config.get('TERMII_API_KEY');
+      const senderId = dbSenderId?.value || 'OE Alert';
+
+      if (!apiKey) {
+        this.logger.warn('SMS: TERMII_API_KEY not set');
+        return { success: false, error: 'SMS not configured — set TERMII_API_KEY or configure in SMS Providers settings' };
+      }
+
+      // Normalize phone to Termii format: 0XXXXXXXXXX → 2348XXXXXXXXX (no + prefix)
+      let recipient = to.replace(/[\s\-()]/g, '');
+      if (recipient.startsWith('+')) {
+        recipient = recipient.slice(1);
+      } else if (/^0\d{10}$/.test(recipient)) {
+        recipient = `234${recipient.slice(1)}`;
+      } else if (/^\d{10}$/.test(recipient)) {
+        recipient = `234${recipient}`;
+      }
+
+      const body = {
+        api_key: apiKey,
+        to: recipient,
+        from: senderId,
+        sms: message,
+        type: 'plain',
+        channel: 'generic',
+      };
+
+      this.logger.log(`SMS: sending to ${recipient} via Termii`);
+
+      const response = await fetch('https://v4.api.termii.com/api/sms/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      const responseText = await response.text();
+
+      if (!response.ok) {
+        this.logger.error(`SMS: Termii error ${response.status}: ${responseText}`);
+        return { success: false, error: `Termii SMS error ${response.status}: ${responseText}` };
+      }
+
+      this.logger.log(`SMS: sent successfully to ${recipient}`);
+      const data = JSON.parse(responseText) as { message_id?: string; message?: string };
+      return { success: true, messageId: data.message_id ?? `termii-sms-${Date.now()}` };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(`SMS: unexpected error: ${message}`);
       return { success: false, error: message };
     }
   }

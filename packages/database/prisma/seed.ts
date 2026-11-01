@@ -8,19 +8,35 @@ const prisma = new PrismaClient();
 
 const ALL_PERMISSIONS = [
   'products.view', 'products.create', 'products.edit', 'products.delete', 'products.import', 'products.export',
-  'inventory.view', 'inventory.adjust', 'inventory.transfer', 'inventory.count', 'inventory.view_cost',
+  'inventory.view', 'inventory.adjust', 'inventory.transfer', 'inventory.count',
+  'inventory.count.submit', 'inventory.count.review', 'inventory.count.approve', 'inventory.count.post',
+  'inventory.cycle_count', 'inventory.view_cost', 'inventory.view_price_history',
   'purchasing.view', 'purchasing.create', 'purchasing.approve', 'purchasing.receive', 'purchasing.manage_suppliers',
   'sales.view', 'sales.create', 'sales.edit', 'sales.cancel', 'sales.refund', 'sales.view_cost', 'sales.apply_discount',
   'pos.access', 'pos.open_session', 'pos.close_session', 'pos.manage_float',
   'customers.view', 'customers.create', 'customers.edit', 'customers.delete', 'customers.export',
-  'finance.view', 'finance.manage_accounts', 'finance.view_reports', 'finance.manage_expenses', 'finance.approve_expenses', 'finance.manage_payroll',
-  'staff.view', 'staff.create', 'staff.edit', 'staff.manage_attendance', 'staff.view_salaries',
-  'tasks.view', 'tasks.create', 'tasks.edit', 'tasks.assign', 'tasks.delete',
-  'goals.view', 'goals.create', 'goals.edit', 'goals.delete',
+  'finance.view', 'finance.manage', 'finance.bank_accounts', 'finance.reconcile',
+  'finance.expenses.view', 'finance.expenses.create', 'finance.expenses.approve',
+  'finance.manage_accounts', 'finance.view_reports', 'finance.manage_expenses', 'finance.approve_expenses', 'finance.manage_payroll',
+  'suppliers.view', 'suppliers.create', 'suppliers.edit', 'suppliers.delete', 'suppliers.view_ledger', 'suppliers.view_ap_aging',
+  'settings.print_templates',
+  'staff.view', 'staff.create', 'staff.edit', 'staff.manage', 'staff.manage_attendance', 'staff.view_salaries',
+  'staff.clock', 'staff.correct_attendance', 'staff.view_responsibilities', 'staff.manage_responsibilities',
+  'tasks.view', 'tasks.create', 'tasks.edit', 'tasks.assign', 'tasks.delete', 'tasks.manage',
+  'goals.view', 'goals.create', 'goals.edit', 'goals.delete', 'goals.manage',
   'reports.view', 'reports.export', 'reports.finance', 'reports.inventory', 'reports.sales', 'reports.staff',
   'ai.access', 'ai.manage_providers', 'ai.view_usage', 'ai.manage_budget',
   'settings.view', 'settings.edit', 'settings.manage_integrations',
   'admin.manage_users', 'admin.manage_roles', 'admin.manage_feature_flags', 'admin.view_audit', 'admin.manage_locations', 'admin.manage_departments',
+  'automation.view', 'automation.create', 'automation.edit', 'automation.delete', 'automation.activate', 'automation.execute', 'automation.history.view',
+  'communications.email_providers', 'communications.campaigns', 'communications.campaigns.approve', 'communications.campaigns.send',
+  'communications.templates', 'communications.telegram', 'communications.webhooks', 'communications.subscriptions',
+  'communications.sms', 'communications.push',
+  'integrations.view', 'integrations.manage',
+  'integrations.shopify.view', 'integrations.shopify.manage', 'integrations.shopify.sync_products',
+  'integrations.shopify.sync_inventory', 'integrations.shopify.manage_orders',
+  'marketing.view', 'marketing.manage', 'marketing.content.create', 'marketing.content.edit',
+  'marketing.approve', 'marketing.publish', 'marketing.audience.view', 'marketing.audience.manage',
 ];
 
 const ROLE_PERMISSIONS: Record<string, string[]> = {
@@ -28,17 +44,26 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
   MANAGING_DIRECTOR: ALL_PERMISSIONS.filter(p => !p.startsWith('admin.')).concat(['admin.view_audit', 'admin.manage_locations']),
   GENERAL_MANAGER: [
     'products.view', 'products.create', 'products.edit', 'products.export',
-    'inventory.view', 'inventory.adjust', 'inventory.transfer', 'inventory.count', 'inventory.view_cost',
+    'inventory.view', 'inventory.adjust', 'inventory.transfer', 'inventory.count',
+    'inventory.count.submit', 'inventory.count.review', 'inventory.count.approve', 'inventory.count.post',
+    'inventory.cycle_count', 'inventory.view_cost', 'inventory.view_price_history',
     'purchasing.view', 'purchasing.create', 'purchasing.approve', 'purchasing.receive', 'purchasing.manage_suppliers',
     'sales.view', 'sales.create', 'sales.edit', 'sales.cancel', 'sales.refund', 'sales.view_cost', 'sales.apply_discount',
     'customers.view', 'customers.create', 'customers.edit', 'customers.export',
-    'finance.view', 'finance.view_reports', 'finance.manage_expenses', 'finance.approve_expenses',
-    'staff.view', 'staff.create', 'staff.edit', 'staff.manage_attendance',
-    'tasks.view', 'tasks.create', 'tasks.edit', 'tasks.assign',
-    'goals.view', 'goals.create', 'goals.edit',
+    'finance.view', 'finance.reconcile', 'finance.expenses.view', 'finance.expenses.approve', 'finance.view_reports', 'finance.manage_expenses', 'finance.approve_expenses',
+    'suppliers.view', 'suppliers.view_ledger', 'suppliers.view_ap_aging',
+    'staff.view', 'staff.create', 'staff.edit', 'staff.manage', 'staff.manage_attendance',
+    'staff.clock', 'staff.correct_attendance', 'staff.view_responsibilities', 'staff.manage_responsibilities',
+    'tasks.view', 'tasks.create', 'tasks.edit', 'tasks.assign', 'tasks.manage',
+    'goals.view', 'goals.create', 'goals.edit', 'goals.manage',
     'reports.view', 'reports.export', 'reports.finance', 'reports.inventory', 'reports.sales', 'reports.staff',
     'ai.access', 'ai.view_usage',
     'settings.view', 'admin.view_audit',
+    'automation.view', 'automation.create', 'automation.edit', 'automation.activate', 'automation.execute', 'automation.history.view',
+    'integrations.view',
+    'integrations.shopify.view', 'integrations.shopify.sync_products', 'integrations.shopify.sync_inventory', 'integrations.shopify.manage_orders',
+    'marketing.view', 'marketing.manage', 'marketing.content.create', 'marketing.content.edit',
+    'marketing.approve', 'marketing.publish', 'marketing.audience.view', 'marketing.audience.manage',
   ],
   SALES_MANAGER: [
     'products.view', 'products.export',
@@ -46,10 +71,11 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'sales.view', 'sales.create', 'sales.edit', 'sales.cancel', 'sales.refund', 'sales.apply_discount',
     'pos.access', 'pos.open_session', 'pos.close_session', 'pos.manage_float',
     'customers.view', 'customers.create', 'customers.edit', 'customers.export',
-    'tasks.view', 'tasks.create', 'tasks.edit', 'tasks.assign',
-    'goals.view', 'goals.create', 'goals.edit',
+    'tasks.view', 'tasks.create', 'tasks.edit', 'tasks.assign', 'tasks.manage',
+    'goals.view', 'goals.create', 'goals.edit', 'goals.manage',
     'reports.view', 'reports.sales',
     'ai.access',
+    'automation.view', 'automation.history.view',
   ],
   SALES_STAFF: [
     'products.view',
@@ -58,6 +84,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'pos.access', 'pos.open_session', 'pos.close_session',
     'customers.view', 'customers.create', 'customers.edit',
     'tasks.view', 'tasks.create',
+    'staff.clock', 'staff.view_responsibilities',
   ],
   INVENTORY_MANAGER: [
     'products.view', 'products.create', 'products.edit', 'products.import', 'products.export',
@@ -71,17 +98,21 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'inventory.view', 'inventory.transfer', 'inventory.count',
     'purchasing.receive',
     'tasks.view',
+    'staff.clock', 'staff.view_responsibilities',
   ],
   ACCOUNTANT: [
     'sales.view', 'sales.view_cost',
     'purchasing.view',
-    'finance.view', 'finance.manage_accounts', 'finance.view_reports', 'finance.manage_expenses', 'finance.approve_expenses',
+    'finance.view', 'finance.manage', 'finance.bank_accounts', 'finance.expenses.view', 'finance.expenses.create', 'finance.expenses.approve',
+    'finance.manage_accounts', 'finance.view_reports', 'finance.manage_expenses', 'finance.approve_expenses',
     'reports.view', 'reports.export', 'reports.finance', 'reports.sales',
     'settings.view',
   ],
   HR_ADMIN: [
-    'staff.view', 'staff.create', 'staff.edit', 'staff.manage_attendance', 'staff.view_salaries',
-    'tasks.view', 'tasks.create', 'tasks.assign',
+    'staff.view', 'staff.create', 'staff.edit', 'staff.manage', 'staff.manage_attendance', 'staff.view_salaries',
+    'staff.clock', 'staff.correct_attendance', 'staff.view_responsibilities', 'staff.manage_responsibilities',
+    'tasks.view', 'tasks.create', 'tasks.assign', 'tasks.manage',
+    'goals.view', 'goals.create', 'goals.edit', 'goals.manage',
     'finance.manage_payroll',
     'reports.view', 'reports.staff',
     'admin.manage_users',
@@ -94,6 +125,11 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'tasks.view', 'tasks.create',
     'settings.view', 'settings.manage_integrations',
     'ai.access',
+    'integrations.view', 'integrations.manage',
+    'integrations.shopify.view', 'integrations.shopify.manage', 'integrations.shopify.sync_products',
+    'integrations.shopify.sync_inventory', 'integrations.shopify.manage_orders',
+    'marketing.view', 'marketing.manage', 'marketing.content.create', 'marketing.content.edit',
+    'marketing.approve', 'marketing.publish', 'marketing.audience.view', 'marketing.audience.manage',
   ],
   CUSTOMER_SERVICE: [
     'products.view',
@@ -122,6 +158,14 @@ const FEATURE_FLAGS = [
   { key: 'FEATURE_CALENDAR', name: 'Calendar Integration', description: 'Sync with Google/Outlook calendar' },
   { key: 'FEATURE_MULTI_LOCATION', name: 'Multi-Location', description: 'Enable multi-location inventory and reporting' },
   { key: 'FEATURE_ECOMMERCE_API', name: 'E-commerce API', description: 'Expose public API for storefront integration' },
+];
+
+const BUSINESS_RULE_SETTINGS = [
+  { key: 'rules.sales.max_discount_percent', value: '20', type: 'number', group: 'rules', label: 'Max Discount Percentage', description: 'Maximum discount % allowed on a sales order without manager approval', isPublic: false },
+  { key: 'rules.sales.min_margin_percent', value: '10', type: 'number', group: 'rules', label: 'Minimum Margin Percentage', description: 'Minimum gross margin % required on a sales order', isPublic: false },
+  { key: 'rules.sales.refund_approval_threshold_ngn', value: '50000', type: 'number', group: 'rules', label: 'Refund Approval Threshold (NGN)', description: 'Refunds above this amount require explicit approval', isPublic: false },
+  { key: 'rules.purchasing.approval_threshold_ngn', value: '500000', type: 'number', group: 'rules', label: 'PO Approval Threshold (NGN)', description: 'Purchase orders above this amount are flagged for elevated review', isPublic: false },
+  { key: 'rules.expense.approval_threshold_ngn', value: '100000', type: 'number', group: 'rules', label: 'Expense Approval Threshold (NGN)', description: 'Expenses above this amount require explicit approval', isPublic: false },
 ];
 
 const DEFAULT_SETTINGS = [
@@ -301,6 +345,36 @@ async function seed(): Promise<void> {
   }
   console.log('✅ System settings created\n');
 
+  // ── 5b. Business rule settings ─────────────────────────────────────────────
+  for (const setting of BUSINESS_RULE_SETTINGS) {
+    await prisma.systemSetting.upsert({
+      where: {
+        organizationId_key: {
+          organizationId: org.id,
+          key: setting.key,
+        },
+      },
+      create: {
+        id: createId(),
+        organizationId: org.id,
+        key: setting.key,
+        value: setting.value,
+        type: setting.type,
+        group: setting.group,
+        label: setting.label,
+        description: setting.description,
+        isPublic: false,
+      },
+      update: {
+        label: setting.label,
+        description: setting.description,
+        type: setting.type,
+        group: setting.group,
+      },
+    });
+  }
+  console.log('✅ Business rule settings created\n');
+
   // ── 6. Create default VAT tax rate ──────────────────────────────────────────
   await prisma.taxRate.upsert({
     where: {
@@ -387,6 +461,82 @@ async function seed(): Promise<void> {
       });
       console.log('✅ SUPER_ADMIN role assigned to admin user\n');
     }
+  }
+
+  // ── Email Templates ──────────────────────────────────────────────────────────
+  org = await prisma.organization.findFirst();
+  if (org) {
+    const TEMPLATES = [
+      {
+        name: 'Order Confirmation',
+        type: 'email',
+        subject: 'Your KNEF Gadgets Order {{orderReference}} is Confirmed!',
+        body: `<h2>Thank you for your order!</h2><p>Hi {{customerName}},</p><p>We've received your order and it's being processed. Here are your order details:</p><ul><li><strong>Order Reference:</strong> {{orderReference}}</li><li><strong>Total Amount:</strong> {{orderTotal}}</li><li><strong>Payment Method:</strong> {{paymentMethod}}</li></ul><p>We'll notify you once your order is ready for pickup or dispatch.</p><p>If you have any questions, contact us at <strong>info@knefgadgets.com</strong> or call <strong>+234 800 000 0000</strong>.</p><p>Thank you for choosing KNEF Gadgets!</p>`,
+      },
+      {
+        name: 'Order Shipped',
+        type: 'email',
+        subject: 'Your Order {{orderReference}} Has Been Shipped!',
+        body: `<h2>Your order is on its way!</h2><p>Hi {{customerName}},</p><p>Great news! Your order <strong>{{orderReference}}</strong> has been shipped and is on its way to you.</p><p><strong>Estimated Delivery:</strong> {{estimatedDelivery}}</p><p>If you have any delivery concerns, please contact us immediately.</p><p>Thank you for shopping with KNEF Gadgets!</p>`,
+      },
+      {
+        name: 'Order Ready for Pickup',
+        type: 'email',
+        subject: 'Your Order {{orderReference}} is Ready for Pickup',
+        body: `<h2>Your order is ready!</h2><p>Hi {{customerName}},</p><p>Your order <strong>{{orderReference}}</strong> is now ready for pickup at our store.</p><p><strong>Pickup Location:</strong> {{pickupAddress}}</p><p><strong>Store Hours:</strong> Monday – Saturday, 9am – 6pm</p><p>Please bring a valid ID and your order reference number. This order will be held for <strong>7 days</strong>.</p><p>See you soon!</p>`,
+      },
+      {
+        name: 'Payment Received',
+        type: 'email',
+        subject: 'Payment Confirmed for Order {{orderReference}}',
+        body: `<h2>Payment Received</h2><p>Hi {{customerName}},</p><p>We have successfully received your payment of <strong>{{amount}}</strong> for order <strong>{{orderReference}}</strong>.</p><p><strong>Payment Reference:</strong> {{paymentReference}}</p><p>Your order is now being processed. You will receive another notification when it is ready.</p><p>Thank you!</p>`,
+      },
+      {
+        name: 'Welcome Email',
+        type: 'email',
+        subject: 'Welcome to KNEF Gadgets, {{firstName}}!',
+        body: `<h2>Welcome to KNEF Gadgets! 🎉</h2><p>Hi {{firstName}},</p><p>Thank you for creating an account with KNEF Gadgets — Lagos's trusted gadget store.</p><p>With your account you can:</p><ul><li>Track your orders in real time</li><li>Save your delivery addresses</li><li>View your full order history</li><li>Get exclusive member offers</li></ul><p>Start shopping today at <a href="https://knefgadgets.com">knefgadgets.com</a>.</p><p>If you need help, we're always here at <strong>info@knefgadgets.com</strong>.</p><p>Happy shopping!</p>`,
+      },
+      {
+        name: 'Password Reset',
+        type: 'email',
+        subject: 'Reset Your KNEF Gadgets Password',
+        body: `<h2>Password Reset Request</h2><p>Hi {{firstName}},</p><p>We received a request to reset your password. Click the button below to create a new password. This link is valid for <strong>30 minutes</strong>.</p><p style="text-align:center;"><a href="{{resetLink}}" style="display:inline-block;background:#2563eb;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Reset Password</a></p><p>If you didn't request a password reset, please ignore this email. Your account is safe.</p><p>— The KNEF Gadgets Team</p>`,
+      },
+      {
+        name: 'OTP Verification',
+        type: 'email',
+        subject: 'Your KNEF Gadgets Verification Code: {{code}}',
+        body: `<h2>Email Verification</h2><p>Hi {{firstName}},</p><p>Your verification code is:</p><p style="text-align:center;font-size:36px;font-weight:700;letter-spacing:8px;color:#2563eb;">{{code}}</p><p>This code expires in <strong>10 minutes</strong>. Do not share it with anyone.</p><p>If you didn't request this, please ignore this email.</p>`,
+      },
+      {
+        name: 'Low Stock Alert',
+        type: 'email',
+        subject: '⚠️ Low Stock Alert: {{productName}}',
+        body: `<h2>Low Stock Alert</h2><p>This is an automated alert from KNEF Business OS.</p><p>The following product is running low on stock:</p><ul><li><strong>Product:</strong> {{productName}}</li><li><strong>SKU:</strong> {{sku}}</li><li><strong>Current Stock:</strong> {{currentStock}} units</li><li><strong>Low Stock Threshold:</strong> {{threshold}} units</li><li><strong>Location:</strong> {{location}}</li></ul><p>Please reorder soon to avoid stockout.</p>`,
+      },
+      {
+        name: 'Invoice',
+        type: 'email',
+        subject: 'Invoice {{invoiceNumber}} from KNEF Gadgets',
+        body: `<h2>Invoice from KNEF Gadgets</h2><p>Hi {{customerName}},</p><p>Please find attached your invoice for order <strong>{{orderReference}}</strong>.</p><table style="width:100%;border-collapse:collapse;"><tr style="background:#f3f4f6;"><th style="padding:8px;text-align:left;">Description</th><th style="padding:8px;text-align:right;">Amount</th></tr><tr><td style="padding:8px;border-bottom:1px solid #e5e7eb;">{{itemsSummary}}</td><td style="padding:8px;border-bottom:1px solid #e5e7eb;text-align:right;">{{subtotal}}</td></tr><tr><td style="padding:8px;font-weight:600;">Total</td><td style="padding:8px;font-weight:600;text-align:right;">{{total}}</td></tr></table><p><strong>Due Date:</strong> {{dueDate}}</p><p>Pay via bank transfer to <strong>KNEF Gadgets — First Bank, 1234567890</strong>.</p>`,
+      },
+      {
+        name: 'Promotional Offer',
+        type: 'email',
+        subject: '🔥 Special Offer Just for You — {{offerTitle}}',
+        body: `<h2>{{offerTitle}}</h2><p>Hi {{customerName}},</p><p>We have an exclusive offer for you!</p><p style="font-size:18px;color:#2563eb;font-weight:700;">{{offerDescription}}</p><p><strong>Valid until:</strong> {{expiryDate}}</p><p style="text-align:center;"><a href="https://knefgadgets.com" style="display:inline-block;background:#dc2626;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;">Shop Now</a></p><p>Don't miss out! This offer is limited.</p><p>— KNEF Gadgets Team</p>`,
+      },
+    ];
+
+    for (const tpl of TEMPLATES) {
+      await prisma.communicationTemplate.upsert({
+        where: { organizationId_name_type: { organizationId: org.id, name: tpl.name, type: tpl.type } },
+        create: { id: createId(), organizationId: org.id, ...tpl, isActive: true },
+        update: {},
+      });
+    }
+    console.log('✅ 10 email templates seeded\n');
   }
 
   console.log('🎉 Seed complete!\n');

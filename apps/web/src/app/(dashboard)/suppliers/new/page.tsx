@@ -46,11 +46,14 @@ export default function NewSupplierPage() {
         notes: notes || undefined,
         rating: rating ? parseInt(rating, 10) : undefined,
       });
-      return (res.data as { id: string }).id;
+      return (res.data as any).data.id as string;
     },
     onSuccess: (id) => router.push(`/suppliers/${id}`),
-    onError: (err: { response?: { data?: { message?: string | string[] } } }) => {
-      const msg = err?.response?.data?.message ?? 'Failed to create supplier';
+    onError: (err: any) => {
+      const msg =
+        err?.response?.data?.error?.message ??
+        err?.response?.data?.message ??
+        'Failed to create supplier';
       setErrors({ submit: Array.isArray(msg) ? msg.join(', ') : msg });
     },
   });

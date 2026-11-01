@@ -1,10 +1,17 @@
 import {
   Injectable,
   NotFoundException,
+  BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ConfigService } from '@nestjs/config';
 import { Prisma, TaskStatus } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
+import { EmailService } from '../communications/email.service';
+import { TelegramBotService } from '../telegram-bot/telegram-bot.service';
+import { CredentialService } from '../credentials/credential.service';
 import type { CreateTaskDto } from './dto/create-task.dto';
 import type { UpdateTaskDto } from './dto/update-task.dto';
 import type { ListTasksDto } from './dto/list-tasks.dto';
@@ -13,10 +20,19 @@ import type { CreateChecklistDto, UpdateChecklistDto } from './dto/create-checkl
 
 @Injectable()
 export class TasksService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(TasksService.name);
 
-  async findAll(organizationId: string, query: ListTasksDto) {
-    const { page = 1, limit = 50, status, priority, assigneeId, goalId } = query;
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
+    private readonly emailService: EmailService,
+    private readonly telegramService: TelegramBotService,
+    private readonly config: ConfigService,
+    private readonly credentialService: CredentialService,
+  ) {}
+
+  async findAll(organizationId: string, query: ListTasksDto, requestingUserId?: string) {
+    const { page = 1, limit = 50, status, priority, assigneeId, goalId, customerId, createdBy, mine } = query;
     const skip = (page - 1) * limit;
 
     const where: Prisma.TaskWhereInput = { organizationId };
@@ -24,6 +40,11 @@ export class TasksService {
     if (priority) where.priority = priority;
     if (assigneeId) where.assigneeId = assigneeId;
     if (goalId) where.goalId = goalId;
+    if (customerId) where.customerId = customerId;
+    if (createdBy) where.creatorId = createdBy;
+    if (mine === 'true' && requestingUserId) {
+      where.OR = [{ creatorId: requestingUserId }, { assigneeId: requestingUserId }];
+    }
 
     const [data, total] = await Promise.all([
       this.prisma.task.findMany({
@@ -70,7 +91,15 @@ export class TasksService {
   }
 
   async create(organizationId: string, dto: CreateTaskDto, creatorId: string) {
-    return this.prisma.task.create({
+    if (dto.customerId) {
+      const customer = await this.prisma.customer.findFirst({
+        where: { id: dto.customerId, organizationId },
+        select: { id: true },
+      });
+      if (!customer) throw new BadRequestException('Customer not found in this organization');
+    }
+
+    const task = await this.prisma.task.create({
       data: {
         id: createId(),
         organizationId,
@@ -85,12 +114,79 @@ export class TasksService {
         tags: dto.tags ?? [],
         parentId: dto.parentId,
         goalId: dto.goalId,
+        customerId: dto.customerId,
       },
       include: {
         assignee: { select: { id: true, firstName: true, lastName: true } },
         creator: { select: { id: true, firstName: true, lastName: true } },
       },
     });
+
+    this.eventEmitter.emit('task.created', {
+      organizationId,
+      taskId: task.id,
+      title: task.title,
+      priority: task.priority,
+      assigneeId: task.assigneeId,
+      creatorId,
+      dueDate: task.dueDate?.toISOString() ?? null,
+    });
+
+    if (task.assigneeId && dto.notifyVia?.length) {
+      this.sendTaskAssignmentNotifications(organizationId, task, dto.notifyVia).catch((err) =>
+        this.logger.warn('Task assignment notification failed', err),
+      );
+    }
+
+    return task;
+  }
+
+  private async sendTaskAssignmentNotifications(
+    organizationId: string,
+    task: { id: string; title: string; description: string | null; priority: string; dueDate: Date | null; assigneeId: string | null },
+    channels: string[],
+  ): Promise<void> {
+    if (!task.assigneeId) return;
+
+    const assignee = await this.prisma.user.findUnique({
+      where: { id: task.assigneeId },
+      select: { id: true, firstName: true, lastName: true, email: true, phone: true },
+    });
+    if (!assignee) return;
+
+    const dueDateStr = task.dueDate
+      ? new Date(task.dueDate).toLocaleDateString('en-NG', { dateStyle: 'medium' })
+      : 'No due date';
+    const message = `You have been assigned a task: "${task.title}" (${task.priority} priority). Due: ${dueDateStr}.`;
+
+    if (channels.includes('email') && assignee.email) {
+      await this.emailService.sendEmail({
+        organizationId,
+        to: assignee.email,
+        subject: `New Task Assigned: ${task.title}`,
+        html: `<p>Hi ${assignee.firstName},</p><p>${message}</p>`,
+        text: message,
+      }).catch((err) => this.logger.warn('Task email notification failed', err));
+    }
+
+    if (channels.includes('sms') && assignee.phone) {
+      await this.emailService.sendSms(organizationId, assignee.phone, message)
+        .catch((err) => this.logger.warn('Task SMS notification failed', err));
+    }
+
+    if (channels.includes('telegram')) {
+      const link = await this.prisma.telegramUserLink.findFirst({
+        where: { userId: task.assigneeId, organizationId, isVerified: true },
+        select: { telegramChatId: true },
+      });
+      if (link?.telegramChatId) {
+        const botToken = (await this.credentialService.resolve('TELEGRAM_BOT_TOKEN')) ?? '';
+        if (botToken) {
+          await this.telegramService.sendMessage(botToken, link.telegramChatId, message)
+            .catch((err) => this.logger.warn('Task Telegram notification failed', err));
+        }
+      }
+    }
   }
 
   async update(organizationId: string, id: string, dto: UpdateTaskDto) {
@@ -123,10 +219,21 @@ export class TasksService {
   async complete(organizationId: string, id: string) {
     const task = await this.prisma.task.findFirst({ where: { id, organizationId } });
     if (!task) throw new NotFoundException('Task not found');
-    return this.prisma.task.update({
+    const completed = await this.prisma.task.update({
       where: { id },
       data: { status: TaskStatus.DONE, completedAt: new Date() },
     });
+
+    this.eventEmitter.emit('task.completed', {
+      organizationId,
+      taskId: completed.id,
+      title: completed.title,
+      priority: completed.priority,
+      assigneeId: completed.assigneeId,
+      completedAt: completed.completedAt?.toISOString() ?? new Date().toISOString(),
+    });
+
+    return completed;
   }
 
   async addComment(organizationId: string, taskId: string, dto: CreateCommentDto, userId: string) {

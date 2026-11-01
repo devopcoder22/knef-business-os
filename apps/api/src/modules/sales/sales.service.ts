@@ -2,38 +2,44 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { OrderStatus, InvoiceStatus, PaymentStatus, MovementType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { InventoryService } from '../inventory/inventory.service';
+import { BusinessRuleService } from '../business-rules/business-rules.service';
+import { AuditService } from '../audit/audit.service';
 import type { CreateSalesOrderDto } from './dto/create-sales-order.dto';
 import type { ListSalesOrdersDto } from './dto/list-sales-orders.dto';
 import type { CreateInvoiceDto } from './dto/create-invoice.dto';
 import type { RecordPaymentDto } from './dto/record-payment.dto';
 import type { RefundOrderDto } from './dto/refund-order.dto';
 
-function generateReference(prefix: string): string {
-  const date = new Date();
-  const dateStr = date.toISOString().slice(0, 10).replace(/-/g, '');
-  const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
-  return `${prefix}-${dateStr}-${rand}`;
-}
+import { generateReference } from '../../common/utils/references';
 
 @Injectable()
 export class SalesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly inventoryService: InventoryService,
+    private readonly eventEmitter: EventEmitter2,
+    private readonly businessRuleService: BusinessRuleService,
+    private readonly auditService: AuditService,
   ) {}
 
   // ── Sales Orders ──────────────────────────────────────────────
 
-  async listSalesOrders(organizationId: string, query: ListSalesOrdersDto) {
+  async listSalesOrders(organizationId: string, query: ListSalesOrdersDto, locationIds: string[] | null = null) {
     const { page = 1, limit = 20, status, customerId, search } = query;
     const skip = (page - 1) * limit;
 
     const where: Record<string, unknown> = { organizationId };
+    if (locationIds !== null) {
+      where['locationId'] = { in: locationIds };
+    }
     if (status) where['status'] = status;
     if (customerId) where['customerId'] = customerId;
     if (search) {
@@ -77,7 +83,7 @@ export class SalesService {
     };
   }
 
-  async findSalesOrder(organizationId: string, id: string) {
+  async findSalesOrder(organizationId: string, id: string, locationIds: string[] | null = null) {
     const order = await this.prisma.salesOrder.findFirst({
       where: { id, organizationId },
       include: {
@@ -94,6 +100,9 @@ export class SalesService {
       },
     });
     if (!order) throw new NotFoundException('Sales order not found');
+    if (order && locationIds !== null && !locationIds.includes(order.locationId)) {
+      throw new NotFoundException('Sales order not found');
+    }
     return order;
   }
 
@@ -101,9 +110,15 @@ export class SalesService {
     organizationId: string,
     dto: CreateSalesOrderDto,
     userId: string,
+    locationIds: string[] | null = null,
   ) {
     if (!dto.items || dto.items.length === 0) {
       throw new BadRequestException('Sales order must have at least one item');
+    }
+    if (locationIds !== null && dto.locationId) {
+      if (!locationIds.includes(dto.locationId)) {
+        throw new ForbiddenException('Not authorized to create orders for this location');
+      }
     }
 
     const reference = generateReference('SO');
@@ -144,7 +159,48 @@ export class SalesService {
 
     const totalAmount = subtotal.sub(discountTotal).add(taxTotal);
 
-    return this.prisma.salesOrder.create({
+    // ── Business rule enforcement BEFORE committing to DB ──────────
+    const ruleChecks: Record<string, unknown> = {};
+    const subtotalNum = Number(subtotal);
+
+    if (subtotalNum > 0) {
+      const discountPct = (Number(discountTotal) / subtotalNum) * 100;
+      const discountCheck = await this.businessRuleService.checkDiscount(organizationId, discountPct);
+      ruleChecks.discount = discountCheck;
+
+      // Hard block if discount exceeds threshold (V1.1: no separate approval workflow)
+      if (discountCheck.approvalRequired) {
+        throw new BadRequestException(discountCheck.reason);
+      }
+
+      // Margin check — require ALL items to have costPrice if ANY do (prevent partial bypass)
+      const hasAnyCosts = dto.items.some((i) => i.costPrice !== undefined && i.costPrice !== null);
+      const hasAllCosts = dto.items.every((i) => i.costPrice !== undefined && i.costPrice !== null);
+
+      if (hasAnyCosts && !hasAllCosts) {
+        throw new BadRequestException(
+          'All items must include costPrice when any item provides one',
+        );
+      }
+
+      if (hasAllCosts) {
+        const costTotal = dto.items.reduce(
+          (sum, item) => sum + Number(item.costPrice) * item.quantity,
+          0,
+        );
+        const marginPct = ((subtotalNum - costTotal) / subtotalNum) * 100;
+        const marginCheck = await this.businessRuleService.checkMargin(organizationId, marginPct);
+        ruleChecks.margin = marginCheck;
+
+        // Margin hard block
+        if (!marginCheck.allowed) {
+          throw new BadRequestException(marginCheck.reason);
+        }
+      }
+    }
+    // ───────────────────────────────────────────────────────────────
+
+    const order = await this.prisma.salesOrder.create({
       data: {
         id: createId(),
         organizationId,
@@ -173,6 +229,19 @@ export class SalesService {
         },
       },
     });
+
+    this.eventEmitter.emit('order.created', {
+      organizationId,
+      orderId: order.id,
+      reference: order.reference,
+      customerId: order.customerId,
+      totalAmount: order.totalAmount.toString(),
+      locationId: order.locationId,
+      channel: order.channel,
+      actorUserId: userId,
+    });
+
+    return { ...order, ruleChecks };
   }
 
   async confirmSalesOrder(organizationId: string, id: string) {
@@ -241,7 +310,19 @@ export class SalesService {
       });
     }
 
-    return this.findSalesOrder(organizationId, id);
+    const completed = await this.findSalesOrder(organizationId, id);
+
+    this.eventEmitter.emit('order.completed', {
+      organizationId,
+      orderId: completed.id,
+      reference: completed.reference,
+      customerId: completed.customerId,
+      totalAmount: completed.totalAmount.toString(),
+      locationId: completed.locationId,
+      actorUserId: userId,
+    });
+
+    return completed;
   }
 
   async cancelSalesOrder(
@@ -260,7 +341,7 @@ export class SalesService {
       throw new BadRequestException('Order cannot be cancelled in its current state');
     }
 
-    return this.prisma.salesOrder.update({
+    const cancelled = await this.prisma.salesOrder.update({
       where: { id },
       data: {
         status: OrderStatus.CANCELLED,
@@ -268,6 +349,18 @@ export class SalesService {
         cancelReason: reason,
       },
     });
+
+    this.eventEmitter.emit('order.cancelled', {
+      organizationId,
+      orderId: cancelled.id,
+      reference: cancelled.reference,
+      customerId: cancelled.customerId,
+      totalAmount: cancelled.totalAmount.toString(),
+      locationId: cancelled.locationId,
+      reason: reason ?? null,
+    });
+
+    return cancelled;
   }
 
   async refundSalesOrder(
@@ -276,67 +369,169 @@ export class SalesService {
     dto: RefundOrderDto,
     userId: string,
   ) {
-    const order = await this.prisma.salesOrder.findFirst({
+    // Pre-TX validation: quick fail without starting a transaction
+    const orderPreCheck = await this.prisma.salesOrder.findFirst({
       where: { id, organizationId },
-      include: { items: true },
     });
-    if (!order) throw new NotFoundException('Sales order not found');
-    if (order.status !== OrderStatus.COMPLETED) {
+    if (!orderPreCheck) throw new NotFoundException('Sales order not found');
+    if (orderPreCheck.status !== OrderStatus.COMPLETED) {
       throw new BadRequestException('Only COMPLETED orders can be refunded');
     }
 
+    const refundAmountStr = dto.refundAmount ?? orderPreCheck.totalAmount.toString();
+    const isFullRefund = !dto.items || dto.items.length === 0;
     const itemsToRefund = dto.items && dto.items.length > 0 ? dto.items : null;
 
-    // Return inventory
-    const itemsForMovement = itemsToRefund
-      ? order.items.filter((oi) =>
-          itemsToRefund.some((ri) => ri.productId === oi.productId),
-        )
-      : order.items;
-
-    for (const item of itemsForMovement) {
-      const refundItem = itemsToRefund?.find((ri) => ri.productId === item.productId);
-      const qty = refundItem?.quantity ?? item.quantity;
-
-      await this.inventoryService.recordMovement(organizationId, {
-        productId: item.productId,
-        variantId: item.variantId ?? undefined,
-        locationId: order.locationId,
-        type: MovementType.RETURN_IN,
-        quantity: qty,
-        referenceType: 'SalesOrder',
-        referenceId: id,
-        notes: `Refund: ${dto.reason ?? 'Customer return'}`,
-        createdBy: userId,
-      });
+    // Fast-fail ceiling check on pre-read paidAmount (definitive check repeats inside TX)
+    const preliminaryPaid = new Prisma.Decimal(orderPreCheck.paidAmount.toString());
+    if (new Prisma.Decimal(refundAmountStr).gt(preliminaryPaid)) {
+      throw new BadRequestException(
+        `Refund amount (${refundAmountStr}) exceeds paid amount (${preliminaryPaid})`,
+      );
     }
 
-    const refundAmount = dto.refundAmount ?? order.totalAmount.toString();
-    const isFullRefund = !dto.items || dto.items.length === 0;
-
-    // Create reversal payment
-    const refundReference = generateReference('RFD');
-    await this.prisma.payment.create({
-      data: {
-        id: createId(),
+    // Hard block: evaluate refund rule BEFORE any DB mutation
+    const refundRuleCheck = await this.businessRuleService.checkRefundAmount(
+      organizationId,
+      Number(refundAmountStr),
+    );
+    if (refundRuleCheck.approvalRequired) {
+      void this.auditService.log({
         organizationId,
-        reference: refundReference,
-        orderId: id,
-        customerId: order.customerId,
-        amount: `-${refundAmount}`,
-        method: 'CASH',
-        status: PaymentStatus.REFUNDED,
-        notes: dto.reason ?? 'Refund',
-        receivedAt: new Date(),
+        userId,
+        action: 'REFUND_BLOCKED',
+        entity: 'SalesOrder',
+        entityId: id,
+        newValues: {
+          refundAmount: refundAmountStr,
+          reason: dto.reason,
+          threshold: refundRuleCheck.threshold,
+          ruleId: refundRuleCheck.ruleId,
+        },
+      });
+      throw new ForbiddenException(
+        `Refund of ₦${refundAmountStr} exceeds the approval threshold of ₦${refundRuleCheck.threshold}. Manager approval required.`,
+      );
+    }
+
+    const refundReference = generateReference('RFD');
+
+    // All write operations in ONE Serializable transaction (closes concurrent-refund race)
+    const updated = await (async () => {
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+          // Re-read order inside TX — authoritative state for concurrent protection
+          const order = await tx.salesOrder.findFirst({
+            where: { id, organizationId },
+            include: { items: true },
+          });
+          if (!order) throw new NotFoundException('Sales order not found');
+          if (order.status !== OrderStatus.COMPLETED) {
+            throw new BadRequestException('Only COMPLETED orders can be refunded');
+          }
+
+          const paidAmount = new Prisma.Decimal(order.paidAmount.toString());
+          const refundAmount = new Prisma.Decimal(refundAmountStr);
+
+          // Compute cumulative refundable amount from existing refund records (defense-in-depth)
+          const existingRefunds = await tx.payment.findMany({
+            where: { orderId: id, organizationId, status: PaymentStatus.REFUNDED },
+            select: { amount: true },
+          });
+          const totalAlreadyRefunded = existingRefunds.reduce(
+            (sum, r) => sum.add(new Prisma.Decimal(r.amount.toString()).abs()),
+            new Prisma.Decimal(0),
+          );
+          const refundable = paidAmount.sub(totalAlreadyRefunded);
+
+          if (refundAmount.gt(refundable)) {
+            throw new BadRequestException(
+              `Refund amount (${refundAmount}) exceeds refundable amount (${refundable}). Already refunded: ${totalAlreadyRefunded}`,
+            );
+          }
+
+          // Create reversal payment record
+          await tx.payment.create({
+            data: {
+              id: createId(),
+              organizationId,
+              reference: refundReference,
+              orderId: id,
+              customerId: order.customerId,
+              amount: `-${refundAmountStr}`,
+              method: 'CASH',
+              status: PaymentStatus.REFUNDED,
+              notes: dto.reason ?? 'Refund',
+              receivedAt: new Date(),
+            },
+          });
+
+          // Update order status
+          const updatedOrder = await tx.salesOrder.update({
+            where: { id },
+            data: {
+              status: isFullRefund ? OrderStatus.REFUNDED : OrderStatus.PARTIAL_REFUND,
+            },
+          });
+
+          // Return inventory inside same TX (tx client passed so movements are atomic)
+          const itemsForMovement = itemsToRefund
+            ? order.items.filter((oi) =>
+                itemsToRefund.some((ri) => ri.productId === oi.productId),
+              )
+            : order.items;
+
+          for (const item of itemsForMovement) {
+            const refundItem = itemsToRefund?.find((ri) => ri.productId === item.productId);
+            const qty = refundItem?.quantity ?? item.quantity;
+
+            await this.inventoryService.recordMovement(organizationId, {
+              productId: item.productId,
+              variantId: item.variantId ?? undefined,
+              locationId: order.locationId,
+              type: MovementType.RETURN_IN,
+              quantity: qty,
+              referenceType: 'SalesOrder',
+              referenceId: id,
+              notes: `Refund: ${dto.reason ?? 'Customer return'}`,
+              createdBy: userId,
+            }, tx);
+          }
+
+          return updatedOrder;
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      } catch (e: unknown) {
+        if (
+          e instanceof Prisma.PrismaClientKnownRequestError &&
+          e.code === 'P2034'
+        ) {
+          throw new ConflictException('Concurrent modification detected — please retry the refund');
+        }
+        throw e;
+      }
+    })();
+
+    // Post-TX: recalculate customer balance (eventual consistency — repairable on next event)
+    if (orderPreCheck.customerId) {
+      await this.recalculateOutstandingBalance(orderPreCheck.customerId);
+    }
+
+    // Audit log fires only after successful TX commit
+    void this.auditService.log({
+      organizationId,
+      userId,
+      action: 'SALES_ORDER_REFUNDED',
+      entity: 'SalesOrder',
+      entityId: id,
+      newValues: {
+        refundAmount: refundAmountStr,
+        reason: dto.reason,
+        isFullRefund,
+        ruleCheck: refundRuleCheck,
       },
     });
 
-    return this.prisma.salesOrder.update({
-      where: { id },
-      data: {
-        status: isFullRefund ? OrderStatus.REFUNDED : OrderStatus.PARTIAL_REFUND,
-      },
-    });
+    return { ...updated, ruleCheck: refundRuleCheck };
   }
 
   // ── Invoices ──────────────────────────────────────────────────
@@ -440,11 +635,38 @@ export class SalesService {
         discountRate: item.discountRate.toString(),
         totalPrice: item.totalPrice.toString(),
       }));
+    } else if (dto.items && dto.items.length > 0) {
+      // Standalone invoice with manually entered line items
+      for (const item of dto.items) {
+        const unitPrice = new Prisma.Decimal(item.unitPrice);
+        const taxRate = new Prisma.Decimal(item.taxRate ?? '0');
+        const discountRate = new Prisma.Decimal(item.discountRate ?? '0');
+        const baseTotal = unitPrice.mul(item.quantity);
+        const discountAmt = baseTotal.mul(discountRate.div(100));
+        const afterDiscount = baseTotal.sub(discountAmt);
+        const taxAmt = afterDiscount.mul(taxRate.div(100));
+        const lineTotal = afterDiscount.add(taxAmt);
+
+        subtotal = subtotal.add(baseTotal);
+        discountAmount = discountAmount.add(discountAmt);
+        taxAmount = taxAmount.add(taxAmt);
+
+        itemsData.push({
+          id: createId(),
+          productId: item.productId,
+          description: item.description,
+          quantity: item.quantity,
+          unitPrice: unitPrice.toString(),
+          taxRate: taxRate.toString(),
+          discountRate: discountRate.toString(),
+          totalPrice: lineTotal.toString(),
+        });
+      }
     }
 
     const totalAmount = subtotal.sub(discountAmount).add(taxAmount);
 
-    return this.prisma.invoice.create({
+    const invoice = await this.prisma.invoice.create({
       data: {
         id: createId(),
         organizationId,
@@ -466,6 +688,21 @@ export class SalesService {
         customer: true,
       },
     });
+
+    if (invoice.customerId) {
+      await this.recalculateOutstandingBalance(invoice.customerId);
+    }
+
+    this.eventEmitter.emit('invoice.created', {
+      organizationId,
+      invoiceId: invoice.id,
+      reference: invoice.reference,
+      customerId: invoice.customerId,
+      totalAmount: invoice.totalAmount.toString(),
+      dueDate: invoice.dueDate?.toISOString() ?? null,
+    });
+
+    return invoice;
   }
 
   async recordPayment(
@@ -473,62 +710,257 @@ export class SalesService {
     invoiceId: string,
     dto: RecordPaymentDto,
   ) {
-    const invoice = await this.prisma.invoice.findFirst({
-      where: { id: invoiceId, organizationId },
-    });
-    if (!invoice) throw new NotFoundException('Invoice not found');
-    if (invoice.status === InvoiceStatus.CANCELLED) {
-      throw new BadRequestException('Cannot record payment for a cancelled invoice');
+    // Fast idempotency pre-check (read-only, outside TX — avoids unnecessary TX for obvious retries)
+    if (dto.reference) {
+      const existing = await this.prisma.payment.findFirst({
+        where: { organizationId, invoiceId, gatewayRef: dto.reference, status: PaymentStatus.COMPLETED },
+      });
+      if (existing) return this.findInvoice(organizationId, invoiceId);
     }
 
-    const paymentAmount = new Prisma.Decimal(dto.amount);
-    const newPaidAmount = new Prisma.Decimal(invoice.paidAmount.toString()).add(paymentAmount);
+    // Retry loop handles P2002 collision on the auto-generated Payment.reference (extremely rare)
+    const MAX_ATTEMPTS = 5;
+    let createdPaymentId: string | null = null;
+    let wasIdempotent = false;
 
-    let newStatus: InvoiceStatus;
-    if (newPaidAmount.gte(invoice.totalAmount)) {
-      newStatus = InvoiceStatus.PAID;
-    } else if (newPaidAmount.gt(0)) {
-      newStatus = InvoiceStatus.PARTIAL;
-    } else {
-      newStatus = invoice.status;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      const paymentReference = generateReference('PAY');
+      const receiptReference = paymentReference.replace(/^PAY-/, 'RCP-');
+      const newPaymentId = createId();
+
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          // Re-read invoice inside Serializable TX — this is the authoritative state
+          const invoice = await tx.invoice.findFirst({
+            where: { id: invoiceId, organizationId },
+          });
+          if (!invoice) throw new NotFoundException('Invoice not found');
+          if (invoice.status === InvoiceStatus.CANCELLED) {
+            throw new BadRequestException('Cannot record payment for a cancelled invoice');
+          }
+
+          // In-TX idempotency: close concurrent duplicate-gateway-ref race
+          if (dto.reference) {
+            const dup = await tx.payment.findFirst({
+              where: { organizationId, invoiceId, gatewayRef: dto.reference, status: PaymentStatus.COMPLETED },
+            });
+            if (dup) { wasIdempotent = true; return; }
+          }
+
+          const paymentAmount = new Prisma.Decimal(dto.amount);
+          const currentPaidAmount = new Prisma.Decimal(invoice.paidAmount.toString());
+          const totalAmount = new Prisma.Decimal(invoice.totalAmount.toString());
+          const newPaidAmount = currentPaidAmount.add(paymentAmount);
+
+          // Overpayment guard — inside Serializable TX, safe from concurrent race
+          if (newPaidAmount.gt(totalAmount)) {
+            throw new BadRequestException(
+              `Payment of ${paymentAmount} would exceed invoice total of ${invoice.totalAmount}. Outstanding: ${totalAmount.sub(currentPaidAmount)}`,
+            );
+          }
+
+          let newStatus: InvoiceStatus;
+          if (newPaidAmount.gte(totalAmount)) {
+            newStatus = InvoiceStatus.PAID;
+          } else if (newPaidAmount.gt(0)) {
+            newStatus = InvoiceStatus.PARTIAL;
+          } else {
+            newStatus = invoice.status;
+          }
+
+          await tx.payment.create({
+            data: {
+              id: newPaymentId,
+              organizationId,
+              reference: paymentReference,
+              invoiceId,
+              customerId: invoice.customerId,
+              amount: dto.amount,
+              method: dto.method,
+              status: PaymentStatus.COMPLETED,
+              gatewayRef: dto.reference,
+              notes: dto.notes,
+              receivedAt: dto.receivedAt ? new Date(dto.receivedAt) : new Date(),
+            },
+          });
+
+          await tx.receipt.create({
+            data: {
+              id: createId(),
+              organizationId,
+              reference: receiptReference,
+              invoiceId,
+              customerId: invoice.customerId,
+              amount: dto.amount,
+              currency: invoice.currency ?? 'NGN',
+              method: dto.method,
+              notes: dto.notes,
+            },
+          });
+
+          await tx.invoice.update({
+            where: { id: invoiceId },
+            data: { paidAmount: newPaidAmount.toString(), status: newStatus },
+          });
+
+          if (invoice.orderId) {
+            await tx.salesOrder.update({
+              where: { id: invoice.orderId },
+              data: { paidAmount: { increment: paymentAmount } },
+            });
+          }
+
+          createdPaymentId = newPaymentId;
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+        if (wasIdempotent) return this.findInvoice(organizationId, invoiceId);
+        break; // success — exit retry loop
+      } catch (e: unknown) {
+        if (e instanceof Prisma.PrismaClientKnownRequestError) {
+          if (e.code === 'P2034') {
+            throw new ConflictException('Concurrent modification detected — please retry the payment');
+          }
+          if (e.code === 'P2002') {
+            const target = (e.meta?.target as string[] | undefined) ?? [];
+            if (target.includes('gatewayRef')) {
+              // Concurrent duplicate gateway reference hit DB constraint — idempotent
+              return this.findInvoice(organizationId, invoiceId);
+            }
+            if (attempt < MAX_ATTEMPTS) continue; // Retry on Payment.reference collision
+          }
+        }
+        throw e;
+      }
     }
 
-    const paymentReference = generateReference('PAY');
-
-    await this.prisma.$transaction(async (tx) => {
-      await tx.payment.create({
-        data: {
-          id: createId(),
-          organizationId,
-          reference: paymentReference,
-          invoiceId,
-          customerId: invoice.customerId,
+    // Audit log — fire-and-forget, outside TX
+    if (createdPaymentId) {
+      void this.auditService.log({
+        organizationId,
+        action: 'PAYMENT_RECORDED',
+        entity: 'Invoice',
+        entityId: invoiceId,
+        newValues: {
+          paymentId: createdPaymentId,
           amount: dto.amount,
           method: dto.method,
-          status: PaymentStatus.COMPLETED,
-          gatewayRef: dto.reference,
-          notes: dto.notes,
-          receivedAt: dto.receivedAt ? new Date(dto.receivedAt) : new Date(),
+          ...(dto.reference ? { gatewayRef: dto.reference } : {}),
         },
       });
+    }
 
-      await tx.invoice.update({
-        where: { id: invoiceId },
-        data: {
-          paidAmount: newPaidAmount.toString(),
-          status: newStatus,
-        },
-      });
+    const updatedInvoice = await this.findInvoice(organizationId, invoiceId);
 
-      // If invoice linked to order, update order paid amount
-      if (invoice.orderId) {
-        await tx.salesOrder.update({
-          where: { id: invoice.orderId },
-          data: { paidAmount: { increment: paymentAmount } },
-        });
-      }
+    if (updatedInvoice.customerId) {
+      await this.recalculateOutstandingBalance(updatedInvoice.customerId);
+    }
+
+    this.eventEmitter.emit('payment.received', {
+      organizationId,
+      invoiceId,
+      orderId: updatedInvoice.orderId,
+      amount: dto.amount,
+      method: dto.method,
+      customerId: updatedInvoice.customerId,
     });
 
-    return this.findInvoice(organizationId, invoiceId);
+    if (updatedInvoice.status === InvoiceStatus.PAID) {
+      this.eventEmitter.emit('invoice.paid', {
+        organizationId,
+        invoiceId,
+        reference: updatedInvoice.reference,
+        customerId: updatedInvoice.customerId,
+        totalAmount: updatedInvoice.totalAmount.toString(),
+      });
+    }
+
+    return updatedInvoice;
+  }
+
+  // ── Receipts ──────────────────────────────────────────────────
+
+  async listReceipts(organizationId: string, page = 1, limit = 20) {
+    const skip = (page - 1) * limit;
+    const where = { organizationId };
+
+    const [receipts, total] = await Promise.all([
+      this.prisma.receipt.findMany({
+        where,
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          reference: true,
+          amount: true,
+          currency: true,
+          method: true,
+          issuedAt: true,
+          notes: true,
+          invoiceId: true,
+          customerId: true,
+          invoice: { select: { id: true, reference: true, status: true } },
+        },
+        orderBy: { issuedAt: 'desc' },
+      }),
+      this.prisma.receipt.count({ where }),
+    ]);
+
+    return {
+      data: receipts,
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+    };
+  }
+
+  async findReceipt(organizationId: string, id: string) {
+    const receipt = await this.prisma.receipt.findFirst({
+      where: { id, organizationId },
+      include: {
+        invoice: {
+          include: {
+            items: {
+              include: { product: { select: { id: true, name: true, sku: true } } },
+            },
+            customer: true,
+          },
+        },
+      },
+    });
+    if (!receipt) throw new NotFoundException('Receipt not found');
+
+    // Customer may be linked via invoice or directly by customerId
+    let customer: Record<string, unknown> | null =
+      (receipt.invoice?.customer as Record<string, unknown> | null | undefined) ?? null;
+
+    if (!customer && receipt.customerId) {
+      const c = await this.prisma.customer.findFirst({ where: { id: receipt.customerId, organizationId } });
+      customer = c as Record<string, unknown> | null;
+    }
+
+    return { ...receipt, customer };
+  }
+
+  private async recalculateOutstandingBalance(customerId: string): Promise<void> {
+    const [invoices, payments] = await Promise.all([
+      this.prisma.invoice.findMany({
+        where: { customerId, status: { not: 'CANCELLED' } },
+        select: { totalAmount: true },
+      }),
+      this.prisma.payment.findMany({
+        where: { customerId, status: { in: ['COMPLETED', 'REFUNDED'] } },
+        select: { amount: true },
+      }),
+    ]);
+    const totalBilled = invoices.reduce((s, i) => s + Number(i.totalAmount), 0);
+    const totalPaid = payments
+      .filter((p) => Number(p.amount) > 0)
+      .reduce((s, p) => s + Number(p.amount), 0);
+    const totalRefunded = payments
+      .filter((p) => Number(p.amount) < 0)
+      .reduce((s, p) => s + Math.abs(Number(p.amount)), 0);
+    const balance = Math.max(0, totalBilled - totalPaid + totalRefunded);
+    await this.prisma.customer.updateMany({
+      where: { id: customerId },
+      data: { outstandingBalance: balance },
+    });
   }
 }

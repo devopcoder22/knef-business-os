@@ -1,0 +1,27 @@
+{
+  "name": "knef-business-os",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "test": "turbo test",
+    "lint": "turbo lint",
+    "type-check": "turbo type-check",
+    "db:generate": "turbo db:generate",
+    "db:migrate": "cd packages/database && pnpm prisma migrate dev",
+    "db:seed": "cd packages/database && pnpm prisma db seed",
+    "db:studio": "cd packages/database && pnpm prisma studio",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\""
+  },
+  "devDependencies": {
+    "turbo": "latest",
+    "prettier": "^3.2.5",
+    "@types/node": "^20.12.7"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.1.4"
+}

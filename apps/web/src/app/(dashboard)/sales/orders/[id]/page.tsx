@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { ArrowLeft, CheckCircle, XCircle, RotateCcw, FileText } from 'lucide-react';
+import { ArrowLeft, CheckCircle, XCircle, RotateCcw, FileText, MapPin } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -58,6 +58,16 @@ interface SalesOrder {
   location: { id: string; name: string; code: string };
   items: OrderItem[];
   invoices: Array<{ id: string; reference: string; status: string; totalAmount: string }>;
+  deliveryAddress?: string | null;
+  deliveryCity?: string | null;
+  deliveryState?: string | null;
+  deliveryCountry?: string | null;
+  deliveryPhone?: string | null;
+  deliveryLandmark?: string | null;
+  deliveryPlaceId?: string | null;
+  deliveryLatitude?: string | null;
+  deliveryLongitude?: string | null;
+  deliveryAddressSource?: string | null;
   payments: Payment[];
 }
 
@@ -72,12 +82,13 @@ export default function SalesOrderDetailPage() {
   const [payAmount, setPayAmount] = useState('');
   const [payMethod, setPayMethod] = useState('CASH');
   const [payRef, setPayRef] = useState('');
+  const [invoiceError, setInvoiceError] = useState('');
 
   const { data: order, isLoading } = useQuery<SalesOrder>({
     queryKey: ['sales-order', id],
     queryFn: async () => {
       const res = await api().get<SalesOrder>(`/sales-orders/${id}`);
-      return res.data;
+      return (res.data as any).data as SalesOrder;
     },
   });
 
@@ -107,9 +118,13 @@ export default function SalesOrderDetailPage() {
         orderId: id,
         customerId: order?.customer?.id,
       });
-      return (res.data as { id: string }).id;
+      return (res.data as any).data.id as string;
     },
     onSuccess: (invId) => router.push(`/sales/invoices/${invId}`),
+    onError: (err: any) => {
+      const msg = err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to create invoice';
+      setInvoiceError(Array.isArray(msg) ? msg.join(', ') : msg);
+    },
   });
 
   const recordPaymentMutation = useMutation({
@@ -183,6 +198,13 @@ export default function SalesOrderDetailPage() {
           )}
         </div>
       </div>
+
+      {invoiceError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700 flex items-center justify-between">
+          <span>{invoiceError}</span>
+          <button onClick={() => setInvoiceError('')} className="text-red-400 hover:text-red-600 ml-4">&times;</button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Items */}
@@ -339,6 +361,45 @@ export default function SalesOrderDetailPage() {
             <div className="bg-white rounded-xl border border-gray-200 p-4">
               <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-2">Notes</h3>
               <p className="text-sm text-gray-600">{order.notes}</p>
+            </div>
+          )}
+
+          {order.deliveryAddress && (
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                <MapPin size={14} />
+                Delivery Address
+              </h3>
+              <div className="space-y-1 text-sm text-gray-700">
+                <p>{order.deliveryAddress}</p>
+                {order.deliveryLandmark && (
+                  <p className="text-gray-500 text-xs">Landmark: {order.deliveryLandmark}</p>
+                )}
+                {(order.deliveryCity || order.deliveryState || order.deliveryCountry) && (
+                  <p className="text-gray-500 text-xs">
+                    {[order.deliveryCity, order.deliveryState, order.deliveryCountry].filter(Boolean).join(', ')}
+                  </p>
+                )}
+                {order.deliveryPhone && (
+                  <p className="text-gray-500 text-xs">Phone: {order.deliveryPhone}</p>
+                )}
+                {order.deliveryAddressSource && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    Source: <span className="font-mono">{order.deliveryAddressSource}</span>
+                  </p>
+                )}
+                {order.deliveryLatitude && order.deliveryLongitude && (
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${order.deliveryLatitude},${order.deliveryLongitude}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline mt-1"
+                  >
+                    <MapPin size={11} />
+                    Open in Google Maps
+                  </a>
+                )}
+              </div>
             </div>
           )}
         </div>

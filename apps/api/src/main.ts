@@ -3,6 +3,8 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { json, urlencoded } from 'express';
+import type { Request } from 'express';
 import helmet from 'helmet';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const cookieParser = require('cookie-parser');
@@ -14,9 +16,25 @@ import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
 
+  // Disable built-in body parser so we can set explicit size limits
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bodyParser: false,
     logger: ['error', 'warn', 'log', 'debug'],
   });
+
+  // Explicit body size limits — prevents request-body DoS.
+  // The verify callback stores the raw bytes on req.rawBody so that webhook
+  // signature verification (Shopify, Meta/WhatsApp) always operates on the
+  // original wire bytes rather than a re-serialised JSON string.
+  app.use(
+    json({
+      limit: '10mb',
+      verify: (req: Request & { rawBody?: Buffer }, _res: unknown, buf: Buffer) => {
+        req.rawBody = buf;
+      },
+    }),
+  );
+  app.use(urlencoded({ extended: true, limit: '10mb' }));
 
   const configService = app.get(ConfigService);
   const port = configService.get<number>('API_PORT', 4000);
@@ -43,6 +61,7 @@ async function bootstrap(): Promise<void> {
         },
       },
       crossOriginEmbedderPolicy: false, // needed for some API clients
+      crossOriginResourcePolicy: { policy: 'cross-origin' }, // allow /uploads/* to load from other origins
     }),
   );
 
@@ -52,11 +71,10 @@ async function bootstrap(): Promise<void> {
   // Request ID middleware
   app.use(RequestIdMiddleware);
 
-  // CORS
-  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') ?? [
-    appUrl,
-    'http://localhost:3000',
-  ];
+  // CORS — use ConfigService so ALLOWED_ORIGINS goes through validated schema
+  const allowedOrigins = (configService.get<string>('ALLOWED_ORIGINS') ?? '').split(',').filter(Boolean).length > 0
+    ? (configService.get<string>('ALLOWED_ORIGINS') as string).split(',').map((o) => o.trim()).filter(Boolean)
+    : [appUrl, 'http://localhost:3000'];
   app.enableCors({
     origin: allowedOrigins,
     credentials: true,
@@ -118,6 +136,15 @@ async function bootstrap(): Promise<void> {
     });
     logger.log(`Swagger UI: http://localhost:${port}/api/docs`);
   }
+
+  // Serve uploaded files at /uploads/*
+  const uploadDir = configService.get<string>('UPLOAD_DIR', '/app/uploads');
+  app.useStaticAssets(uploadDir, {
+    prefix: '/uploads',
+    setHeaders: (res: import('express').Response) => {
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    },
+  });
 
   // Graceful shutdown — allow in-flight requests to complete before exit
   app.enableShutdownHooks();

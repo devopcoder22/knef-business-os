@@ -44,8 +44,8 @@ export default function BankAccountsPage() {
   const { data: accounts = [], isLoading } = useQuery<BankAccount[]>({
     queryKey: ['bank-accounts'],
     queryFn: async () => {
-      const res = await api().get<BankAccount[]>('/bank-accounts');
-      return res.data;
+      const res = await api().get<{ data: BankAccount[] }>('/bank-accounts');
+      return res.data.data;
     },
   });
 

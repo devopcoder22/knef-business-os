@@ -16,8 +16,12 @@ import {
   AlertTriangle,
   CheckCircle,
 } from 'lucide-react';
+import { BarcodeDisplay } from '@/components/barcode/barcode-display';
+import { PrintSingleLabelModal } from '@/components/barcode/print-labels-modal';
+import { Printer } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { sanitizeHtml } from '@/lib/sanitize';
 
 const TABS = [
   { id: 'overview', label: 'Overview', icon: Package },
@@ -40,6 +44,8 @@ export default function ProductDetailPage() {
   const params = useParams();
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const [printVariantId, setPrintVariantId] = useState<string | undefined>(undefined);
+  const [showPrintModal, setShowPrintModal] = useState(false);
 
   const productId = params.id as string;
 
@@ -47,7 +53,7 @@ export default function ProductDetailPage() {
     queryKey: ['product', productId],
     queryFn: async () => {
       const res = await api().get(`/products/${productId}`);
-      return (res.data as any);
+      return (res.data as any).data;
     },
   });
 
@@ -55,7 +61,7 @@ export default function ProductDetailPage() {
     queryKey: ['product-movements', productId],
     queryFn: async () => {
       const res = await api().get(`/inventory/${productId}/movements?limit=20`);
-      return (res.data as any);
+      return (res.data as any).data;
     },
     enabled: activeTab === 'activity',
   });
@@ -188,9 +194,27 @@ export default function ProductDetailPage() {
                   </div>
                   <div>
                     <p className="text-xs text-gray-500 uppercase tracking-wide">Barcode</p>
-                    <p className="text-sm font-medium text-gray-900 mt-1 font-mono">
-                      {product.barcode ?? '—'}
-                    </p>
+                    {product.barcode ? (
+                      <div className="mt-2 space-y-2">
+                        <p className="text-sm font-medium text-gray-900 font-mono">{product.barcode}</p>
+                        <BarcodeDisplay
+                          value={product.barcode}
+                          label={`${product.name} · ${product.sku}`}
+                          format={(product as any).barcodeType === 'EAN13' ? 'ean13' : 'code128'}
+                          width={200}
+                          height={60}
+                        />
+                        <button
+                          onClick={() => { setPrintVariantId(undefined); setShowPrintModal(true); }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-blue-200 rounded-lg text-blue-700 hover:bg-blue-50 transition-colors"
+                        >
+                          <Printer size={12} />
+                          Print Label
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-400 mt-1">No barcode — add one to enable scanner lookup</p>
+                    )}
                   </div>
                   <div>
                     <p className="text-xs text-gray-500 uppercase tracking-wide">Total Stock</p>
@@ -215,7 +239,10 @@ export default function ProductDetailPage() {
                 {product.description && (
                   <div>
                     <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">Description</p>
-                    <p className="text-sm text-gray-700 leading-relaxed">{product.description}</p>
+                    <div
+                      className="text-sm text-gray-700 leading-relaxed prose prose-sm max-w-none"
+                      dangerouslySetInnerHTML={{ __html: sanitizeHtml(product.description) }}
+                    />
                   </div>
                 )}
 
@@ -270,6 +297,7 @@ export default function ProductDetailPage() {
                       <th className="text-right py-2 font-medium text-gray-700">Cost</th>
                       <th className="text-right py-2 font-medium text-gray-700">Price</th>
                       <th className="text-left py-2 font-medium text-gray-700">Options</th>
+                      <th className="py-2" />
                     </tr>
                   </thead>
                   <tbody>
@@ -287,6 +315,16 @@ export default function ProductDetailPage() {
                           {Object.entries(v.options ?? {})
                             .map(([k, val]) => `${k}: ${val}`)
                             .join(', ') || '—'}
+                        </td>
+                        <td className="py-3">
+                          <button
+                            onClick={() => { setPrintVariantId(v.id); setShowPrintModal(true); }}
+                            className="flex items-center gap-1 px-2 py-1 text-xs border border-blue-200 rounded text-blue-700 hover:bg-blue-50"
+                            title="Print label for this variant"
+                          >
+                            <Printer size={10} />
+                            Label
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -405,6 +443,14 @@ export default function ProductDetailPage() {
           )}
         </div>
       </div>
+
+      {showPrintModal && product && (
+        <PrintSingleLabelModal
+          productId={productId}
+          variantId={printVariantId}
+          onClose={() => setShowPrintModal(false)}
+        />
+      )}
     </div>
   );
 }

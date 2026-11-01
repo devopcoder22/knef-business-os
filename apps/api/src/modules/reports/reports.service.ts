@@ -130,7 +130,32 @@ export class ReportsService {
   // SALES REPORTS
   // ═══════════════════════════════════════════════════════════════
 
-  async getSalesSummary(organizationId: string, q: SalesSummaryQuery) {
+  private emptySalesSummary(startDate: string, endDate: string) {
+    return {
+      data: {
+        totalRevenue: 0,
+        totalOrders: 0,
+        avgOrderValue: 0,
+        totalDiscount: 0,
+        totalTax: 0,
+        completedOrders: 0,
+        cancelledOrders: 0,
+        refundedOrders: 0,
+        revenueByDay: [],
+        revenueByChannel: [],
+        revenueByLocation: [],
+        topProducts: [],
+        paymentMethodBreakdown: [],
+      },
+      meta: this.meta(startDate, endDate),
+    };
+  }
+
+  async getSalesSummary(
+    organizationId: string,
+    q: SalesSummaryQuery,
+    locationIds: string[] | null = null,
+  ) {
     const start = parseStart(q.startDate);
     const end = parseEnd(q.endDate);
 
@@ -138,7 +163,14 @@ export class ReportsService {
       organizationId,
       createdAt: { gte: start, lt: end },
     };
-    if (q.locationId) orderWhere.locationId = q.locationId;
+    if (q.locationId) {
+      if (locationIds !== null && !locationIds.includes(q.locationId)) {
+        return this.emptySalesSummary(q.startDate, q.endDate);
+      }
+      orderWhere.locationId = q.locationId as never;
+    } else if (locationIds !== null) {
+      orderWhere.locationId = { in: locationIds } as never;
+    }
     if (q.channel) orderWhere.channel = q.channel as never;
 
     const completedWhere: Prisma.SalesOrderWhereInput = {
@@ -225,10 +257,10 @@ export class ReportsService {
       .map(([date, v]) => ({ date, ...v }));
 
     // resolve location names
-    const locationIds = ordersForLocation.map(r => r.locationId);
-    const locations = locationIds.length > 0
+    const locationIdsForLookup = ordersForLocation.map(r => r.locationId).filter((id): id is string => id !== null);
+    const locations = locationIdsForLookup.length > 0
       ? await this.prisma.location.findMany({
-          where: { id: { in: locationIds } },
+          where: { id: { in: locationIdsForLookup } },
           select: { id: true, name: true },
         })
       : [];
@@ -291,7 +323,11 @@ export class ReportsService {
     };
   }
 
-  async getSalesProducts(organizationId: string, q: SalesProductsQuery) {
+  async getSalesProducts(
+    organizationId: string,
+    q: SalesProductsQuery,
+    locationIds: string[] | null = null,
+  ) {
     const start = parseStart(q.startDate);
     const end = parseEnd(q.endDate);
     const page = q.page ?? 1;
@@ -303,7 +339,14 @@ export class ReportsService {
       status: OrderStatus.COMPLETED,
       createdAt: { gte: start, lt: end },
     };
-    if (q.locationId) orderWhere.locationId = q.locationId;
+    if (q.locationId) {
+      if (locationIds !== null && !locationIds.includes(q.locationId)) {
+        return { data: [], total: 0, page, limit, totalPages: 0, meta: this.meta(q.startDate, q.endDate) };
+      }
+      orderWhere.locationId = q.locationId as never;
+    } else if (locationIds !== null) {
+      orderWhere.locationId = { in: locationIds } as never;
+    }
 
     const itemWhere: Prisma.SalesOrderItemWhereInput = { order: orderWhere };
     if (q.categoryId) {
@@ -417,7 +460,11 @@ export class ReportsService {
     };
   }
 
-  async getSalesDaily(organizationId: string, q: SalesDailyQuery) {
+  async getSalesDaily(
+    organizationId: string,
+    q: SalesDailyQuery,
+    locationIds: string[] | null = null,
+  ) {
     const start = parseStart(q.startDate);
     const end = parseEnd(q.endDate);
 
@@ -426,14 +473,23 @@ export class ReportsService {
       status: OrderStatus.COMPLETED,
       createdAt: { gte: start, lt: end },
     };
-    if (q.locationId) where.locationId = q.locationId;
 
     const refundedWhere: Prisma.SalesOrderWhereInput = {
       organizationId,
       status: { in: [OrderStatus.REFUNDED, OrderStatus.PARTIAL_REFUND] },
       createdAt: { gte: start, lt: end },
     };
-    if (q.locationId) refundedWhere.locationId = q.locationId;
+
+    if (q.locationId) {
+      if (locationIds !== null && !locationIds.includes(q.locationId)) {
+        return { data: [], meta: this.meta(q.startDate, q.endDate) };
+      }
+      where.locationId = q.locationId as never;
+      refundedWhere.locationId = q.locationId as never;
+    } else if (locationIds !== null) {
+      where.locationId = { in: locationIds } as never;
+      refundedWhere.locationId = { in: locationIds } as never;
+    }
 
     const [orders, refunds] = await Promise.all([
       this.prisma.salesOrder.findMany({
@@ -553,11 +609,25 @@ export class ReportsService {
   // INVENTORY REPORTS
   // ═══════════════════════════════════════════════════════════════
 
-  async getInventoryValuation(organizationId: string, q: InventoryValuationQuery) {
+  async getInventoryValuation(
+    organizationId: string,
+    q: InventoryValuationQuery,
+    locationIds: string[] | null = null,
+  ) {
     const levelWhere: Prisma.InventoryLevelWhereInput = {
       product: { organizationId },
     };
-    if (q.locationId) levelWhere.locationId = q.locationId;
+    if (q.locationId) {
+      if (locationIds !== null && !locationIds.includes(q.locationId)) {
+        return {
+          data: { totalItems: 0, totalUnits: 0, totalCostValue: 0, totalRetailValue: 0, potentialProfit: 0, byCategory: [], byLocation: [] },
+          meta: { generatedAt: new Date().toISOString() },
+        };
+      }
+      levelWhere.locationId = q.locationId as never;
+    } else if (locationIds !== null) {
+      levelWhere.locationId = { in: locationIds } as never;
+    }
     if (q.categoryId) {
       levelWhere.product = { organizationId, categoryId: q.categoryId };
     }
@@ -643,7 +713,11 @@ export class ReportsService {
     };
   }
 
-  async getInventoryMovement(organizationId: string, q: InventoryMovementQuery) {
+  async getInventoryMovement(
+    organizationId: string,
+    q: InventoryMovementQuery,
+    locationIds: string[] | null = null,
+  ) {
     const start = parseStart(q.startDate);
     const end = parseEnd(q.endDate);
     const page = q.page ?? 1;
@@ -654,7 +728,14 @@ export class ReportsService {
       organizationId,
       createdAt: { gte: start, lt: end },
     };
-    if (q.locationId) where.locationId = q.locationId;
+    if (q.locationId) {
+      if (locationIds !== null && !locationIds.includes(q.locationId)) {
+        return { data: [], total: 0, page, limit, totalPages: 0, meta: this.meta(q.startDate, q.endDate) };
+      }
+      where.locationId = q.locationId as never;
+    } else if (locationIds !== null) {
+      where.locationId = { in: locationIds } as never;
+    }
     if (q.productId) where.productId = q.productId;
     if (q.type) where.type = q.type;
 
@@ -669,7 +750,7 @@ export class ReportsService {
     ]);
 
     const productIds = [...new Set(movements.map(m => m.productId))];
-    const locationIds = [...new Set(movements.map(m => m.locationId))];
+    const locationIdsForLookup = [...new Set(movements.map(m => m.locationId))];
 
     const [products, locations] = await Promise.all([
       productIds.length > 0
@@ -678,9 +759,9 @@ export class ReportsService {
             select: { id: true, name: true, sku: true },
           })
         : [],
-      locationIds.length > 0
+      locationIdsForLookup.length > 0
         ? this.prisma.location.findMany({
-            where: { id: { in: locationIds } },
+            where: { id: { in: locationIdsForLookup } },
             select: { id: true, name: true },
           })
         : [],
@@ -715,11 +796,22 @@ export class ReportsService {
     };
   }
 
-  async getInventoryLowStock(organizationId: string, q: InventoryLowStockQuery) {
+  async getInventoryLowStock(
+    organizationId: string,
+    q: InventoryLowStockQuery,
+    locationIds: string[] | null = null,
+  ) {
     const where: Prisma.InventoryLevelWhereInput = {
       product: { organizationId },
     };
-    if (q.locationId) where.locationId = q.locationId;
+    if (q.locationId) {
+      if (locationIds !== null && !locationIds.includes(q.locationId)) {
+        return { data: [], meta: { generatedAt: new Date().toISOString() } };
+      }
+      where.locationId = q.locationId as never;
+    } else if (locationIds !== null) {
+      where.locationId = { in: locationIds } as never;
+    }
 
     const levels = await this.prisma.inventoryLevel.findMany({
       where,
@@ -745,7 +837,11 @@ export class ReportsService {
     };
   }
 
-  async getInventoryTurnover(organizationId: string, q: InventoryTurnoverQuery) {
+  async getInventoryTurnover(
+    organizationId: string,
+    q: InventoryTurnoverQuery,
+    locationIds: string[] | null = null,
+  ) {
     const start = parseStart(q.startDate);
     const end = parseEnd(q.endDate);
     const periodDays = Math.max(
@@ -756,13 +852,21 @@ export class ReportsService {
     const levelWhere: Prisma.InventoryLevelWhereInput = {
       product: { organizationId },
     };
-    if (q.locationId) levelWhere.locationId = q.locationId;
-
     const movementWhere: Prisma.InventoryMovementWhereInput = {
       organizationId,
       createdAt: { gte: start, lt: end },
     };
-    if (q.locationId) movementWhere.locationId = q.locationId;
+
+    if (q.locationId) {
+      if (locationIds !== null && !locationIds.includes(q.locationId)) {
+        return { data: [], meta: this.meta(q.startDate, q.endDate) };
+      }
+      levelWhere.locationId = q.locationId as never;
+      movementWhere.locationId = q.locationId as never;
+    } else if (locationIds !== null) {
+      levelWhere.locationId = { in: locationIds } as never;
+      movementWhere.locationId = { in: locationIds } as never;
+    }
 
     const [levels, soldMovements, receivedMovements] = await Promise.all([
       this.prisma.inventoryLevel.findMany({
@@ -829,12 +933,13 @@ export class ReportsService {
   async getInventoryExportData(
     organizationId: string,
     type: 'valuation' | 'movement' | 'low-stock',
+    locationIds: string[] | null = null,
   ) {
     if (type === 'valuation') {
-      const result = await this.getInventoryValuation(organizationId, {});
+      const result = await this.getInventoryValuation(organizationId, {}, locationIds);
       return result.data.byCategory as unknown as Record<string, unknown>[];
     } else if (type === 'low-stock') {
-      const result = await this.getInventoryLowStock(organizationId, {});
+      const result = await this.getInventoryLowStock(organizationId, {}, locationIds);
       return result.data as unknown as Record<string, unknown>[];
     } else {
       // movement — last 30 days
@@ -845,7 +950,7 @@ export class ReportsService {
         startDate: start.toISOString().slice(0, 10),
         endDate: end.toISOString().slice(0, 10),
         limit: 10000,
-      });
+      }, locationIds);
       return result.data as unknown as Record<string, unknown>[];
     }
   }
@@ -854,7 +959,11 @@ export class ReportsService {
   // PURCHASING REPORTS
   // ═══════════════════════════════════════════════════════════════
 
-  async getPurchasingSummary(organizationId: string, q: PurchasingSummaryQuery) {
+  async getPurchasingSummary(
+    organizationId: string,
+    q: PurchasingSummaryQuery,
+    locationIds: string[] | null = null,
+  ) {
     const start = parseStart(q.startDate);
     const end = parseEnd(q.endDate);
 
@@ -862,6 +971,9 @@ export class ReportsService {
       organizationId,
       createdAt: { gte: start, lt: end },
     };
+    if (locationIds !== null) {
+      where.locationId = { in: locationIds } as never;
+    }
     if (q.supplierId) where.supplierId = q.supplierId;
 
     const [allAgg, bySupplier, byStatus, receipts] = await Promise.all([

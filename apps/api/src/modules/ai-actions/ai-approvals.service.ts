@@ -1,7 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
+import { ActionStatus, type Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { AIToolExecutorService } from './ai-tool-executor.service';
+import { AIPermissionCheckerService, type AIExecutionContext } from './ai-permission-checker.service';
+import { AIExecutionPolicyService } from './ai-execution-policy.service';
 import type { ListApprovalsDto } from './dto/ai-actions.dto';
 
 @Injectable()
@@ -9,6 +11,8 @@ export class AIApprovalsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly executor: AIToolExecutorService,
+    private readonly permissionChecker: AIPermissionCheckerService,
+    private readonly policyService: AIExecutionPolicyService,
   ) {}
 
   async listPending(orgId: string) {
@@ -40,6 +44,11 @@ export class AIApprovalsService {
     });
     if (!approval) throw new NotFoundException('Approval not found');
 
+    // Rejected approval cannot be re-approved
+    if (approval.decision === 'REJECTED') {
+      throw new ConflictException('Approval has been rejected and cannot be executed');
+    }
+
     await this.prisma.aIApproval.update({
       where: { id: approvalId },
       data: {
@@ -58,16 +67,61 @@ export class AIApprovalsService {
     });
     if (!action || !action.tool) return { status: 'APPROVED' };
 
-    await this.prisma.aIAction.update({
-      where: { id: action.id },
-      data: { status: 'EXECUTING' },
+    // Terminal state guard — return existing outcome rather than re-executing
+    if (action.status === 'COMPLETED') {
+      return { status: 'COMPLETED', result: action.result };
+    }
+    if (action.status === 'FAILED' || action.status === 'REJECTED') {
+      throw new ConflictException(`Action is in terminal state: ${action.status}`);
+    }
+
+    // Re-evaluate current autonomy policy — a policy tightened since the approval was
+    // granted must block execution even if a human already clicked "approve".
+    const policyCheck = await this.policyService.evaluatePostApproval({
+      organizationId: orgId,
+      userId: action.userId ?? null,
+      toolName: action.action,
+      parameters: action.parameters as Record<string, unknown>,
+      agentId: action.externalAgentId ?? null,
     });
+    if (policyCheck.blocked) {
+      throw new ForbiddenException(policyCheck.reason ?? 'Current autonomy policy blocks execution of this action');
+    }
+
+    // Re-verify the original requestor still holds the required permission AND
+    // location scope before executing — prevents privilege escalation via approval flow.
+    let requestorContext: AIExecutionContext | undefined;
+    if (action.userId) {
+      requestorContext = await this.permissionChecker.resolveExecutionContext(action.userId, orgId);
+      await this.permissionChecker.checkToolPermission(requestorContext, action.tool.name);
+    }
+
+    // Atomic claim: only the first concurrent caller that transitions PENDING/APPROVED →
+    // EXECUTING succeeds (count=1). All others observe count=0 and must not execute.
+    const claimed = await this.prisma.aIAction.updateMany({
+      where: {
+        id: action.id,
+        status: { in: [ActionStatus.PENDING, ActionStatus.APPROVED] },
+      },
+      data: { status: ActionStatus.EXECUTING },
+    });
+
+    if (claimed.count === 0) {
+      // Another concurrent caller already claimed execution — return current state safely
+      const current = await this.prisma.aIAction.findFirst({ where: { id: action.id } });
+      if (current?.status === 'COMPLETED') {
+        return { status: 'COMPLETED', result: current.result };
+      }
+      return { status: current?.status ?? 'EXECUTING' };
+    }
 
     try {
       const result = await this.executor.execute(
         action.tool,
         action.parameters as Record<string, unknown>,
         orgId,
+        requestorContext?.locationIds ?? null,
+        userId,
       );
       await this.prisma.aIAction.update({
         where: { id: action.id },

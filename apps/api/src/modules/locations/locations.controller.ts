@@ -21,6 +21,12 @@ import { UpdateLocationDto } from './dto/update-location.dto';
 export class LocationsController {
   constructor(private readonly locationsService: LocationsService) {}
 
+  @Get('accessible')
+  @ApiOperation({ summary: 'List active locations (any authenticated user)' })
+  findAccessible(@CurrentUser() user: AuthUser) {
+    return this.locationsService.findAccessible(user.organizationId);
+  }
+
   @Get()
   @Permissions(PERMISSIONS.ADMIN.MANAGE_LOCATIONS)
   @ApiOperation({ summary: 'List all locations' })

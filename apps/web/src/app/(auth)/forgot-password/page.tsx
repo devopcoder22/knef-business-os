@@ -6,7 +6,10 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Loader2, ArrowLeft, CheckCircle } from 'lucide-react';
+import { Turnstile } from '@marsidev/react-turnstile';
 import { publicApiClient } from '@/lib/api-client';
+
+const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
 
 const schema = z.object({
   email: z.string().email('Please enter a valid email address'),
@@ -17,6 +20,7 @@ type FormValues = z.infer<typeof schema>;
 export default function ForgotPasswordPage() {
   const [sent, setSent] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   const {
     register,
@@ -30,7 +34,7 @@ export default function ForgotPasswordPage() {
   const onSubmit = async (values: FormValues) => {
     setServerError(null);
     try {
-      await publicApiClient.post('/auth/forgot-password', values);
+      await publicApiClient.post('/auth/forgot-password', { ...values, turnstileToken });
       setSent(true);
     } catch {
       setServerError('Something went wrong. Please try again.');
@@ -97,9 +101,13 @@ export default function ForgotPasswordPage() {
               )}
             </div>
 
+            {SITE_KEY && (
+              <Turnstile siteKey={SITE_KEY} onSuccess={setTurnstileToken} onError={() => setTurnstileToken(null)} onExpire={() => setTurnstileToken(null)} />
+            )}
+
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || (!!SITE_KEY && !turnstileToken)}
               className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium text-sm transition-colors"
             >
               {isSubmitting && <Loader2 size={16} className="animate-spin" />}

@@ -3,7 +3,7 @@ import {
   ValidateNested,
   IsString,
   IsNotEmpty,
-  IsInt,
+  IsNumber,
   Min,
   IsOptional,
 } from 'class-validator';
@@ -18,7 +18,7 @@ export class CountedItemDto {
 
   @ApiProperty({ description: 'Actual counted quantity' })
   @Type(() => Number)
-  @IsInt()
+  @IsNumber()
   @Min(0)
   countedQty!: number;
 

@@ -36,6 +36,11 @@ export class GoodsReceiptItemDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({ type: [Object], description: 'Serialized unit identifiers for serialized products' })
+  @IsOptional()
+  @IsArray()
+  serializedUnits?: Array<{ imei1: string; imei2?: string; serialNumber?: string }>;
 }
 
 export class CreateGoodsReceiptDto {

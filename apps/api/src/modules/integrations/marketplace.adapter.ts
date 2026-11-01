@@ -1,3 +1,4 @@
+/** @deprecated Marketplace integrations (Phase 24M) were retired. This adapter is retained for historical reference only. */
 export interface ProductListing {
   id: string;
   name: string;

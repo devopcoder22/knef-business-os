@@ -4,6 +4,8 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { AuthUser } from '@knef/types';
 
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
 interface AuthStore {
   user: AuthUser | null;
   accessToken: string | null;
@@ -17,6 +19,21 @@ interface AuthStore {
   updateToken: (token: string) => void;
 }
 
+let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+function resetIdleTimer(clearAuthFn: () => void) {
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = setTimeout(clearAuthFn, IDLE_TIMEOUT_MS);
+}
+
+function startIdleWatcher(clearAuthFn: () => void) {
+  if (typeof window === 'undefined') return;
+  const events = ['mousemove', 'keydown', 'pointerdown', 'scroll', 'touchstart'];
+  const handler = () => resetIdleTimer(clearAuthFn);
+  events.forEach((e) => window.addEventListener(e, handler, { passive: true }));
+  resetIdleTimer(clearAuthFn);
+}
+
 export const useAuthStore = create<AuthStore>()(
   persist(
     (set, get) => ({
@@ -26,9 +43,11 @@ export const useAuthStore = create<AuthStore>()(
 
       setAuth: (user: AuthUser, token: string) => {
         set({ user, accessToken: token, isAuthenticated: true });
+        startIdleWatcher(() => get().clearAuth());
       },
 
       clearAuth: () => {
+        if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
         set({ user: null, accessToken: null, isAuthenticated: false });
       },
 
@@ -62,12 +81,17 @@ export const useAuthStore = create<AuthStore>()(
     }),
     {
       name: 'knef-auth',
-      storage: createJSONStorage(() => sessionStorage),
+      storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         user: state.user,
         accessToken: state.accessToken,
         isAuthenticated: state.isAuthenticated,
       }),
+      onRehydrateStorage: () => (state) => {
+        if (state?.isAuthenticated) {
+          startIdleWatcher(() => state.clearAuth());
+        }
+      },
     },
   ),
 );

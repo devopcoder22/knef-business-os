@@ -286,3 +286,135 @@ The AI Router checks budget before every call. When the budget is exceeded, AI r
 - Always cite the data source for factual claims
 - When the user lacks permission, say: "You don't have permission to access [data type]."
 - Autonomy level is enforced in code (tool registry), not just in the prompt
+
+---
+
+## 12. AI Permission Inheritance (V1.1)
+
+### Security Model
+
+Every AI tool execution is subject to the same permission system that governs direct API access. The AI cannot obtain data or execute actions that the calling user is not authorized to access, regardless of how the request was originated (chat, direct tool call, scheduled agent, or approval flow).
+
+Enforcement is performed server-side at the `AIPermissionCheckerService` layer, before any business service is reached. The check cannot be bypassed through prompt injection or parameter manipulation.
+
+### AI Tool Permission Registry
+
+The registry (`ai-tool-permission.registry.ts`) is the single authoritative source of truth for what permission each tool requires. It is a static TypeScript record — no database, no dynamic lookup. Tools not listed in the registry are **denied by default**.
+
+Each entry defines:
+
+| Field | Description |
+|---|---|
+| `toolName` | Exact tool name matching `AITool.name` in the database |
+| `requiredPermission` | Permission string from `@knef/constants` the user must hold |
+| `riskLevel` | `LOW`, `MEDIUM`, `HIGH`, or `CRITICAL` |
+| `approvalRequired` | `NONE`, `SOFT`, or `REQUIRED` |
+| `description` | Human-readable text for audit logs |
+
+Current registry:
+
+| Tool | Required Permission | Risk | Approval |
+|---|---|---|---|
+| `get_inventory_levels` | `inventory.view` | LOW | NONE |
+| `get_sales_summary` | `reports.view` | LOW | NONE |
+| `get_low_stock_products` | `inventory.view` | LOW | NONE |
+| `create_purchase_order` | `purchasing.create` | HIGH | REQUIRED |
+| `send_notification` | `notifications.view` | LOW | NONE |
+| `get_financial_summary` | `finance.view` | LOW | NONE |
+
+### How to Add a New Tool
+
+1. Register the tool in `AI_TOOL_PERMISSION_REGISTRY` in `ai-tool-permission.registry.ts`:
+   - Choose an existing permission string from `packages/constants/src/permissions.ts` — do not create new strings
+   - Assign an appropriate `riskLevel` and `approvalRequired`
+2. Add the execution logic to `AIToolExecutorService.execute()` switch statement
+3. Seed the `AITool` row in the database with the same `name` value
+
+Tools that exist in the database but are **not** in the registry will be denied when any user attempts to execute them.
+
+### Risk Levels and Approval Requirements
+
+- **LOW**: Read-only or low-impact actions — executed immediately if the user has permission
+- **MEDIUM**: Reversible write operations — executed immediately with audit trail
+- **HIGH**: Significant write operations (e.g. purchase orders) — always requires `approvalRequired: 'REQUIRED'`
+- **CRITICAL**: Irreversible or destructive operations — always requires `approvalRequired: 'REQUIRED'`
+
+When `approvalRequired` is `REQUIRED`, `AIToolsService.executeTool()` creates a pending `AIApproval` record instead of executing immediately.
+
+### Approval Flow and Permission Re-verification
+
+When an approver approves a pending action, `AIApprovalsService.approve()` re-verifies the **original requestor's** current permissions before executing. This prevents privilege escalation: if the requestor's permissions were revoked between request and approval, the execution is denied.
+
+### What Happens on Denial
+
+1. `AIPermissionCheckerService.checkToolPermission()` throws `ForbiddenException` with a user-facing message identifying the missing permission
+2. An `AI_TOOL_DENIED` audit log entry is written with:
+   - `action: 'AI_TOOL_DENIED'`
+   - `entity: 'AITool'`
+   - `entityId`: the tool name
+   - `metadata`: `{ toolName, reason, resolvedPermissions }`
+3. No business service code is reached — the denial is guaranteed before any database reads or writes
+
+---
+
+## 8. AI Planner
+
+### Architecture
+
+The AI Planner sits as an orchestration layer above Tasks, Goals, and Calendar. It does not duplicate any storage — all data lives in existing tables.
+
+```
+PersonalPlannerService     ← daily/weekly AI plans, planner chat
+PlanGeneratorService       ← AI JSON plan generation → Steps + PlanTaskLinks (proposed)
+PlanExecutorService        ← Proposed tasks → TasksService.create() → real tasks
+PlanProgressService        ← Task counts → progressPercent + deadlineStatus
+PlannerService             ← CRUD + lifecycle state machine + audit
+```
+
+### Plan Lifecycle
+
+```
+DRAFT → REVIEW → APPROVED → ACTIVE → PAUSED → ACTIVE
+                                    ↓
+                               COMPLETED | CANCELLED
+```
+
+`generate()` transitions DRAFT → REVIEW. `approve()` transitions REVIEW/DRAFT → APPROVED. `execute()` transitions APPROVED → ACTIVE.
+
+### Calendar-Aware Planning
+
+Daily and weekly planning is **calendar-aware**. When the requesting user has the `calendar.view` permission:
+
+1. `PersonalPlannerService` calls `CalendarEventsService.getCachedEvents(organizationId, userId, { timeMin, timeMax })` to retrieve cached calendar events
+2. The events are formatted into an AI context section that includes:
+   - Event title, start–end time in WAT (Africa/Lagos)
+   - Timezone from the event record
+   - Location where present
+   - **FREE BLOCKS**: calculated gaps between events (>30 min) so the AI can schedule focus work
+   - **MEETING LOAD**: total hours in meetings
+   - **CONFLICT**: flagged when meeting load > 4h and tasks are due that day
+3. For weekly planning, events are grouped per day (Mon–Sun) with per-day summaries
+4. If no calendar integration is connected, a graceful "no cached events" message is shown rather than fabricating data
+
+**Security:** Only title, time, timezone, and location are passed to the AI provider. Attendee lists, private descriptions, and organiser details are not included. All event fetches enforce `organizationId` + `userId` isolation at the `CalendarEventsService` layer. Calendar data is never accessible to other users or other organisations.
+
+### Permission Gates
+
+| Operation | Required permission |
+|-----------|---------------------|
+| View/read plans | `planner.view` |
+| Create DRAFT plan | `planner.create` |
+| Approve / reject / pause / resume / delete | `planner.manage` |
+| Generate AI plan content | `planner.business` |
+| Execute (creates tasks) | `tasks.create` |
+| Calendar context in daily/weekly plan | `calendar.view` |
+| Goal context in plan generation | `goals.view` |
+| Task context in plan generation | `tasks.view` |
+
+### Bulk Safeguard
+
+Plans with >20 proposed tasks in a single execution call throw `BadRequestException`. The user must provide specific `stepIds` to execute in batches. This prevents accidentally creating hundreds of tasks from a single AI-generated plan.
+
+### Duplicate Execution Prevention
+
+Before executing, `PlanExecutorService` counts `PlanTaskLink` records with `isProposed: false`. If any exist and no `stepIds` filter is provided, execution is rejected with an error explaining the plan has already been executed.

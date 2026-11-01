@@ -20,6 +20,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { Response, Request } from 'express';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { TurnstileGuard } from '../../common/guards/turnstile.guard';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { LoginDto } from './dto/login.dto';
@@ -64,7 +65,7 @@ export class AuthController {
   @Post('login')
   @Public()
   @Throttle({ short: { ttl: 60000, limit: 5 } })
-  @UseGuards(AuthGuard('local'))
+  @UseGuards(TurnstileGuard, AuthGuard('local'))
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Login with email and password' })
   async login(
@@ -83,9 +84,10 @@ export class AuthController {
     };
   }
 
-  // POST /auth/refresh
+  // POST /auth/refresh — stricter rate limit: 20 per minute per IP
   @Post('refresh')
   @Public()
+  @Throttle({ short: { ttl: 60000, limit: 20 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Refresh access token using httpOnly cookie' })
   async refresh(
@@ -148,6 +150,7 @@ export class AuthController {
   @Post('forgot-password')
   @Public()
   @Throttle({ short: { ttl: 60000, limit: 5 } })
+  @UseGuards(TurnstileGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Request a password reset email' })
   async forgotPassword(@Body() dto: ForgotPasswordDto) {
@@ -155,9 +158,11 @@ export class AuthController {
     return { data: { message: 'If that email exists, a reset link has been sent.' } };
   }
 
-  // POST /auth/reset-password
+  // POST /auth/reset-password — matches forgot-password limit
   @Post('reset-password')
   @Public()
+  @Throttle({ short: { ttl: 60000, limit: 5 } })
+  @UseGuards(TurnstileGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Reset password using token from email' })
   async resetPassword(@Body() dto: ResetPasswordDto) {

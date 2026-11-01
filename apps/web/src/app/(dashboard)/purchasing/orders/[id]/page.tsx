@@ -1,9 +1,10 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { ArrowLeft, CheckCircle, XCircle, Send, Package } from 'lucide-react';
+import { ArrowLeft, CheckCircle, XCircle, Send, Package, Download } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -42,6 +43,7 @@ interface PurchaseOrder {
   subtotal: string;
   taxAmount: string;
   shippingCost: string;
+  clearingCost: string;
   discountAmount: string;
   totalAmount: string;
   paidAmount: string;
@@ -59,12 +61,28 @@ export default function PurchaseOrderDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const [downloading, setDownloading] = useState(false);
+
+  async function downloadPdf() {
+    setDownloading(true);
+    try {
+      const res = await api().get(`/purchase-orders/${id}/pdf`, { responseType: 'blob' });
+      const url = URL.createObjectURL(new Blob([res.data as BlobPart], { type: 'application/pdf' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `po-${order?.reference ?? id}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   const { data: order, isLoading } = useQuery<PurchaseOrder>({
     queryKey: ['purchase-order', id],
     queryFn: async () => {
-      const res = await api().get<PurchaseOrder>(`/purchase-orders/${id}`);
-      return res.data;
+      const res = await api().get(`/purchase-orders/${id}`);
+      return (res.data as any).data as PurchaseOrder;
     },
   });
 
@@ -145,6 +163,14 @@ export default function PurchaseOrderDetailPage() {
               Cancel
             </button>
           )}
+          <button
+            onClick={downloadPdf}
+            disabled={downloading}
+            className="flex items-center gap-2 px-4 py-2 text-sm border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+          >
+            <Download size={15} />
+            {downloading ? 'Downloading…' : 'Download PDF'}
+          </button>
         </div>
       </div>
 
@@ -218,6 +244,12 @@ export default function PurchaseOrderDetailPage() {
                 <div className="flex justify-between">
                   <span className="text-gray-500">Shipping</span>
                   <span>{Number(order.shippingCost).toLocaleString('en-NG', { style: 'currency', currency: 'NGN' })}</span>
+                </div>
+              )}
+              {parseFloat(order.clearingCost) > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Clearing</span>
+                  <span>{Number(order.clearingCost).toLocaleString('en-NG', { style: 'currency', currency: 'NGN' })}</span>
                 </div>
               )}
               {parseFloat(order.discountAmount) > 0 && (

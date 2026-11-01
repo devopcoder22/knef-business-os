@@ -7,7 +7,10 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Loader2, Eye, EyeOff, CheckCircle } from 'lucide-react';
+import { Turnstile } from '@marsidev/react-turnstile';
 import { publicApiClient } from '@/lib/api-client';
+
+const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
 
 const schema = z
   .object({
@@ -35,6 +38,7 @@ function ResetPasswordForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [done, setDone] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   const {
     register,
@@ -48,6 +52,7 @@ function ResetPasswordForm() {
       await publicApiClient.post('/auth/reset-password', {
         token,
         password: values.password,
+        turnstileToken,
       });
       setDone(true);
       setTimeout(() => router.push('/login'), 3000);
@@ -133,9 +138,13 @@ function ResetPasswordForm() {
             )}
           </div>
 
+          {SITE_KEY && (
+            <Turnstile siteKey={SITE_KEY} onSuccess={setTurnstileToken} onError={() => setTurnstileToken(null)} onExpire={() => setTurnstileToken(null)} />
+          )}
+
           <button
             type="submit"
-            disabled={isSubmitting || !token}
+            disabled={isSubmitting || !token || (!!SITE_KEY && !turnstileToken)}
             className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium text-sm transition-colors"
           >
             {isSubmitting && <Loader2 size={16} className="animate-spin" />}

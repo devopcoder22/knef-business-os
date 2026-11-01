@@ -1,15 +1,18 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Loader2, Eye, EyeOff } from 'lucide-react';
+import { Turnstile } from '@marsidev/react-turnstile';
 import { publicApiClient } from '@/lib/api-client';
 import { useAuthStore } from '@/stores/auth.store';
 import type { AuthUser, LoginResponse } from '@knef/types';
+
+const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
@@ -24,6 +27,15 @@ export default function LoginPage() {
   const { setAuth } = useAuthStore();
   const [showPassword, setShowPassword] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/branding')
+      .then((r) => r.json())
+      .then((d) => { if (d.logoUrl) setLogoUrl(d.logoUrl); })
+      .catch(() => {});
+  }, []);
 
   const {
     register,
@@ -39,11 +51,11 @@ export default function LoginPage() {
     try {
       const res = await publicApiClient.post<{ data: LoginResponse }>(
         '/auth/login',
-        values,
+        { ...values, turnstileToken },
       );
       const { user, accessToken } = res.data.data;
       setAuth(user as AuthUser, accessToken);
-      router.push('/dashboard');
+      router.push(user.mustChangePassword ? '/change-password' : '/dashboard');
     } catch (err: unknown) {
       const error = err as { response?: { data?: { error?: { message?: string } } } };
       setServerError(
@@ -57,9 +69,8 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-amber-500 mb-4 shadow-lg">
-            <span className="text-white font-black text-2xl">K</span>
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={logoUrl ?? '/logo.png'} alt="KNEF Gadgets" className="h-24 w-auto object-contain mx-auto mb-4" />
           <h1 className="text-3xl font-bold text-white">KNEF Business OS</h1>
           <p className="text-blue-300 mt-1 text-sm">Gadgets & Electronics Management</p>
         </div>
@@ -149,10 +160,15 @@ export default function LoginPage() {
               </Link>
             </div>
 
+            {/* Turnstile */}
+            {SITE_KEY && (
+              <Turnstile siteKey={SITE_KEY} onSuccess={setTurnstileToken} onError={() => setTurnstileToken(null)} onExpire={() => setTurnstileToken(null)} />
+            )}
+
             {/* Submit */}
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || (!!SITE_KEY && !turnstileToken)}
               className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
             >
               {isSubmitting && <Loader2 size={16} className="animate-spin" />}

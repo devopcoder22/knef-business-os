@@ -9,10 +9,18 @@ import {
   Query,
   HttpCode,
   HttpStatus,
+  Res,
+  UploadedFile,
+  UseInterceptors,
+  BadRequestException,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
+import { Response } from 'express';
 import { ProductStatus } from '@prisma/client';
 import { ProductsService } from './products.service';
+import { ProductsImportService } from './products-import.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { PERMISSIONS } from '@knef/constants';
@@ -28,7 +36,10 @@ import { AddProductImageDto } from './dto/add-product-image.dto';
 @ApiBearerAuth('JWT')
 @Controller('products')
 export class ProductsController {
-  constructor(private readonly productsService: ProductsService) {}
+  constructor(
+    private readonly productsService: ProductsService,
+    private readonly importService: ProductsImportService,
+  ) {}
 
   @Get('low-stock')
   @Permissions(PERMISSIONS.INVENTORY.VIEW)
@@ -45,6 +56,60 @@ export class ProductsController {
   @ApiOperation({ summary: 'List products (paginated + filterable)' })
   findAll(@CurrentUser() user: AuthUser, @Query() query: ListProductsDto) {
     return this.productsService.findAll(user.organizationId, query);
+  }
+
+  @Get('import/template')
+  @Permissions(PERMISSIONS.PRODUCTS.CREATE)
+  @ApiOperation({ summary: 'Download the product import Excel template' })
+  async downloadTemplate(@Res() res: Response) {
+    const buffer = this.importService.generateTemplate();
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="product-import-template.xlsx"',
+    );
+    res.end(buffer);
+  }
+
+  @Post('import')
+  @Permissions(PERMISSIONS.PRODUCTS.CREATE)
+  @ApiOperation({ summary: 'Import products from XLSX or CSV file' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 5 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        const allowed = [
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'application/vnd.ms-excel',
+          'text/csv',
+        ];
+        if (
+          allowed.includes(file.mimetype) ||
+          /\.(xlsx|xls|csv)$/i.test(file.originalname)
+        ) {
+          cb(null, true);
+        } else {
+          cb(new BadRequestException('Only .xlsx, .xls, and .csv files are allowed'), false);
+        }
+      },
+    }),
+  )
+  async importProducts(
+    @CurrentUser() user: AuthUser,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    return this.importService.importFile(
+      file.buffer,
+      file.originalname,
+      user.organizationId,
+      user.id,
+    );
   }
 
   @Get(':id')

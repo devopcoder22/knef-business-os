@@ -7,8 +7,12 @@ import {
 import { createId } from '@paralleldrive/cuid2';
 import { randomBytes, createHash } from 'crypto';
 import { OrderStatus, Prisma, ProductStatus } from '@prisma/client';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../common/services/prisma.service';
 import { InventoryService } from '../inventory/inventory.service';
+import { CredentialService } from '../credentials/credential.service';
+import type { AppConfig } from '../../config/app.config';
 import type { PublicProductsQueryDto } from './dto/public-products-query.dto';
 import type { CreatePublicOrderDto } from './dto/create-public-order.dto';
 import type { CreateApiKeyDto } from './dto/create-api-key.dto';
@@ -22,19 +26,33 @@ function publicResponse<T>(data: T, meta?: Record<string, unknown>) {
   };
 }
 
-function generateReference(prefix: string): string {
-  const date = new Date();
-  const dateStr = date.toISOString().slice(0, 10).replace(/-/g, '');
-  const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
-  return `${prefix}-${dateStr}-${rand}`;
-}
+import { generateReference } from '../../common/utils/references';
 
 @Injectable()
 export class EcommerceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly inventoryService: InventoryService,
+    private readonly eventEmitter: EventEmitter2,
+    private readonly configService: ConfigService<AppConfig, true>,
+    private readonly credentialService: CredentialService,
   ) {}
+
+  /**
+   * Server-authoritative delivery fee calculator.
+   *
+   * The public checkout DTO MUST NOT accept a client-supplied delivery fee —
+   * all monetary values on an order are computed on the server from trusted
+   * inputs (delivery method, address/zone, configured rates).
+   *
+   * Current pricing policy (no shipping engine configured yet):
+   *   - PICKUP            → 0
+   *   - DELIVERY          → 0  (returned as-is until Stage 25 adds courier/zone pricing)
+   *   - unspecified/other → 0
+   */
+  private calculateDeliveryFee(_deliveryMethod?: string | null): Prisma.Decimal {
+    return new Prisma.Decimal(0);
+  }
 
   // ── Public: Products ─────────────────────────────────────────
 
@@ -50,6 +68,9 @@ export class EcommerceService {
 
     if (query.categoryId) where.categoryId = query.categoryId;
     if (query.brandId) where.brandId = query.brandId;
+    if (query.inStock) {
+      where.inventoryLevels = { some: { quantity: { gt: 0 } } };
+    }
     if (query.search) {
       where.OR = [
         { name: { contains: query.search, mode: 'insensitive' } },
@@ -284,6 +305,21 @@ export class EcommerceService {
       throw new BadRequestException('Order must have at least one item');
     }
 
+    // Idempotency check
+    if (dto.idempotencyKey) {
+      const existing = await this.prisma.salesOrder.findFirst({
+        where: { organizationId, idempotencyKey: dto.idempotencyKey },
+      });
+      if (existing) {
+        return publicResponse({
+          orderId: existing.id,
+          reference: existing.reference,
+          totalAmount: existing.totalAmount.toString(),
+          status: existing.status,
+        });
+      }
+    }
+
     // Find or create customer by phone
     let customer = await this.prisma.customer.findFirst({
       where: { organizationId, phone: dto.customerPhone },
@@ -315,7 +351,7 @@ export class EcommerceService {
     if (!location) throw new NotFoundException('Location not found');
 
     // Validate & price items
-    let totalAmount = new Prisma.Decimal(0);
+    let subtotal = new Prisma.Decimal(0);
     const itemsData: Array<{
       id: string;
       productId: string;
@@ -334,6 +370,23 @@ export class EcommerceService {
       });
       if (!product) throw new NotFoundException(`Product ${item.productId} not found`);
 
+      // Stock validation
+      if (product.trackInventory) {
+        const inv = await this.prisma.inventoryLevel.findFirst({
+          where: {
+            productId: item.productId,
+            variantId: item.variantId ?? null,
+            locationId: dto.locationId,
+          },
+        });
+        const available = inv ? inv.quantity - inv.reserved : 0;
+        if (available < item.quantity) {
+          throw new BadRequestException(
+            `Insufficient stock for ${product.name}: requested ${item.quantity}, available ${available}`,
+          );
+        }
+      }
+
       let unitPrice = product.sellingPrice;
       let costPrice = product.costPrice;
 
@@ -347,7 +400,7 @@ export class EcommerceService {
       }
 
       const lineTotal = unitPrice.mul(item.quantity);
-      totalAmount = totalAmount.add(lineTotal);
+      subtotal = subtotal.add(lineTotal);
 
       itemsData.push({
         id: createId(),
@@ -360,6 +413,40 @@ export class EcommerceService {
         taxRate: '0',
         totalPrice: lineTotal.toString(),
       });
+    }
+
+    // Server-authoritative delivery fee — NEVER accept from client.
+    // Current behaviour: zero fee for all methods (no delivery pricing engine yet).
+    // When Stage 25 adds courier/zone pricing, extend this helper.
+    const deliveryFee = this.calculateDeliveryFee(dto.deliveryMethod);
+
+    const totalAmount = subtotal.add(deliveryFee);
+
+    // Verify Paystack payment before creating the order so we fail fast if invalid
+    if (dto.paymentMethod === 'PAYSTACK') {
+      if (!dto.paystackReference) {
+        throw new BadRequestException('Paystack payment reference is required');
+      }
+      const paystackKey = await this.credentialService.resolve('PAYSTACK_SECRET_KEY');
+      if (!paystackKey) {
+        throw new BadRequestException('Card payments are not configured on this store');
+      }
+      const verifyRes = await fetch(
+        `https://api.paystack.co/transaction/verify/${encodeURIComponent(dto.paystackReference)}`,
+        { headers: { Authorization: `Bearer ${paystackKey}` } },
+      );
+      const verifyJson = (await verifyRes.json()) as {
+        status: boolean;
+        data?: { status: string; amount: number; currency: string };
+      };
+      if (!verifyJson.status || verifyJson.data?.status !== 'success') {
+        throw new BadRequestException('Card payment verification failed. Please try again.');
+      }
+      const paidKobo = verifyJson.data.amount;
+      const expectedKobo = Math.round(totalAmount.toNumber() * 100);
+      if (paidKobo < expectedKobo) {
+        throw new BadRequestException('Payment amount does not match order total.');
+      }
     }
 
     const reference = generateReference('WEB');
@@ -382,13 +469,53 @@ export class EcommerceService {
         status: OrderStatus.CONFIRMED,
         channel: 'ONLINE',
         currency: 'NGN',
-        subtotal: totalAmount.toString(),
+        subtotal: subtotal.toString(),
         discountAmount: '0',
         taxAmount: '0',
         totalAmount: totalAmount.toString(),
         notes: dto.notes,
+        deliveryFee: deliveryFee.toString(),
+        deliveryAddress: dto.deliveryAddress,
+        deliveryCity: dto.deliveryCity,
+        deliveryState: dto.deliveryState,
+        deliveryPhone: dto.deliveryPhone,
+        deliveryLandmark: dto.deliveryLandmark,
+        deliveryCountry: dto.deliveryCountry,
+        deliveryPlaceId: dto.deliveryPlaceId,
+        deliveryLatitude: dto.deliveryLatitude ?? null,
+        deliveryLongitude: dto.deliveryLongitude ?? null,
+        deliveryAddressSource: (dto.deliveryAddressSource as 'GOOGLE_PLACE' | 'MANUAL' | 'SAVED_ADDRESS' | undefined) ?? null,
+        idempotencyKey: dto.idempotencyKey,
+        customerAccountId: dto.customerAccountId,
         items: { create: itemsData },
       },
+    });
+
+    const isPaystack = dto.paymentMethod === 'PAYSTACK';
+    await this.prisma.payment.create({
+      data: {
+        id: createId(),
+        organizationId,
+        reference: generateReference('PAY'),
+        orderId: order.id,
+        customerId: customer.id,
+        amount: totalAmount,
+        currency: 'NGN',
+        method: isPaystack ? 'PAYSTACK' : (dto.paymentMethod as 'CASH' | 'BANK_TRANSFER' | 'OTHER'),
+        status: isPaystack ? 'COMPLETED' : 'PENDING',
+        gatewayRef: dto.paystackReference ?? null,
+        receivedAt: isPaystack ? new Date() : null,
+      },
+    });
+
+    this.eventEmitter.emit('storefront.order.created', {
+      organizationId,
+      orderId: order.id,
+      reference: order.reference,
+      customerName: dto.customerName,
+      customerEmail: dto.customerEmail ?? null,
+      customerPhone: dto.customerPhone,
+      totalAmount: totalAmount.toString(),
     });
 
     return publicResponse({

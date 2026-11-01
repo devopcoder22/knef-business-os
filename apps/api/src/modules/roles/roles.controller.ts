@@ -6,6 +6,8 @@ import {
   Delete,
   Body,
   Param,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RolesService } from './roles.service';
@@ -107,5 +109,21 @@ export class RolesController {
   @ApiOperation({ summary: 'Delete a role (only custom roles, not system roles)' })
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.rolesService.remove(user.organizationId, id);
+  }
+
+  @Patch(':id/deactivate')
+  @Permissions(PERMISSIONS.ADMIN.MANAGE_ROLES)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Deactivate a role (non-system only)' })
+  deactivate(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.rolesService.deactivate(user.organizationId, id, user.id);
+  }
+
+  @Patch(':id/activate')
+  @Permissions(PERMISSIONS.ADMIN.MANAGE_ROLES)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Re-activate a role' })
+  activate(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.rolesService.activate(user.organizationId, id, user.id);
   }
 }

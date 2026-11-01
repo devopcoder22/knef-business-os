@@ -7,10 +7,14 @@ import {
   PurchaseReturnsController,
 } from './purchasing.controller';
 import { InventoryModule } from '../inventory/inventory.module';
+import { BusinessRulesModule } from '../business-rules/business-rules.module';
+import { AuditModule } from '../audit/audit.module';
+import { PermissionsModule } from '../permissions/permissions.module';
+import { PdfService } from '../../common/services/pdf.service';
 
 @Module({
-  imports: [InventoryModule],
-  providers: [PurchasingService],
+  imports: [InventoryModule, BusinessRulesModule, AuditModule, PermissionsModule],
+  providers: [PurchasingService, PdfService],
   controllers: [
     PurchaseOrdersController,
     GoodsReceiptsController,

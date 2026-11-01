@@ -5,7 +5,10 @@ import { useRouter } from 'next/navigation';
 import { Search, Menu } from 'lucide-react';
 import { Sidebar } from '@/components/layout/sidebar';
 import { NotificationBell } from '@/components/notifications/notification-bell';
+import { GlobalSearch } from '@/components/search/GlobalSearch';
 import { useAuthStore } from '@/stores/auth.store';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/api';
 
 export default function DashboardLayout({
   children,
@@ -14,16 +17,52 @@ export default function DashboardLayout({
 }) {
   const router = useRouter();
   const { isAuthenticated, user } = useAuthStore();
+  const [hydrated, setHydrated] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  const { data: userProfile } = useQuery({
+    queryKey: ['user-profile', user?.id],
+    queryFn: async () => {
+      const res = await api().get(`/users/${user!.id}`);
+      return (res.data as any).data;
+    },
+    staleTime: 5 * 60 * 1000,
+    enabled: !!user?.id,
+  });
+
+  // Wait for Zustand to rehydrate from localStorage before checking auth.
+  // Without this, isAuthenticated is briefly false on every page refresh
+  // and the layout redirects to /login before localStorage is read.
+  useEffect(() => {
+    if (useAuthStore.persist.hasHydrated()) {
+      setHydrated(true);
+    } else {
+      return useAuthStore.persist.onFinishHydration(() => setHydrated(true));
+    }
+  }, []);
 
   useEffect(() => {
+    if (!hydrated) return;
     if (!isAuthenticated) {
       router.replace('/login');
     }
-  }, [isAuthenticated, router]);
+  }, [isAuthenticated, hydrated, router]);
 
-  if (!isAuthenticated || !user) {
+  // Global ⌘K / Ctrl+K opens the search palette
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearchOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  if (!hydrated || !isAuthenticated || !user) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
@@ -69,19 +108,20 @@ export default function DashboardLayout({
             <Menu size={20} />
           </button>
 
-          {/* Search */}
+          {/* Search trigger */}
           <div className="flex-1 max-w-lg">
-            <div className="relative">
-              <Search
-                size={16}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-              />
-              <input
-                type="search"
-                placeholder="Search products, customers, orders..."
-                className="w-full pl-9 pr-4 py-2 text-sm bg-gray-100 rounded-lg border-0 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-colors"
-              />
-            </div>
+            <button
+              type="button"
+              onClick={() => setSearchOpen(true)}
+              className="group flex w-full items-center gap-2 rounded-lg border-0 bg-gray-100 px-3 py-2 text-left text-sm text-gray-500 transition-colors hover:bg-gray-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              aria-label="Open global search"
+            >
+              <Search size={16} className="text-gray-400" />
+              <span className="flex-1 truncate">Search products, customers, orders…</span>
+              <kbd className="hidden rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[11px] font-medium text-gray-500 group-hover:border-gray-300 sm:inline-block">
+                ⌘K
+              </kbd>
+            </button>
           </div>
 
           <div className="flex items-center gap-2 ml-auto">
@@ -90,10 +130,15 @@ export default function DashboardLayout({
 
             {/* User avatar */}
             <div className="flex items-center gap-2 px-2">
-              <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
-                <span className="text-xs font-bold text-white uppercase">
-                  {user.firstName?.[0]}{user.lastName?.[0]}
-                </span>
+              <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center overflow-hidden">
+                {userProfile?.avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={userProfile.avatarUrl} alt="avatar" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-xs font-bold text-white uppercase">
+                    {user.firstName?.[0]}{user.lastName?.[0]}
+                  </span>
+                )}
               </div>
               <div className="hidden sm:block">
                 <p className="text-sm font-medium text-gray-900">
@@ -112,6 +157,9 @@ export default function DashboardLayout({
           <div className="p-6">{children}</div>
         </main>
       </div>
+
+      {/* Global search palette (⌘K) */}
+      <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
     </div>
   );
 }

@@ -317,8 +317,8 @@ function AgentsContent() {
   const { data: agents, isLoading } = useQuery<AIScheduledAgent[]>({
     queryKey: ['ai-agents'],
     queryFn: async () => {
-      const res = await api().get<AIScheduledAgent[]>('/ai/agents');
-      return res.data;
+      const res = await api().get<{ data: AIScheduledAgent[] }>('/ai/agents');
+      return res.data.data;
     },
   });
 

@@ -6,8 +6,10 @@ import {
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { createId } from '@paralleldrive/cuid2';
-import { MovementType } from '@prisma/client';
+import { MovementType, PrismaClient } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
+
+export type PrismaTx = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>;
 
 export interface RecordMovementParams {
   productId: string;
@@ -35,13 +37,27 @@ export class InventoryService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  async getLevels(organizationId: string, filters: InventoryLevelFilters) {
+  async getLevels(
+    organizationId: string,
+    filters: InventoryLevelFilters,
+    locationIds: string[] | null = null,
+  ) {
     const { locationId, productId, variantId, lowStockOnly } = filters;
 
     const where: Record<string, unknown> = {
       product: { organizationId },
     };
-    if (locationId) where['locationId'] = locationId;
+    if (locationId) {
+      // Validate caller-supplied locationId against user's authorized locations
+      if (locationIds !== null && !locationIds.includes(locationId)) {
+        return []; // return empty rather than throwing (consistent with filter behavior)
+      }
+      where['locationId'] = locationId;
+    } else if (locationIds !== null) {
+      // No specific location requested: restrict to user's authorized locations
+      where['locationId'] = { in: locationIds };
+    }
+    // If locationIds is null and no locationId filter: org-wide access, no restriction
     if (productId) where['productId'] = productId;
     if (variantId !== undefined) where['variantId'] = variantId ?? null;
 
@@ -73,6 +89,7 @@ export class InventoryService {
   async recordMovement(
     organizationId: string,
     params: RecordMovementParams,
+    tx?: PrismaTx,
   ) {
     const {
       productId,
@@ -86,16 +103,17 @@ export class InventoryService {
       createdBy,
     } = params;
 
+    const client = tx ?? this.prisma;
+
     // Validate product belongs to org
-    const product = await this.prisma.product.findFirst({
+    const product = await client.product.findFirst({
       where: { id: productId, organizationId },
       select: { id: true, lowStockAlert: true },
     });
     if (!product) throw new NotFoundException('Product not found');
 
-    const result = await this.prisma.$transaction(async (tx) => {
-      // Get or create inventory level
-      let level = await tx.inventoryLevel.findFirst({
+    const doWork = async (txClient: typeof this.prisma | PrismaTx) => {
+      let level = await txClient.inventoryLevel.findFirst({
         where: {
           productId,
           locationId,
@@ -104,7 +122,7 @@ export class InventoryService {
       });
 
       if (!level) {
-        level = await tx.inventoryLevel.create({
+        level = await txClient.inventoryLevel.create({
           data: {
             id: createId(),
             productId,
@@ -120,7 +138,6 @@ export class InventoryService {
       const quantityBefore = level.quantity;
       const quantityAfter = quantityBefore + quantity;
 
-      // Prevent negative stock
       if (quantityAfter < 0) {
         throw new HttpException(
           `Insufficient stock: only ${quantityBefore} units available`,
@@ -128,14 +145,12 @@ export class InventoryService {
         );
       }
 
-      // Update level
-      const updatedLevel = await tx.inventoryLevel.update({
+      const updatedLevel = await txClient.inventoryLevel.update({
         where: { id: level.id },
         data: { quantity: quantityAfter },
       });
 
-      // Create movement record (immutable ledger)
-      const movement = await tx.inventoryMovement.create({
+      const movement = await txClient.inventoryMovement.create({
         data: {
           id: createId(),
           organizationId,
@@ -154,24 +169,28 @@ export class InventoryService {
       });
 
       return { level: updatedLevel, movement };
-    });
+    };
 
-    // Emit events after transaction
-    this.eventEmitter.emit('inventory.updated', {
-      organizationId,
-      productId,
-      locationId,
-      quantity: result.level.quantity,
-    });
+    const result = tx ? await doWork(tx) : await this.prisma.$transaction(doWork);
 
-    if (result.level.quantity <= product.lowStockAlert) {
-      this.eventEmitter.emit('inventory.low', {
+    // Only emit events when not inside a parent transaction
+    if (!tx) {
+      this.eventEmitter.emit('inventory.updated', {
         organizationId,
         productId,
         locationId,
         quantity: result.level.quantity,
-        threshold: product.lowStockAlert,
       });
+
+      if (result.level.quantity <= product.lowStockAlert) {
+        this.eventEmitter.emit('inventory.low', {
+          organizationId,
+          productId,
+          locationId,
+          quantity: result.level.quantity,
+          threshold: product.lowStockAlert,
+        });
+      }
     }
 
     return result;
@@ -181,11 +200,19 @@ export class InventoryService {
     organizationId: string,
     productId: string,
     filters: { locationId?: string; from?: string; to?: string; type?: MovementType },
+    locationIds: string[] | null = null,
   ) {
     const { locationId, from, to, type } = filters;
 
     const where: Record<string, unknown> = { organizationId, productId };
-    if (locationId) where['locationId'] = locationId;
+    if (locationId) {
+      if (locationIds !== null && !locationIds.includes(locationId)) {
+        return [];
+      }
+      where['locationId'] = locationId;
+    } else if (locationIds !== null) {
+      where['locationId'] = { in: locationIds };
+    }
     if (type) where['type'] = type;
     if (from || to) {
       where['createdAt'] = {
@@ -201,11 +228,22 @@ export class InventoryService {
     });
   }
 
-  async getValuation(organizationId: string, locationId?: string) {
+  async getValuation(
+    organizationId: string,
+    locationId?: string,
+    locationIds: string[] | null = null,
+  ) {
     const where: Record<string, unknown> = {
       product: { organizationId },
     };
-    if (locationId) where['locationId'] = locationId;
+    if (locationId) {
+      if (locationIds !== null && !locationIds.includes(locationId)) {
+        return { totalCostValue: 0, totalRetailValue: 0, items: [] };
+      }
+      where['locationId'] = locationId;
+    } else if (locationIds !== null) {
+      where['locationId'] = { in: locationIds };
+    }
 
     const levels = await this.prisma.inventoryLevel.findMany({
       where,
@@ -296,16 +334,40 @@ export class InventoryService {
     };
   }
 
-  async getDashboardSummary(organizationId: string, locationId?: string) {
+  async getDashboardSummary(
+    organizationId: string,
+    locationId?: string,
+    locationIds: string[] | null = null,
+  ) {
     const productWhere: Record<string, unknown> = {
       organizationId,
-      trackInventory: true,
+      status: 'ACTIVE',
     };
 
     const levelWhere: Record<string, unknown> = {
       product: { organizationId },
     };
-    if (locationId) levelWhere['locationId'] = locationId;
+
+    // Resolve effective locationId filter, respecting scope
+    let effectiveLocationIdFilter: Record<string, unknown> | undefined;
+    if (locationId) {
+      if (locationIds !== null && !locationIds.includes(locationId)) {
+        // Requested location is outside user's authorized scope — return empty summary
+        return {
+          totalProducts: 0,
+          totalSKUs: 0,
+          lowStockCount: 0,
+          outOfStockCount: 0,
+          totalInventoryValue: 0,
+          recentMovements: [],
+        };
+      }
+      levelWhere['locationId'] = locationId;
+      effectiveLocationIdFilter = { locationId };
+    } else if (locationIds !== null) {
+      levelWhere['locationId'] = { in: locationIds };
+      effectiveLocationIdFilter = { locationId: { in: locationIds } };
+    }
 
     const [totalProducts, levels, recentMovements] = await Promise.all([
       this.prisma.product.count({ where: productWhere }),
@@ -318,7 +380,7 @@ export class InventoryService {
       this.prisma.inventoryMovement.findMany({
         where: {
           organizationId,
-          ...(locationId ? { locationId } : {}),
+          ...(effectiveLocationIdFilter ?? {}),
         },
         orderBy: { createdAt: 'desc' },
         take: 10,
@@ -347,9 +409,7 @@ export class InventoryService {
       totalInventoryValue += v.total * v.cost;
     });
 
-    const totalSKUs = await this.prisma.productVariant.count({
-      where: { product: { organizationId } },
-    });
+    const totalSKUs = await this.prisma.product.count({ where: { organizationId } });
 
     return {
       totalProducts,
@@ -394,5 +454,145 @@ export class InventoryService {
       notes: params.notes ?? 'Opening stock',
       createdBy: params.createdBy,
     });
+  }
+
+  async getHealthReport(
+    organizationId: string,
+    filters: { locationId?: string; brandId?: string; categoryId?: string },
+    locationIds: string[] | null = null,
+  ) {
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+
+    // Build level filter
+    const productFilter: Record<string, unknown> = { organizationId, trackInventory: true, status: 'ACTIVE' };
+    if (filters.brandId) productFilter['brandId'] = filters.brandId;
+    if (filters.categoryId) productFilter['categoryId'] = filters.categoryId;
+
+    const levelWhere: Record<string, unknown> = { product: productFilter };
+
+    if (filters.locationId) {
+      if (locationIds !== null && !locationIds.includes(filters.locationId)) {
+        return { summary: this.emptyHealthSummary(), items: [] };
+      }
+      levelWhere['locationId'] = filters.locationId;
+    } else if (locationIds !== null) {
+      levelWhere['locationId'] = { in: locationIds };
+    }
+
+    const levels = await this.prisma.inventoryLevel.findMany({
+      where: levelWhere,
+      include: {
+        product: {
+          select: {
+            id: true,
+            name: true,
+            sku: true,
+            lowStockAlert: true,
+            brandId: true,
+            categoryId: true,
+          },
+        },
+        location: { select: { id: true, name: true } },
+      },
+    });
+
+    if (!levels.length) return { summary: this.emptyHealthSummary(), items: [] };
+
+    const productIds = [...new Set(levels.map((l) => l.productId))];
+
+    const [sales30, sales90] = await Promise.all([
+      this.prisma.salesOrderItem.groupBy({
+        by: ['productId'],
+        where: {
+          productId: { in: productIds },
+          order: {
+            organizationId,
+            status: { notIn: ['CANCELLED', 'DRAFT'] },
+            createdAt: { gte: thirtyDaysAgo },
+          },
+        },
+        _sum: { quantity: true },
+      }),
+      this.prisma.salesOrderItem.groupBy({
+        by: ['productId'],
+        where: {
+          productId: { in: productIds },
+          order: {
+            organizationId,
+            status: { notIn: ['CANCELLED', 'DRAFT'] },
+            createdAt: { gte: ninetyDaysAgo },
+          },
+        },
+        _sum: { quantity: true },
+      }),
+    ]);
+
+    const sales30Map = new Map(sales30.map((s) => [s.productId, s._sum.quantity ?? 0]));
+    const sales90Map = new Map(sales90.map((s) => [s.productId, s._sum.quantity ?? 0]));
+
+    const OVERSTOCK_DAYS_THRESHOLD = 90;
+    const FAST_MOVING_DAILY_THRESHOLD = 1; // >= 1 unit/day in last 30 days
+
+    const items = levels.map((level) => {
+      const qty = level.quantity;
+      const lowStockAlert = level.product.lowStockAlert;
+      const sold30d = Number(sales30Map.get(level.productId) ?? 0);
+      const sold90d = Number(sales90Map.get(level.productId) ?? 0);
+      const avgDailySales = sold30d / 30;
+      const daysOfStock = avgDailySales > 0 ? qty / avgDailySales : null;
+
+      let classification: string;
+      if (qty === 0) {
+        classification = 'STOCKOUT';
+      } else if (sold90d === 0) {
+        // Zero velocity in 90 days: dead stock regardless of qty level
+        classification = 'DEAD_STOCK';
+      } else if (qty <= lowStockAlert) {
+        classification = 'LOW_STOCK';
+      } else if (avgDailySales >= FAST_MOVING_DAILY_THRESHOLD) {
+        classification = 'FAST_MOVING';
+      } else if (daysOfStock !== null && daysOfStock > OVERSTOCK_DAYS_THRESHOLD) {
+        classification = 'OVERSTOCK';
+      } else {
+        classification = 'SLOW_MOVING';
+      }
+
+      return {
+        productId: level.productId,
+        product: level.product,
+        location: level.location,
+        quantity: qty,
+        lowStockAlert,
+        sold30d,
+        sold90d,
+        avgDailySales: Math.round(avgDailySales * 100) / 100,
+        daysOfStock: daysOfStock !== null ? Math.round(daysOfStock) : null,
+        classification,
+      };
+    });
+
+    const counts: Record<string, number> = {};
+    for (const item of items) {
+      counts[item.classification] = (counts[item.classification] ?? 0) + 1;
+    }
+
+    return {
+      summary: {
+        total: items.length,
+        STOCKOUT: counts['STOCKOUT'] ?? 0,
+        LOW_STOCK: counts['LOW_STOCK'] ?? 0,
+        DEAD_STOCK: counts['DEAD_STOCK'] ?? 0,
+        SLOW_MOVING: counts['SLOW_MOVING'] ?? 0,
+        FAST_MOVING: counts['FAST_MOVING'] ?? 0,
+        OVERSTOCK: counts['OVERSTOCK'] ?? 0,
+      },
+      items,
+    };
+  }
+
+  private emptyHealthSummary() {
+    return { total: 0, STOCKOUT: 0, LOW_STOCK: 0, DEAD_STOCK: 0, SLOW_MOVING: 0, FAST_MOVING: 0, OVERSTOCK: 0 };
   }
 }

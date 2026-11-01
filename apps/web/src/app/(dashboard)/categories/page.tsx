@@ -94,7 +94,7 @@ export default function CategoriesPage() {
     queryKey: ['categories-tree'],
     queryFn: async () => {
       const res = await api().get<Category[]>('/categories');
-      return (res.data as any);
+      return (res.data as any).data;
     },
   });
 
@@ -122,7 +122,7 @@ export default function CategoriesPage() {
       setError('');
     },
     onError: (err: any) => {
-      setError(err?.response?.data?.message ?? 'Failed to create category');
+      setError(err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to create category');
     },
   });
 
@@ -142,7 +142,7 @@ export default function CategoriesPage() {
       setError('');
     },
     onError: (err: any) => {
-      setError(err?.response?.data?.message ?? 'Failed to update category');
+      setError(err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to update category');
     },
   });
 
@@ -155,7 +155,7 @@ export default function CategoriesPage() {
       queryClient.invalidateQueries({ queryKey: ['categories-flat'] });
     },
     onError: (err: any) => {
-      alert(err?.response?.data?.message ?? 'Failed to delete category');
+      alert(err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to delete category');
     },
   });
 

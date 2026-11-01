@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
 import { TransferStatus, MovementType } from '@prisma/client';
@@ -19,13 +20,26 @@ export class StockTransfersService {
     private readonly auditService: AuditService,
   ) {}
 
-  async findAll(organizationId: string, query: { page?: number; limit?: number }) {
+  async findAll(
+    organizationId: string,
+    query: { page?: number; limit?: number },
+    locationIds: string[] | null = null,
+  ) {
     const { page = 1, limit = 20 } = query;
     const skip = (page - 1) * limit;
 
+    const where: Record<string, unknown> = { organizationId };
+    // Show transfers where user has access to either the source or destination location
+    if (locationIds !== null) {
+      where['OR'] = [
+        { fromLocationId: { in: locationIds } },
+        { toLocationId: { in: locationIds } },
+      ];
+    }
+
     const [transfers, total] = await Promise.all([
       this.prisma.stockTransfer.findMany({
-        where: { organizationId },
+        where,
         skip,
         take: limit,
         include: {
@@ -35,7 +49,7 @@ export class StockTransfersService {
         },
         orderBy: { createdAt: 'desc' },
       }),
-      this.prisma.stockTransfer.count({ where: { organizationId } }),
+      this.prisma.stockTransfer.count({ where }),
     ]);
 
     return {
@@ -44,7 +58,7 @@ export class StockTransfersService {
     };
   }
 
-  async findOne(organizationId: string, id: string) {
+  async findOne(organizationId: string, id: string, locationIds: string[] | null = null) {
     const transfer = await this.prisma.stockTransfer.findFirst({
       where: { id, organizationId },
       include: {
@@ -54,12 +68,34 @@ export class StockTransfersService {
       },
     });
     if (!transfer) throw new NotFoundException('Stock transfer not found');
+    // IDOR: user must have access to at least one of the involved locations
+    if (locationIds !== null) {
+      const hasAccess =
+        locationIds.includes(transfer.fromLocationId) ||
+        locationIds.includes(transfer.toLocationId);
+      if (!hasAccess) throw new NotFoundException('Stock transfer not found');
+    }
     return transfer;
   }
 
-  async create(organizationId: string, dto: CreateStockTransferDto, userId: string) {
+  async create(
+    organizationId: string,
+    dto: CreateStockTransferDto,
+    userId: string,
+    locationIds: string[] | null = null,
+  ) {
     if (dto.fromLocationId === dto.toLocationId) {
       throw new BadRequestException('Source and destination locations cannot be the same');
+    }
+
+    // Location gate: user must be authorized for BOTH source and destination
+    if (locationIds !== null) {
+      if (!locationIds.includes(dto.fromLocationId)) {
+        throw new ForbiddenException('Not authorized for source location');
+      }
+      if (!locationIds.includes(dto.toLocationId)) {
+        throw new ForbiddenException('Not authorized for destination location');
+      }
     }
 
     const [fromLoc, toLoc] = await Promise.all([
@@ -95,6 +131,7 @@ export class StockTransfersService {
     organizationId: string,
     transferId: string,
     items: StockTransferItemDto[],
+    locationIds: string[] | null = null,
   ) {
     const transfer = await this.prisma.stockTransfer.findFirst({
       where: { id: transferId, organizationId },
@@ -102,6 +139,11 @@ export class StockTransfersService {
     if (!transfer) throw new NotFoundException('Transfer not found');
     if (transfer.status !== TransferStatus.DRAFT) {
       throw new BadRequestException('Can only add items to DRAFT transfers');
+    }
+    if (locationIds !== null) {
+      if (!locationIds.includes(transfer.fromLocationId) || !locationIds.includes(transfer.toLocationId)) {
+        throw new ForbiddenException('Not authorized for this transfer');
+      }
     }
 
     const created = await Promise.all(
@@ -122,12 +164,17 @@ export class StockTransfersService {
     return created;
   }
 
-  async submit(organizationId: string, transferId: string, userId: string) {
+  async submit(organizationId: string, transferId: string, userId: string, locationIds: string[] | null = null) {
     const transfer = await this.prisma.stockTransfer.findFirst({
       where: { id: transferId, organizationId },
       include: { items: true },
     });
     if (!transfer) throw new NotFoundException('Transfer not found');
+    if (locationIds !== null) {
+      if (!locationIds.includes(transfer.fromLocationId) || !locationIds.includes(transfer.toLocationId)) {
+        throw new ForbiddenException('Not authorized for this transfer');
+      }
+    }
     if (transfer.status !== TransferStatus.DRAFT) {
       throw new BadRequestException('Only DRAFT transfers can be submitted');
     }
@@ -141,12 +188,17 @@ export class StockTransfersService {
     });
   }
 
-  async approve(organizationId: string, transferId: string, userId: string) {
+  async approve(organizationId: string, transferId: string, userId: string, locationIds: string[] | null = null) {
     const transfer = await this.prisma.stockTransfer.findFirst({
       where: { id: transferId, organizationId },
       include: { items: true },
     });
     if (!transfer) throw new NotFoundException('Transfer not found');
+    if (locationIds !== null) {
+      if (!locationIds.includes(transfer.fromLocationId) || !locationIds.includes(transfer.toLocationId)) {
+        throw new ForbiddenException('Not authorized for this transfer');
+      }
+    }
     if (transfer.status !== TransferStatus.PENDING) {
       throw new BadRequestException('Only PENDING transfers can be approved');
     }
@@ -202,12 +254,18 @@ export class StockTransfersService {
     transferId: string,
     receivedItems: ReceivedItemDto[],
     userId: string,
+    locationIds: string[] | null = null,
   ) {
     const transfer = await this.prisma.stockTransfer.findFirst({
       where: { id: transferId, organizationId },
       include: { items: true },
     });
     if (!transfer) throw new NotFoundException('Transfer not found');
+    if (locationIds !== null) {
+      if (!locationIds.includes(transfer.fromLocationId) || !locationIds.includes(transfer.toLocationId)) {
+        throw new ForbiddenException('Not authorized for this transfer');
+      }
+    }
     if (transfer.status !== TransferStatus.IN_TRANSIT) {
       throw new BadRequestException('Only IN_TRANSIT transfers can be received');
     }
@@ -290,12 +348,17 @@ export class StockTransfersService {
     return updated;
   }
 
-  async cancel(organizationId: string, transferId: string, userId: string) {
+  async cancel(organizationId: string, transferId: string, userId: string, locationIds: string[] | null = null) {
     const transfer = await this.prisma.stockTransfer.findFirst({
       where: { id: transferId, organizationId },
       include: { items: true },
     });
     if (!transfer) throw new NotFoundException('Transfer not found');
+    if (locationIds !== null) {
+      if (!locationIds.includes(transfer.fromLocationId) || !locationIds.includes(transfer.toLocationId)) {
+        throw new ForbiddenException('Not authorized for this transfer');
+      }
+    }
 
     if (
       transfer.status === TransferStatus.RECEIVED ||

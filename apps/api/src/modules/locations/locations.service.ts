@@ -12,6 +12,14 @@ import type { UpdateLocationDto } from './dto/update-location.dto';
 export class LocationsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async findAccessible(organizationId: string) {
+    return this.prisma.location.findMany({
+      where: { organizationId, isActive: true },
+      select: { id: true, name: true, code: true },
+      orderBy: { name: 'asc' },
+    });
+  }
+
   async findAll(organizationId: string) {
     return this.prisma.location.findMany({
       where: { organizationId },

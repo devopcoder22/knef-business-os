@@ -11,6 +11,12 @@ dist/
 .env
 .env.local
 .env.*.local
+.env.uat
+.env.stage-validation
+apps/api/.env.uat
+apps/api/.env.stage-validation
+apps/storefront/.env.uat
+apps/storefront/.env.stage-validation
 
 # Logs
 *.log
@@ -27,8 +33,9 @@ Thumbs.db
 # Docker
 docker-compose.override.yml
 
-# Uploads and backups (exclude from repo)
+# Uploads and backups (exclude from repo, but allow source module)
 uploads/
+!apps/api/src/modules/uploads/
 backups/
 
 # Prisma

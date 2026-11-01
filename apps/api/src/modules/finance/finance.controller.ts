@@ -105,7 +105,7 @@ export class BankAccountsController {
     @Param('id') id: string,
     @Param('transactionId') transactionId: string,
   ) {
-    return this.financeService.reconcileTransaction(user.organizationId, id, transactionId);
+    return this.financeService.reconcileTransaction(user.organizationId, id, transactionId, user.id);
   }
 }
 
@@ -162,7 +162,7 @@ export class ExpensesController {
     @Param('id') id: string,
     @Body() dto: RejectExpenseDto,
   ) {
-    return this.financeService.rejectExpense(user.organizationId, id, dto);
+    return this.financeService.rejectExpense(user.organizationId, id, dto, user.id);
   }
 
   @Post(':id/mark-paid')

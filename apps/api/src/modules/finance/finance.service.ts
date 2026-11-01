@@ -3,10 +3,15 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
 import { Prisma, TransactionType, ExpenseStatus, PeriodStatus } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
+import { BusinessRuleService } from '../business-rules/business-rules.service';
+import { AuditService } from '../audit/audit.service';
+import { PermissionsService } from '../permissions/permissions.service';
+import { PERMISSIONS } from '@knef/constants';
 import type { CreateBankAccountDto } from './dto/create-bank-account.dto';
 import type { UpdateBankAccountDto } from './dto/update-bank-account.dto';
 import type { RecordTransactionDto } from './dto/record-transaction.dto';
@@ -22,16 +27,16 @@ import type { CreateTaxRateDto } from './dto/create-tax-rate.dto';
 import type { UpdateTaxRateDto } from './dto/update-tax-rate.dto';
 import type { CreateFinancialPeriodDto } from './dto/create-financial-period.dto';
 
-function generateReference(prefix: string): string {
-  const date = new Date();
-  const dateStr = date.toISOString().slice(0, 10).replace(/-/g, '');
-  const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
-  return `${prefix}-${dateStr}-${rand}`;
-}
+import { generateReference } from '../../common/utils/references';
 
 @Injectable()
 export class FinanceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly businessRuleService: BusinessRuleService,
+    private readonly auditService: AuditService,
+    private readonly permissionsService: PermissionsService,
+  ) {}
 
   // ── Bank Accounts ─────────────────────────────────────────────
 
@@ -206,16 +211,31 @@ export class FinanceService {
     };
   }
 
-  async reconcileTransaction(organizationId: string, bankAccountId: string, transactionId: string) {
+  async reconcileTransaction(organizationId: string, bankAccountId: string, transactionId: string, userId?: string) {
     const tx = await this.prisma.bankTransaction.findFirst({
       where: { id: transactionId, bankAccountId, organizationId },
     });
     if (!tx) throw new NotFoundException('Transaction not found');
+    if (tx.reconciled) return tx; // idempotent — preserve original reconciledAt
 
-    return this.prisma.bankTransaction.update({
+    const reconciled = await this.prisma.bankTransaction.update({
       where: { id: transactionId },
       data: { reconciled: true, reconciledAt: new Date() },
     });
+
+    void this.auditService.log({
+      organizationId,
+      ...(userId ? { userId } : {}),
+      action: 'BANK_TRANSACTION_RECONCILED',
+      entity: 'BankTransaction',
+      entityId: transactionId,
+      newValues: {
+        bankAccountId,
+        reconciledAt: reconciled.reconciledAt?.toISOString(),
+      },
+    });
+
+    return reconciled;
   }
 
   // ── Expenses ──────────────────────────────────────────────────
@@ -266,7 +286,7 @@ export class FinanceService {
   async createExpense(organizationId: string, dto: CreateExpenseDto, userId: string) {
     const reference = generateReference('EXP');
 
-    return this.prisma.expense.create({
+    const expense = await this.prisma.expense.create({
       data: {
         id: createId(),
         organizationId,
@@ -285,6 +305,13 @@ export class FinanceService {
       },
       include: { category: { select: { id: true, name: true } } },
     });
+
+    const ruleCheck = await this.businessRuleService.checkExpenseAmount(
+      organizationId,
+      Number(dto.amount),
+    );
+
+    return { ...expense, ruleCheck };
   }
 
   async updateExpense(organizationId: string, id: string, dto: UpdateExpenseDto) {
@@ -314,83 +341,190 @@ export class FinanceService {
   async approveExpense(organizationId: string, id: string, userId: string) {
     const expense = await this.prisma.expense.findFirst({ where: { id, organizationId } });
     if (!expense) throw new NotFoundException('Expense not found');
+
+    // Idempotency: if already approved return existing state
+    if (expense.status === ExpenseStatus.APPROVED) {
+      const ruleCheck = await this.businessRuleService.checkExpenseAmount(
+        organizationId,
+        Number(expense.amount),
+      );
+      return { ...expense, ruleCheck, idempotent: true };
+    }
+
     if (expense.status !== ExpenseStatus.PENDING) {
       throw new BadRequestException('Only PENDING expenses can be approved');
     }
 
-    return this.prisma.expense.update({
-      where: { id },
+    // Self-approval prevention
+    if (expense.submittedBy && userId === expense.submittedBy) {
+      throw new ForbiddenException('Cannot approve your own expense');
+    }
+
+    // Requester authority recheck — submitter must still be active and hold finance.expenses.create
+    if (expense.submittedBy) {
+      const requester = await this.prisma.user.findFirst({
+        where: { id: expense.submittedBy, organizationId, isActive: true },
+        select: { id: true },
+      });
+      if (!requester) {
+        throw new ForbiddenException('Expense submitter is no longer active in this organization');
+      }
+
+      const perms = await this.permissionsService.getResolvedPermissions(organizationId, expense.submittedBy);
+      if (!perms.data.effective.includes(PERMISSIONS.FINANCE.EXPENSES.CREATE)) {
+        throw new ForbiddenException('Expense submitter no longer has permission to submit expenses');
+      }
+    }
+
+    // Re-evaluate rule at approval time (threshold may have changed since submission)
+    const ruleCheck = await this.businessRuleService.checkExpenseAmount(
+      organizationId,
+      Number(expense.amount),
+    );
+
+    // Atomic state transition — prevent concurrent double-approval
+    const result = await this.prisma.expense.updateMany({
+      where: { id, organizationId, status: ExpenseStatus.PENDING },
       data: {
         status: ExpenseStatus.APPROVED,
         approvedBy: userId,
         approvedAt: new Date(),
       },
     });
+
+    if (result.count === 0) {
+      const current = await this.prisma.expense.findFirst({ where: { id, organizationId } });
+      if (current?.status === ExpenseStatus.APPROVED) {
+        return { ...current, ruleCheck, idempotent: true };
+      }
+      throw new BadRequestException('Expense is no longer in PENDING state');
+    }
+
+    const approved = await this.findOneExpense(organizationId, id);
+
+    void this.auditService.log({
+      organizationId,
+      userId,
+      action: 'EXPENSE_APPROVED',
+      entity: 'Expense',
+      entityId: id,
+      oldValues: { status: 'PENDING' },
+      newValues: { status: 'APPROVED', approvedBy: userId },
+    });
+
+    return { ...approved, ruleCheck };
   }
 
-  async rejectExpense(organizationId: string, id: string, dto: RejectExpenseDto) {
+  async rejectExpense(organizationId: string, id: string, dto: RejectExpenseDto, userId?: string) {
     const expense = await this.prisma.expense.findFirst({ where: { id, organizationId } });
     if (!expense) throw new NotFoundException('Expense not found');
     if (expense.status !== ExpenseStatus.PENDING) {
       throw new BadRequestException('Only PENDING expenses can be rejected');
     }
 
-    return this.prisma.expense.update({
+    const rejected = await this.prisma.expense.update({
       where: { id },
       data: {
         status: ExpenseStatus.REJECTED,
         notes: dto.reason,
       },
     });
+
+    void this.auditService.log({
+      organizationId,
+      userId,
+      action: 'EXPENSE_REJECTED',
+      entity: 'Expense',
+      entityId: id,
+      oldValues: { status: 'PENDING' },
+      newValues: { status: 'REJECTED', reason: dto.reason },
+    });
+
+    return rejected;
   }
 
   async markExpensePaid(organizationId: string, id: string, dto: MarkExpensePaidDto, userId: string) {
-    const expense = await this.prisma.expense.findFirst({ where: { id, organizationId } });
-    if (!expense) throw new NotFoundException('Expense not found');
-    if (expense.status !== ExpenseStatus.APPROVED) {
+    // Pre-TX fast-fail: NotFoundException and obvious status guard (immutable for not-found)
+    const expenseCheck = await this.prisma.expense.findFirst({ where: { id, organizationId } });
+    if (!expenseCheck) throw new NotFoundException('Expense not found');
+    if (expenseCheck.status !== ExpenseStatus.APPROVED) {
       throw new BadRequestException('Only APPROVED expenses can be marked as paid');
     }
 
-    const ops: Prisma.PrismaPromise<unknown>[] = [
-      this.prisma.expense.update({
-        where: { id },
-        data: { status: ExpenseStatus.PAID, paidAt: new Date() },
-      }),
-    ];
+    try {
+      await this.prisma.$transaction(
+        async (tx) => {
+          // In-TX re-read: closes concurrent double-pay race (two callers both saw APPROVED)
+          const expense = await tx.expense.findFirst({ where: { id, organizationId } });
+          if (!expense) throw new NotFoundException('Expense not found');
+          if (expense.status !== ExpenseStatus.APPROVED) {
+            throw new BadRequestException('Only APPROVED expenses can be marked as paid');
+          }
 
-    if (dto.bankAccountId) {
-      const account = await this.prisma.bankAccount.findFirst({
-        where: { id: dto.bankAccountId, organizationId },
-      });
-      if (account && account.isActive) {
-        const balanceBefore = account.balance;
-        const balanceAfter = balanceBefore.sub(expense.amount);
-        ops.push(
-          this.prisma.bankTransaction.create({
-            data: {
-              id: createId(),
-              organizationId,
-              bankAccountId: dto.bankAccountId,
-              type: TransactionType.DEBIT,
-              amount: expense.amount,
-              balanceBefore,
-              balanceAfter,
-              description: `Expense payment: ${expense.reference}`,
-              reference: expense.reference,
-              category: 'EXPENSE',
-              date: new Date(),
-            },
-          }),
-          this.prisma.bankAccount.update({
-            where: { id: dto.bankAccountId },
-            data: { balance: balanceAfter },
-          }),
-        );
+          if (dto.bankAccountId) {
+            // In-TX bank account read: closes concurrent balance race
+            const account = await tx.bankAccount.findFirst({
+              where: { id: dto.bankAccountId, organizationId },
+            });
+            if (!account) throw new NotFoundException('Bank account not found');
+            if (!account.isActive) throw new BadRequestException('Bank account is inactive');
+
+            const balanceBefore = account.balance;
+            const balanceAfter = balanceBefore.sub(expense.amount);
+            if (balanceAfter.lessThan(0)) {
+              throw new BadRequestException('Insufficient bank account balance to pay this expense');
+            }
+
+            await tx.bankTransaction.create({
+              data: {
+                id: createId(),
+                organizationId,
+                bankAccountId: dto.bankAccountId,
+                type: TransactionType.DEBIT,
+                amount: expense.amount,
+                balanceBefore,
+                balanceAfter,
+                description: `Expense payment: ${expense.reference}`,
+                reference: expense.reference,
+                category: 'EXPENSE',
+                date: new Date(),
+              },
+            });
+
+            await tx.bankAccount.update({
+              where: { id: dto.bankAccountId },
+              data: { balance: balanceAfter },
+            });
+          }
+
+          await tx.expense.update({
+            where: { id },
+            data: { status: ExpenseStatus.PAID, paidAt: new Date() },
+          });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2034') {
+        throw new ConflictException('Concurrent financial modification detected — please retry');
       }
+      throw err;
     }
 
-    await this.prisma.$transaction(ops);
-    return this.prisma.expense.findFirst({ where: { id } });
+    // Audit fires only after successful commit
+    void this.auditService.log({
+      organizationId,
+      userId,
+      action: 'EXPENSE_PAID',
+      entity: 'Expense',
+      entityId: id,
+      newValues: {
+        amount: expenseCheck.amount.toString(),
+        ...(dto.bankAccountId ? { bankAccountId: dto.bankAccountId } : {}),
+      },
+    });
+
+    return this.prisma.expense.findFirst({ where: { id, organizationId } });
   }
 
   // ── Expense Categories ────────────────────────────────────────

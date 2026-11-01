@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Tag, Edit2, Trash2, Globe } from 'lucide-react';
+import { Plus, Tag, Edit2, Trash2, Globe, Upload } from 'lucide-react';
 import { api } from '@/lib/api';
 
 interface Brand {
@@ -80,6 +80,23 @@ export default function BrandsPage() {
   const [editingBrand, setEditingBrand] = useState<Brand | null>(null);
   const [form, setForm] = useState({ name: '', logoUrl: '', website: '' });
   const [formError, setFormError] = useState('');
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const logoFileRef = useRef<HTMLInputElement>(null);
+
+  const uploadLogo = async (file: File) => {
+    setUploadingLogo(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await api().post('/uploads/image', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const url = (res.data as any).data.url as string;
+      setForm((f) => ({ ...f, logoUrl: url }));
+    } catch {
+      setFormError('Logo upload failed');
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
 
@@ -108,7 +125,7 @@ export default function BrandsPage() {
       setFormError('');
     },
     onError: (err: any) => {
-      setFormError(err?.response?.data?.message ?? 'Failed to create brand');
+      setFormError(err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to create brand');
     },
   });
 
@@ -128,7 +145,7 @@ export default function BrandsPage() {
       setFormError('');
     },
     onError: (err: any) => {
-      setFormError(err?.response?.data?.message ?? 'Failed to update brand');
+      setFormError(err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to update brand');
     },
   });
 
@@ -140,7 +157,7 @@ export default function BrandsPage() {
       queryClient.invalidateQueries({ queryKey: ['brands'] });
     },
     onError: (err: any) => {
-      alert(err?.response?.data?.message ?? 'Failed to delete brand');
+      alert(err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to delete brand');
     },
   });
 
@@ -202,14 +219,35 @@ export default function BrandsPage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Logo URL</label>
-              <input
-                type="url"
-                value={form.logoUrl}
-                onChange={(e) => setForm((f) => ({ ...f, logoUrl: e.target.value }))}
-                placeholder="https://..."
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+              <label className="block text-sm font-medium text-gray-700 mb-1">Logo</label>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  value={form.logoUrl}
+                  onChange={(e) => setForm((f) => ({ ...f, logoUrl: e.target.value }))}
+                  placeholder="https://... or upload"
+                  className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  ref={logoFileRef}
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadLogo(f); e.target.value = ''; }}
+                />
+                <button
+                  type="button"
+                  disabled={uploadingLogo}
+                  onClick={() => logoFileRef.current?.click()}
+                  className="flex items-center gap-1 px-3 py-2 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap"
+                >
+                  <Upload size={14} />
+                  {uploadingLogo ? 'Uploading...' : 'Upload'}
+                </button>
+              </div>
+              {form.logoUrl && (
+                <img src={form.logoUrl} alt="logo preview" className="mt-2 h-10 w-10 object-contain rounded border border-gray-200" />
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Website</label>

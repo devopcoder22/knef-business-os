@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Save, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Save, Plus, Trash2, Upload } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { RichTextEditor } from '@/components/ui/rich-text-editor';
 
 const TABS = [
   { id: 'basic', label: 'Basic Info' },
@@ -62,6 +63,8 @@ export default function NewProductPage() {
 
   const [variants, setVariants] = useState<VariantRow[]>([]);
   const [images, setImages] = useState<ImageRow[]>([]);
+  const [uploadingIdx, setUploadingIdx] = useState<number | null>(null);
+  const fileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const { data: categoriesData } = useQuery<{ data: Category[] }>({
@@ -103,8 +106,8 @@ export default function NewProductPage() {
         status,
       };
 
-      const res = await api().post<{ id: string }>('/products', payload);
-      const productId = (res.data as any)?.id;
+      const res = await api().post<{ data: { id: string } }>('/products', payload);
+      const productId = (res.data as any)?.data?.id as string;
 
       // Add variants
       if (hasVariants && variants.length > 0 && productId) {
@@ -139,7 +142,10 @@ export default function NewProductPage() {
       router.push(`/products/${productId}`);
     },
     onError: (err: any) => {
-      const msg = err?.response?.data?.message ?? 'Failed to create product';
+      const msg =
+        err?.response?.data?.error?.message ??
+        err?.response?.data?.message ??
+        'Failed to create product';
       setErrors({ submit: Array.isArray(msg) ? msg.join(', ') : msg });
     },
   });
@@ -169,6 +175,23 @@ export default function NewProductPage() {
       ...prev,
       { url: '', altText: '', isPrimary: prev.length === 0 },
     ]);
+  };
+
+  const uploadImageFile = async (idx: number, file: File) => {
+    setUploadingIdx(idx);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await api().post<{ data: { url: string } }>('/uploads/image', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      const url = (res.data as any).data.url as string;
+      setImages((prev) => prev.map((im, j) => (j === idx ? { ...im, url } : im)));
+    } catch {
+      setErrors((prev) => ({ ...prev, submit: 'Image upload failed' }));
+    } finally {
+      setUploadingIdx(null);
+    }
   };
 
   const validate = () => {
@@ -333,23 +356,21 @@ export default function NewProductPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Short Description</label>
-                  <input
-                    type="text"
+                  <RichTextEditor
                     value={shortDesc}
-                    onChange={(e) => setShortDesc(e.target.value)}
+                    onChange={setShortDesc}
                     placeholder="Brief product description"
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    minHeight="min-h-[80px]"
                   />
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                  <textarea
+                  <RichTextEditor
                     value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    rows={4}
+                    onChange={setDescription}
                     placeholder="Detailed product description..."
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    minHeight="min-h-[150px]"
                   />
                 </div>
               </div>
@@ -715,17 +736,39 @@ export default function NewProductPage() {
                         <Trash2 size={14} />
                       </button>
                     </div>
-                    <input
-                      type="url"
-                      placeholder="Image URL (https://...)"
-                      value={img.url}
-                      onChange={(e) =>
-                        setImages((prev) =>
-                          prev.map((im, j) => (j === i ? { ...im, url: e.target.value } : im)),
-                        )
-                      }
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                    <div className="flex gap-2">
+                      <input
+                        type="url"
+                        placeholder="Image URL (https://...)"
+                        value={img.url}
+                        onChange={(e) =>
+                          setImages((prev) =>
+                            prev.map((im, j) => (j === i ? { ...im, url: e.target.value } : im)),
+                          )
+                        }
+                        className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        ref={(el) => { fileInputRefs.current[i] = el; }}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) uploadImageFile(i, file);
+                          e.target.value = '';
+                        }}
+                      />
+                      <button
+                        type="button"
+                        disabled={uploadingIdx === i}
+                        onClick={() => fileInputRefs.current[i]?.click()}
+                        className="flex items-center gap-1 px-3 py-2 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap"
+                      >
+                        <Upload size={14} />
+                        {uploadingIdx === i ? 'Uploading...' : 'Upload'}
+                      </button>
+                    </div>
                     {img.url && (
                       <img
                         src={img.url}
@@ -753,7 +796,7 @@ export default function NewProductPage() {
                   className="flex items-center gap-2 px-4 py-2 text-sm border border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-blue-400 hover:text-blue-600 w-full justify-center"
                 >
                   <Plus size={14} />
-                  Add Image URL
+                  Add Image
                 </button>
               </div>
             )}

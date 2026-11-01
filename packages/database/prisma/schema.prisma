@@ -4,6 +4,7 @@
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["fullTextSearch"]
+  binaryTargets   = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
@@ -26,6 +27,7 @@ model Organization {
   state       String?
   country     String   @default("Nigeria")
   logoUrl     String?
+  faviconUrl  String?
   website     String?
   currency    String   @default("NGN")
   timezone    String   @default("Africa/Lagos")
@@ -40,8 +42,28 @@ model Organization {
   roles        Role[]
   featureFlags FeatureFlag[]
   settings     SystemSetting[]
-  auditLogs    AuditLog[]
-  apiKeys      APIKey[]
+  auditLogs           AuditLog[]
+  apiKeys             APIKey[]
+  externalConnections ExternalConnection[]
+  integrationSyncLogs IntegrationSyncLog[]
+  smsProviders        SmsProvider[]
+  channelPreferences  ChannelPreference[]
+  pushSubscriptions   PushSubscription[]
+  whatsAppConfig      WhatsAppConfig?
+  communicationLogs   CommunicationLog[]
+  marketingCampaigns  MarketingCampaign[]
+  contentDrafts       ContentDraft[]
+  mediaAssets         MediaAsset[]
+  socialAccounts      SocialAccount[]
+  publicationAttempts      PublicationAttempt[]
+  socialPublicationTargets SocialPublicationTarget[]
+  testimonials StorefrontTestimonial[]
+  advertisingAccounts      AdvertisingAccount[]
+  advertisingCampaigns     AdvertisingCampaign[]
+  advertisingAdGroups      AdvertisingAdGroup[]
+  advertisingAds           AdvertisingAd[]
+  advertisingMetricSnapshots AdvertisingMetricSnapshot[]
+  advertisingActions       AdvertisingAction[]
 
   @@index([slug])
 }
@@ -69,8 +91,12 @@ model Location {
   stockTransfersFrom StockTransfer[]  @relation("TransferFrom")
   stockTransfersTo   StockTransfer[]  @relation("TransferTo")
   posSessions      POSSession[]
-  employees        Employee[]
-  stockCounts      StockCount[]
+  employees          Employee[]
+  stockCounts        StockCount[]
+  cycleCounts        CycleCount[]
+  attendance         Attendance[]
+  responsibilities   EmployeeResponsibility[]
+  shopifyLocationMappings ShopifyLocationMapping[]
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -109,6 +135,7 @@ model User {
   failedLoginAttempts  Int       @default(0)
   lastLoginAt          DateTime?
   lastLoginIp          String?
+  mustChangePassword   Boolean   @default(false)
   passwordChangedAt    DateTime?
   resetPasswordToken   String?
   resetPasswordExpires DateTime?
@@ -127,6 +154,14 @@ model User {
   employee           Employee?
   posSessions        POSSession[]
   salesOrders        SalesOrder[]
+  userFeatureFlags             UserFeatureFlag[]
+  externalConnectionsConnected ExternalConnection[] @relation("ExternalConnectionUser")
+  channelPreferences           ChannelPreference[]
+  pushSubscriptions            PushSubscription[]
+  advertisingActionsRequested  AdvertisingAction[]            @relation("AdvertisingActionRequester")
+  advertisingActionsApproved   AdvertisingAction[]            @relation("AdvertisingActionApprover")
+  attendanceCorrections        Attendance[]                   @relation("AttendanceCorrectedBy")
+  createdResponsibilities      EmployeeResponsibility[]       @relation("ResponsibilityCreatedBy")
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -154,6 +189,7 @@ model Role {
   name           String
   description    String?
   isSystem       Boolean  @default(false)
+  isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -262,6 +298,7 @@ model Product {
   sku            String
   barcode        String?
   gtin           String?
+  barcodeType    BarcodeType? @default(CODE128)
   description    String?
   shortDesc      String?
   costPrice      Decimal  @db.Decimal(15, 2)
@@ -271,8 +308,10 @@ model Product {
   isSerialized   Boolean  @default(false)
   hasVariants    Boolean  @default(false)
   trackInventory Boolean  @default(true)
-  lowStockAlert  Int      @default(5)
-  weight         Decimal? @db.Decimal(10, 3)
+  lowStockAlert    Int      @default(5)
+  reorderPoint     Decimal? @db.Decimal(15, 4)
+  reorderQuantity  Decimal? @db.Decimal(15, 4)
+  weight           Decimal? @db.Decimal(10, 3)
   weightUnit     String?  @default("kg")
   status         ProductStatus @default(ACTIVE)
   searchVector   Unsupported("tsvector")?
@@ -295,11 +334,15 @@ model Product {
   stockAdjustmentItems StockAdjustmentItem[]
   stockCountItems    StockCountItem[]
   commissions        Commission[]
+  shopifyMappings    ShopifyProductMapping[]
+  priceHistory       PriceHistory[]
 
   @@unique([organizationId, sku])
   @@index([organizationId])
   @@index([categoryId])
   @@index([brandId])
+  @@index([organizationId, barcode])
+  @@index([organizationId, gtin])
   @@index([searchVector], type: Gin, map: "product_search_gin_idx")
 }
 
@@ -310,6 +353,11 @@ enum ProductStatus {
   DRAFT
 }
 
+enum BarcodeType {
+  CODE128
+  EAN13
+}
+
 model ProductVariant {
   id          String   @id @default(cuid())
   productId   String
@@ -317,6 +365,7 @@ model ProductVariant {
   sku         String
   barcode     String?
   gtin        String?
+  barcodeType BarcodeType? @default(CODE128)
   costPrice   Decimal  @db.Decimal(15, 2)
   sellingPrice Decimal @db.Decimal(15, 2)
   options     Json     @default("{}")
@@ -329,9 +378,12 @@ model ProductVariant {
   serializedUnits SerializedUnit[]
   salesOrderItems SalesOrderItem[]
   invoiceItems    InvoiceItem[]
+  shopifyMappings ShopifyProductMapping[]
 
   @@unique([productId, sku])
   @@index([productId])
+  @@index([barcode])
+  @@index([gtin])
 }
 
 model ProductImage {
@@ -374,6 +426,8 @@ model SerializedUnit {
   @@index([organizationId])
   @@index([productId])
   @@index([imei1])
+  @@index([imei2])
+  @@index([serialNumber])
   @@index([status])
 }
 
@@ -546,17 +600,26 @@ model StockAdjustmentItem {
 }
 
 model StockCount {
-  id             String       @id @default(cuid())
-  organizationId String
-  locationId     String
-  reference      String
-  status         CountStatus  @default(IN_PROGRESS)
-  startedAt      DateTime     @default(now())
-  completedAt    DateTime?
-  countedBy      String?
-  notes          String?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id              String      @id @default(cuid())
+  organizationId  String
+  locationId      String
+  reference       String
+  status          CountStatus @default(DRAFT)
+  scopeType       String?
+  scope           Json?
+  startedAt       DateTime    @default(now())
+  submittedAt     DateTime?
+  reviewedAt      DateTime?
+  approvedAt      DateTime?
+  postedAt        DateTime?
+  completedAt     DateTime?
+  countedBy       String?
+  createdBy       String?
+  assignedTo      String?
+  rejectionReason String?
+  notes           String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
 
   location Location         @relation(fields: [locationId], references: [id])
   items    StockCountItem[]
@@ -564,30 +627,39 @@ model StockCount {
   @@unique([organizationId, reference])
   @@index([organizationId])
   @@index([locationId])
+  @@index([organizationId, status])
 }
 
 enum CountStatus {
+  DRAFT
   IN_PROGRESS
-  COMPLETED
+  SUBMITTED
+  UNDER_REVIEW
   APPROVED
+  REJECTED
+  POSTED
+  COMPLETED
   CANCELLED
 }
 
 model StockCountItem {
-  id            String   @id @default(cuid())
-  stockCountId  String
-  productId     String
-  variantId     String?
-  systemQty     Int
-  countedQty    Int
-  variance      Int
-  notes         String?
-  countedAt     DateTime @default(now())
+  id                String   @id @default(cuid())
+  stockCountId      String
+  productId         String
+  variantId         String?
+  systemQty         Decimal  @db.Decimal(15, 4)
+  countedQty        Decimal  @db.Decimal(15, 4)
+  variance          Decimal  @db.Decimal(15, 4)
+  unitCostSnapshot  Decimal? @db.Decimal(15, 2)
+  varianceValue     Decimal? @db.Decimal(15, 2)
+  notes             String?
+  countedAt         DateTime @default(now())
 
   stockCount StockCount @relation(fields: [stockCountId], references: [id], onDelete: Cascade)
   product    Product    @relation(fields: [productId], references: [id])
 
   @@index([stockCountId])
+  @@index([productId])
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -679,6 +751,7 @@ model PurchaseOrder {
   subtotal        Decimal       @db.Decimal(15, 2) @default(0)
   taxAmount       Decimal       @db.Decimal(15, 2) @default(0)
   shippingCost    Decimal       @db.Decimal(15, 2) @default(0)
+  clearingCost    Decimal       @db.Decimal(15, 2) @default(0)
   discountAmount  Decimal       @db.Decimal(15, 2) @default(0)
   totalAmount     Decimal       @db.Decimal(15, 2) @default(0)
   paidAmount      Decimal       @db.Decimal(15, 2) @default(0)
@@ -703,6 +776,7 @@ model PurchaseOrder {
   @@unique([organizationId, reference])
   @@index([organizationId])
   @@index([supplierId])
+  @@index([locationId])
   @@index([status])
 }
 
@@ -901,10 +975,15 @@ model Customer {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  salesOrders   SalesOrder[]
-  invoices      Invoice[]
-  payments      Payment[]
-  segments      CustomerSegmentMember[]
+  salesOrders     SalesOrder[]
+  invoices        Invoice[]
+  payments        Payment[]
+  receipts        Receipt[]
+  segments        CustomerSegmentMember[]
+  customerNotes   CustomerNote[]
+  tagAssignments  CustomerTagAssignment[]
+  tasks           Task[]
+  customerAccount CustomerAccount?
 
   @@unique([organizationId, code])
   @@unique([organizationId, phone])
@@ -912,6 +991,47 @@ model Customer {
   @@index([phone])
   @@index([email])
   @@index([searchVector], type: Gin, map: "customer_search_gin_idx")
+}
+
+model CustomerNote {
+  id             String   @id @default(cuid())
+  organizationId String
+  customerId     String
+  content        String
+  createdBy      String
+  createdAt      DateTime @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([customerId])
+}
+
+model CustomerTag {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  color          String   @default("#6B7280")
+  createdAt      DateTime @default(now())
+
+  assignments CustomerTagAssignment[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+model CustomerTagAssignment {
+  id         String   @id @default(cuid())
+  tagId      String
+  customerId String
+  assignedAt DateTime @default(now())
+
+  tag      CustomerTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  customer Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([tagId, customerId])
+  @@index([tagId])
+  @@index([customerId])
 }
 
 model CustomerSegment {
@@ -924,7 +1044,8 @@ model CustomerSegment {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  members CustomerSegmentMember[]
+  members           CustomerSegmentMember[]
+  marketingCampaigns MarketingCampaign[]
 
   @@index([organizationId])
 }
@@ -943,44 +1064,144 @@ model CustomerSegmentMember {
   @@index([customerId])
 }
 
-model SalesOrder {
-  id             String        @id @default(cuid())
-  organizationId String
-  reference      String
-  customerId     String?
-  locationId     String
-  userId         String
-  status         OrderStatus   @default(DRAFT)
-  channel        SalesChannel  @default(IN_STORE)
-  currency       String        @default("NGN")
-  subtotal       Decimal       @db.Decimal(15, 2) @default(0)
-  discountAmount Decimal       @db.Decimal(15, 2) @default(0)
-  taxAmount      Decimal       @db.Decimal(15, 2) @default(0)
-  totalAmount    Decimal       @db.Decimal(15, 2) @default(0)
-  paidAmount     Decimal       @db.Decimal(15, 2) @default(0)
-  notes          String?
-  internalNotes  String?
-  posSessionId   String?
-  completedAt    DateTime?
-  cancelledAt    DateTime?
-  cancelReason   String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+model CustomerAccount {
+  id                   String    @id @default(cuid())
+  organizationId       String
+  customerId           String?   @unique
+  email                String
+  firstName            String
+  lastName             String
+  phone                String?
+  passwordHash         String
+  isVerified           Boolean   @default(false)
+  emailVerifyToken     String?
+  emailVerifyExpires   DateTime?
+  resetPasswordToken   String?
+  resetPasswordExpires DateTime?
+  lastLoginAt          DateTime?
+  isActive             Boolean   @default(true)
+  whatsappOptIn        Boolean   @default(false)
+  whatsappOptInAt      DateTime?
+  whatsappPhone        String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
-  customer   Customer?       @relation(fields: [customerId], references: [id])
-  location   Location        @relation(fields: [locationId], references: [id])
-  user       User            @relation(fields: [userId], references: [id])
-  items      SalesOrderItem[]
-  invoices   Invoice[]
-  payments   Payment[]
-  posSession POSSession?     @relation(fields: [posSessionId], references: [id])
+  customer          Customer?                    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  refreshTokens     CustomerAccountRefreshToken[]
+  salesOrders       SalesOrder[]
+  savedAddresses    SavedAddress[]
+  pushSubscriptions PushSubscription[]
+
+  @@unique([organizationId, email])
+  @@index([organizationId])
+  @@index([email])
+}
+
+model CustomerAccountRefreshToken {
+  id                String   @id @default(cuid())
+  customerAccountId String
+  tokenHash         String   @unique
+  expiresAt         DateTime
+  ipAddress         String?
+  userAgent         String?
+  createdAt         DateTime @default(now())
+
+  customerAccount CustomerAccount @relation(fields: [customerAccountId], references: [id], onDelete: Cascade)
+
+  @@index([customerAccountId])
+  @@index([tokenHash])
+}
+
+model SavedAddress {
+  id                String        @id @default(cuid())
+  customerAccountId String
+  organizationId    String
+  label             String?
+  fullName          String?
+  phone             String?
+  addressLine1      String
+  addressLine2      String?
+  landmark          String?
+  city              String?
+  state             String?
+  postalCode        String?
+  country           String        @default("Nigeria")
+  countryCode       String?       @default("NG")
+  placeId           String?
+  formattedAddress  String?
+  latitude          Decimal?      @db.Decimal(10, 7)
+  longitude         Decimal?      @db.Decimal(10, 7)
+  addressSource     AddressSource @default(MANUAL)
+  isDefault         Boolean       @default(false)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  customerAccount   CustomerAccount @relation(fields: [customerAccountId], references: [id], onDelete: Cascade)
+
+  @@index([customerAccountId])
+  @@index([organizationId])
+}
+
+model SalesOrder {
+  id               String        @id @default(cuid())
+  organizationId   String
+  reference        String
+  customerId       String?
+  locationId       String
+  userId           String?
+  status           OrderStatus   @default(DRAFT)
+  channel          SalesChannel  @default(IN_STORE)
+  currency         String        @default("NGN")
+  subtotal         Decimal       @db.Decimal(15, 2) @default(0)
+  discountAmount   Decimal       @db.Decimal(15, 2) @default(0)
+  taxAmount        Decimal       @db.Decimal(15, 2) @default(0)
+  totalAmount      Decimal       @db.Decimal(15, 2) @default(0)
+  paidAmount       Decimal       @db.Decimal(15, 2) @default(0)
+  notes            String?
+  internalNotes    String?
+  posSessionId     String?
+  completedAt      DateTime?
+  cancelledAt      DateTime?
+  cancelReason     String?
+  deliveryFee      Decimal       @db.Decimal(15, 2) @default(0)
+  deliveryAddress  String?
+  deliveryCity     String?
+  deliveryState    String?
+  deliveryPhone    String?
+  deliveryLandmark      String?
+  deliveryCountry       String?
+  deliveryPlaceId       String?
+  deliveryLatitude      Decimal?      @db.Decimal(10, 7)
+  deliveryLongitude     Decimal?      @db.Decimal(10, 7)
+  deliveryAddressSource AddressSource?
+  idempotencyKey   String?
+  customerAccountId String?
+  externalOrderId      String?
+  externalOrderName    String?
+  externalProvider     String?
+  externalConnectionId String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  customer        Customer?        @relation(fields: [customerId], references: [id])
+  location        Location         @relation(fields: [locationId], references: [id])
+  user            User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  items           SalesOrderItem[]
+  invoices        Invoice[]
+  payments        Payment[]
+  posSession      POSSession?      @relation(fields: [posSessionId], references: [id])
+  customerAccount CustomerAccount? @relation(fields: [customerAccountId], references: [id])
 
   @@unique([organizationId, reference])
   @@index([organizationId])
   @@index([customerId])
   @@index([locationId])
+  @@index([userId])
   @@index([status])
   @@index([createdAt])
+  @@index([customerAccountId])
+  @@index([externalOrderId, externalProvider])
+  @@index([externalConnectionId])
 }
 
 enum OrderStatus {
@@ -1000,7 +1221,16 @@ enum SalesChannel {
   PHONE
   WHATSAPP
   INSTAGRAM
+  SHOPIFY
   OTHER
+}
+
+enum AddressSource {
+  GOOGLE_PLACE
+  MANUAL
+  SAVED_ADDRESS
+  ADMIN
+  IMPORTED
 }
 
 model SalesOrderItem {
@@ -1055,6 +1285,7 @@ model Invoice {
   @@unique([organizationId, reference])
   @@index([organizationId])
   @@index([customerId])
+  @@index([orderId])
   @@index([status])
 }
 
@@ -1089,10 +1320,12 @@ model Receipt {
   notes          String?
   issuedAt       DateTime @default(now())
 
-  invoice Invoice? @relation(fields: [invoiceId], references: [id])
+  invoice  Invoice?  @relation(fields: [invoiceId], references: [id])
+  customer Customer? @relation(fields: [customerId], references: [id])
 
   @@unique([organizationId, reference])
   @@index([organizationId])
+  @@index([customerId])
 }
 
 model Payment {
@@ -1118,8 +1351,10 @@ model Payment {
   customer  Customer?   @relation(fields: [customerId], references: [id])
 
   @@unique([organizationId, reference])
+  @@unique([organizationId, gatewayRef])
   @@index([organizationId])
   @@index([orderId])
+  @@index([invoiceId])
   @@index([customerId])
   @@index([status])
 }
@@ -1148,7 +1383,7 @@ model POSSession {
   id             String       @id @default(cuid())
   organizationId String
   locationId     String
-  userId         String
+  userId         String?
   reference      String
   status         SessionStatus @default(OPEN)
   openingFloat   Decimal      @db.Decimal(15, 2) @default(0)
@@ -1162,7 +1397,7 @@ model POSSession {
   notes          String?
 
   location    Location     @relation(fields: [locationId], references: [id])
-  user        User         @relation(fields: [userId], references: [id])
+  user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
   salesOrders SalesOrder[]
 
   @@unique([organizationId, reference])
@@ -1197,7 +1432,8 @@ model BankAccount {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  transactions BankTransaction[]
+  transactions    BankTransaction[]
+  statementImports BankStatementImport[]
 
   @@unique([organizationId, accountNumber])
   @@index([organizationId])
@@ -1226,11 +1462,21 @@ model BankTransaction {
   @@index([organizationId])
   @@index([bankAccountId])
   @@index([date])
+  @@index([reconciled])
+  @@index([bankAccountId, date])
 }
 
 enum TransactionType {
   CREDIT
   DEBIT
+}
+
+enum MatchStatus {
+  UNMATCHED
+  AUTO_MATCHED
+  MANUALLY_MATCHED
+  CONFIRMED
+  EXCLUDED
 }
 
 model Expense {
@@ -1372,11 +1618,12 @@ model Employee {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
-  user       User        @relation(fields: [userId], references: [id])
-  department Department? @relation(fields: [departmentId], references: [id])
-  location   Location?   @relation(fields: [locationId], references: [id])
-  attendance Attendance[]
-  duties     StaffDuty[]
+  user             User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department       Department?             @relation(fields: [departmentId], references: [id])
+  location         Location?               @relation(fields: [locationId], references: [id])
+  attendance       Attendance[]
+  duties           StaffDuty[]
+  responsibilities EmployeeResponsibility[]
 
   @@unique([organizationId, employeeNumber])
   @@index([organizationId])
@@ -1391,21 +1638,33 @@ enum EmploymentType {
 }
 
 model Attendance {
-  id          String    @id @default(cuid())
-  employeeId  String
-  date        DateTime  @db.Date
-  clockIn     DateTime?
-  clockOut    DateTime?
-  hoursWorked Decimal?  @db.Decimal(5, 2)
-  status      AttendanceStatus @default(PRESENT)
-  notes       String?
-  createdAt   DateTime  @default(now())
+  id               String           @id @default(cuid())
+  employeeId       String
+  organizationId   String
+  date             DateTime         @db.Date
+  clockIn          DateTime?
+  clockOut         DateTime?
+  hoursWorked      Decimal?         @db.Decimal(5, 2)
+  status           AttendanceStatus @default(PRESENT)
+  notes            String?
+  locationId       String?
+  clockInSource    String?
+  clockOutSource   String?
+  correctionReason String?
+  correctedById    String?
+  correctedAt      DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 
-  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employee     Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  location     Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  correctedBy  User?     @relation("AttendanceCorrectedBy", fields: [correctedById], references: [id], onDelete: SetNull)
 
   @@unique([employeeId, date])
   @@index([employeeId])
   @@index([date])
+  @@index([organizationId])
+  @@index([organizationId, date])
 }
 
 enum AttendanceStatus {
@@ -1415,6 +1674,9 @@ enum AttendanceStatus {
   HALF_DAY
   LEAVE
   HOLIDAY
+  PARTIAL
+  EXCUSED
+  CORRECTED
 }
 
 model StaffDuty {
@@ -1432,6 +1694,31 @@ model StaffDuty {
 
   @@index([employeeId])
   @@index([startTime])
+}
+
+model EmployeeResponsibility {
+  id             String    @id @default(cuid())
+  organizationId String
+  employeeId     String
+  title          String
+  description    String?
+  category       String?
+  priority       String    @default("MEDIUM")
+  locationId     String?
+  isActive       Boolean   @default(true)
+  startDate      DateTime?
+  endDate        DateTime?
+  createdById    String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  employee    Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  location    Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  createdBy   User      @relation("ResponsibilityCreatedBy", fields: [createdById], references: [id])
+
+  @@index([organizationId])
+  @@index([employeeId])
+  @@index([organizationId, isActive])
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1454,6 +1741,7 @@ model Task {
   tags           String[]     @default([])
   parentId       String?
   goalId         String?
+  customerId     String?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
@@ -1461,6 +1749,7 @@ model Task {
   creator     User           @relation("TaskCreator", fields: [creatorId], references: [id])
   goal        Goal?          @relation(fields: [goalId], references: [id])
   parent      Task?          @relation("SubTasks", fields: [parentId], references: [id])
+  customer    Customer?      @relation(fields: [customerId], references: [id])
   subtasks    Task[]         @relation("SubTasks")
   comments    TaskComment[]
   checklists  TaskChecklist[]
@@ -1470,6 +1759,7 @@ model Task {
   @@index([assigneeId])
   @@index([status])
   @@index([goalId])
+  @@index([customerId])
 }
 
 enum TaskStatus {
@@ -1490,13 +1780,13 @@ enum TaskPriority {
 model TaskComment {
   id        String   @id @default(cuid())
   taskId    String
-  userId    String
+  userId    String?
   content   String
   editedAt  DateTime?
   createdAt DateTime @default(now())
 
-  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id])
+  task Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([taskId])
 }
@@ -1740,42 +2030,210 @@ model AIDocumentChunk {
   @@index([documentId])
 }
 
-model AITool {
+// ─────────────────────────────────────────────────────────────
+// PLANNER MODELS
+// ─────────────────────────────────────────────────────────────
+
+enum PlanType {
+  PERSONAL
+  BUSINESS
+  PROJECT
+  CAMPAIGN
+  OPERATIONAL
+  STRATEGIC
+}
+
+enum PlanStatus {
+  DRAFT
+  REVIEW
+  APPROVED
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+model Plan {
+  id             String     @id @default(cuid())
+  organizationId String
+  ownerId        String?
+  title          String
+  description    String?
+  objective      String?
+  type           PlanType   @default(PERSONAL)
+  status         PlanStatus @default(DRAFT)
+  startDate      DateTime?
+  targetDate     DateTime?
+  goalId         String?
+  metadata       Json?      // assumptions, expected outcomes, AI context
+  previewData    Json?      // proposed tasks/events before execution
+  createdBy      String
+  approvedBy     String?
+  approvedAt     DateTime?
+  templateId     String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  steps     PlanStep[]
+  taskLinks PlanTaskLink[]
+  template  PlanTemplate?  @relation(fields: [templateId], references: [id])
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([ownerId])
+}
+
+model PlanStep {
+  id          String    @id @default(cuid())
+  planId      String
+  title       String
+  description String?
+  objective   String?
+  ownerId     String?
+  startDate   DateTime?
+  targetDate  DateTime?
+  status      String    @default("PENDING")
+  sortOrder   Int       @default(0)
+  kpiName     String?
+  kpiTarget   String?
+  kpiUnit     String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  plan      Plan          @relation(fields: [planId], references: [id], onDelete: Cascade)
+  taskLinks PlanTaskLink[]
+
+  @@index([planId])
+}
+
+model PlanTaskLink {
+  id           String   @id @default(cuid())
+  planId       String
+  stepId       String?
+  taskId       String?  // null while proposed; set after execution
+  isProposed   Boolean  @default(true)
+  proposedData Json?    // task fields for proposed tasks
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  plan Plan      @relation(fields: [planId], references: [id], onDelete: Cascade)
+  step PlanStep? @relation(fields: [stepId], references: [id], onDelete: SetNull)
+
+  @@index([planId])
+  @@index([taskId])
+}
+
+model PlanTemplate {
   id             String   @id @default(cuid())
   organizationId String
   name           String
-  description    String
-  inputSchema    Json
+  description    String?
+  type           PlanType @default(BUSINESS)
+  structure      Json     // steps, task templates, KPI templates
   isActive       Boolean  @default(true)
-  requiresApproval Boolean @default(false)
-  category       String?
+  createdBy      String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  actions AIAction[]
+  plans Plan[]
 
   @@unique([organizationId, name])
   @@index([organizationId])
 }
 
-model AIAction {
-  id             String       @id @default(cuid())
+model AITool {
+  id               String   @id @default(cuid())
+  organizationId   String
+  name             String
+  description      String
+  inputSchema      Json
+  isActive         Boolean  @default(true)
+  requiresApproval Boolean  @default(false)
+  category         String?
+  riskLevel        String   @default("LOW")
+  externalExposure String   @default("NOT_EXPOSED")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  actions AIAction[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@index([externalExposure])
+}
+
+enum AutonomyLevel {
+  ADVISORY
+  DRAFT
+  APPROVAL_REQUIRED
+  LIMITED_AUTONOMY
+  SCHEDULED_AUTONOMY
+}
+
+model AiAutonomyPolicy {
+  id             String        @id @default(cuid())
   organizationId String
-  toolId         String?
-  conversationId String?
-  userId         String?
-  action         String
-  parameters     Json
-  result         Json?
-  status         ActionStatus @default(PENDING)
-  approvalId     String?
-  executedAt     DateTime?
-  createdAt      DateTime     @default(now())
+  scope          String
+  scopeId        String?
+  level          AutonomyLevel @default(APPROVAL_REQUIRED)
+  scopeLimits    Json          @default("{}")
+  isActive       Boolean       @default(true)
+  createdBy      String?
+  updatedBy      String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([organizationId, scope, scopeId])
+  @@index([organizationId])
+}
+
+model ExternalAgent {
+  id                 String    @id @default(cuid())
+  organizationId     String
+  name               String
+  description        String?
+  ownerId            String?
+  status             String    @default("ACTIVE")
+  scopes             String[]
+  allowedTools       String[]
+  autonomyLevel      String    @default("APPROVAL_REQUIRED")
+  rateLimitPerMinute Int       @default(60)
+  apiKeyId           String?
+  metadata           Json?
+  lastUsedAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([organizationId])
+  @@index([apiKeyId])
+  @@unique([organizationId, name])
+}
+
+model AIAction {
+  id              String       @id @default(cuid())
+  organizationId  String
+  toolId          String?
+  conversationId  String?
+  userId          String?
+  externalAgentId String?
+  requestId       String?
+  action          String
+  parameters      Json
+  result          Json?
+  status          ActionStatus @default(PENDING)
+  approvalId      String?
+  executedAt      DateTime?
+  autonomyLevel   String?
+  policyDecision  String?
+  expiresAt       DateTime?
+  createdAt       DateTime     @default(now())
 
   tool AITool? @relation(fields: [toolId], references: [id])
 
   @@index([organizationId])
   @@index([status])
+  @@index([externalAgentId])
+  @@index([requestId])
 }
 
 enum ActionStatus {
@@ -1895,18 +2353,32 @@ model EmailCampaign {
   providerId      String?
   name            String
   subject         String
+  previewText     String?
   fromEmail       String?
   fromName        String?
+  replyTo         String?
   htmlContent     String?
   textContent     String?
+  campaignType    String         @default("MARKETING")
+  subscriptionList String        @default("GENERAL_MARKETING")
   status          CampaignStatus @default(DRAFT)
   scheduledAt     DateTime?
   sentAt          DateTime?
+  createdById     String?
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  approvedBy      String?
+  approvedAt      DateTime?
   totalRecipients Int            @default(0)
+  eligibleCount   Int            @default(0)
+  suppressedCount Int            @default(0)
   sentCount       Int            @default(0)
+  deliveredCount  Int            @default(0)
   openCount       Int            @default(0)
   clickCount      Int            @default(0)
   bounceCount     Int            @default(0)
+  complainedCount Int            @default(0)
+  failedCount     Int            @default(0)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
@@ -1915,33 +2387,63 @@ model EmailCampaign {
 
   @@index([organizationId])
   @@index([status])
+  @@index([campaignType])
 }
 
 enum CampaignStatus {
   DRAFT
+  REVIEW
+  APPROVED
   SCHEDULED
   SENDING
   SENT
+  PAUSED
   CANCELLED
   FAILED
 }
 
 model EmailCampaignRecipient {
-  id          String   @id @default(cuid())
-  campaignId  String
-  email       String
-  name        String?
-  status      String   @default("PENDING")
-  sentAt      DateTime?
-  openedAt    DateTime?
-  clickedAt   DateTime?
-  bouncedAt   DateTime?
-  metadata    Json?
+  id                String    @id @default(cuid())
+  campaignId        String
+  email             String
+  name              String?
+  status            String    @default("PENDING")
+  providerMessageId String?
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  openedAt          DateTime?
+  clickedAt         DateTime?
+  bouncedAt         DateTime?
+  failedAt          DateTime?
+  complainedAt      DateTime?
+  errorMessage      String?
+  metadata          Json?
 
   campaign EmailCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
   @@unique([campaignId, email])
   @@index([campaignId])
+}
+
+model EmailSubscription {
+  id               String    @id @default(cuid())
+  organizationId   String
+  email            String
+  customerId       String?
+  subscriptionList String    @default("GENERAL_MARKETING")
+  status           String    @default("SUBSCRIBED")
+  source           String?
+  consentAt        DateTime?
+  unsubscribedAt   DateTime?
+  suppressedAt     DateTime?
+  suppressionReason String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([organizationId, email, subscriptionList])
+  @@index([organizationId])
+  @@index([email])
+  @@index([status])
 }
 
 model CommunicationTemplate {
@@ -1962,29 +2464,38 @@ model CommunicationTemplate {
 }
 
 model TelegramConfig {
-  id              String   @id @default(cuid())
-  organizationId  String   @unique
+  id                String   @id @default(cuid())
+  organizationId    String   @unique
   botTokenEncrypted String
-  chatId          String?
-  username        String?
-  isActive        Boolean  @default(true)
-  notifyOrders    Boolean  @default(true)
-  notifyInventory Boolean  @default(true)
-  notifyFinance   Boolean  @default(false)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  chatId            String?
+  username          String?
+  webhookSecret     String?
+  isActive          Boolean  @default(true)
+  notifyOrders      Boolean  @default(true)
+  notifyInventory   Boolean  @default(true)
+  notifyFinance     Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   @@index([organizationId])
 }
 
 model TelegramUserLink {
-  id             String   @id @default(cuid())
-  organizationId String
-  userId         String
-  telegramId     String
+  id               String    @id @default(cuid())
+  organizationId   String
+  userId           String
+  telegramId       String
   telegramUsername String?
-  isVerified     Boolean  @default(false)
-  createdAt      DateTime @default(now())
+  telegramChatId   String?
+  isVerified       Boolean   @default(false)
+  verifiedAt       DateTime?
+  notifyOrders     Boolean   @default(true)
+  notifyInventory  Boolean   @default(true)
+  notifyFinance    Boolean   @default(false)
+  notifyTasks      Boolean   @default(true)
+  notifyLowStock   Boolean   @default(true)
+  notifyTargets    Boolean   @default(false)
+  createdAt        DateTime  @default(now())
 
   @@unique([organizationId, userId])
   @@unique([organizationId, telegramId])
@@ -2085,6 +2596,21 @@ model FeatureFlag {
   @@index([organizationId])
 }
 
+model UserFeatureFlag {
+  id         String   @id @default(cuid())
+  userId     String
+  featureKey String
+  state      String   @default("INHERIT")
+  updatedBy  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, featureKey])
+  @@index([userId])
+}
+
 model SystemSetting {
   id             String   @id @default(cuid())
   organizationId String
@@ -2144,41 +2670,116 @@ model WebhookDelivery {
 }
 
 model AutomationRule {
-  id             String   @id @default(cuid())
-  organizationId String
-  name           String
-  description    String?
-  trigger        String
-  conditions     Json     @default("[]")
-  actions        Json     @default("[]")
-  isActive       Boolean  @default(true)
+  id              String   @id @default(cuid())
+  organizationId  String
+  locationId      String?
+  name            String
+  description     String?
+  trigger         String
+  conditions      Json     @default("[]")
+  actions         Json     @default("[]")
+  isActive        Boolean  @default(true)
   lastTriggeredAt DateTime?
-  triggerCount   Int      @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  triggerCount    Int      @default(0)
+  createdBy       String?
+  updatedBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  executions AutomationExecution[]
 
   @@unique([organizationId, name])
   @@index([organizationId])
   @@index([trigger])
+  @@index([locationId])
+}
+
+model AutomationExecution {
+  id              String    @id @default(cuid())
+  organizationId  String
+  ruleId          String
+  eventId         String
+  eventType       String
+  locationId      String?
+  status          String    @default("PENDING")
+  actionType      String
+  actionIndex     Int       @default(0)
+  causationId     String?
+  automationDepth Int       @default(0)
+  startedAt       DateTime  @default(now())
+  completedAt     DateTime?
+  attempt         Int       @default(0)
+  failureCategory String?
+  errorMessage    String?
+  resultMetadata  Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  rule AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@unique([ruleId, eventId, actionIndex])
+  @@index([organizationId])
+  @@index([ruleId])
+  @@index([eventId])
+  @@index([status])
 }
 
 model CalendarIntegration {
-  id             String   @id @default(cuid())
-  organizationId String
-  userId         String
-  provider       String
+  id                   String   @id @default(cuid())
+  organizationId       String
+  userId               String
+  provider             String
   accessTokenEncrypted String?
   refreshTokenEncrypted String?
-  expiresAt      DateTime?
-  calendarId     String?
-  isActive       Boolean  @default(true)
-  syncEnabled    Boolean  @default(true)
-  lastSyncAt     DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  expiresAt            DateTime?
+  calendarId           String?
+  calendarName         String?
+  scope                String?
+  syncToken            String?
+  isActive             Boolean  @default(true)
+  syncEnabled          Boolean  @default(true)
+  lastSyncAt           DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  events CalendarEvent[]
 
   @@unique([organizationId, userId, provider])
   @@index([organizationId])
+  @@index([userId])
+}
+
+model CalendarEvent {
+  id                 String   @id @default(cuid())
+  organizationId     String
+  userId             String
+  integrationId      String
+  externalEventId    String
+  externalCalendarId String
+  provider           String
+  title              String
+  description        String?
+  location           String?
+  startAt            DateTime
+  endAt              DateTime
+  timezone           String   @default("UTC")
+  isAllDay           Boolean  @default(false)
+  status             String   @default("confirmed")
+  attendees          Json?
+  recurrence         Json?
+  reminders          Json?
+  htmlLink           String?
+  syncedAt           DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  integration CalendarIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@unique([integrationId, externalEventId])
+  @@index([organizationId])
+  @@index([userId])
+  @@index([startAt])
+  @@index([integrationId])
 }
 
 model Integration {
@@ -2197,4 +2798,1060 @@ model Integration {
 
   @@unique([organizationId, type])
   @@index([organizationId])
+}
+
+model SystemBackup {
+  id           String    @id @default(cuid())
+  filename     String
+  sizeBytes    BigInt?
+  status       String    @default("COMPLETED")
+  startedAt    DateTime  @default(now())
+  completedAt  DateTime?
+  errorMessage String?
+  triggeredBy  String?
+  createdAt    DateTime  @default(now())
+
+  @@index([createdAt])
+  @@map("system_backups")
+}
+
+// ─────────────────────────────────────────────────────────────
+// STAGE 24A — EXTERNAL INTEGRATION CONNECTIONS
+// ─────────────────────────────────────────────────────────────
+
+// Unified provider connection: OAuth (Google/Meta/TikTok/Shopify…)
+// and API-key based providers. One row per connected account/page.
+model ExternalConnection {
+  id                    String    @id @default(cuid())
+  organizationId        String
+  provider              String    // google | meta | tiktok | snapchat | shopify | whatsapp_business | push_vapid
+  displayName           String
+  status                String    @default("pending") // pending | connected | disconnected | error | expired
+  externalAccountId     String?
+  externalAccountName   String?
+  externalAccountEmail  String?
+  externalPageId        String?
+  externalPageName      String?
+
+  // OAuth credentials — encrypted at rest with AES-256-GCM
+  accessTokenEncrypted  String?
+  refreshTokenEncrypted String?
+  tokenExpiresAt        DateTime?
+  tokenRefreshedAt      DateTime?
+  tokenStatus           String?   // active | expired | refresh_failed | revoked
+  scopes                String[]
+
+  // Simple API credentials (non-OAuth)
+  apiKeyEncrypted       String?
+  apiSecretEncrypted    String?
+
+  // Health
+  lastHealthCheckAt     DateTime?
+  healthStatus          String?   // ok | degraded | down
+  errorCount            Int       @default(0)
+  lastErrorAt           DateTime?
+  lastErrorMessage      String?
+
+  // Provider-specific extra data
+  metadata              Json?
+
+  // Audit
+  connectedByUserId     String?
+  connectedAt           DateTime?
+  disconnectedAt        DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectedBy   User?              @relation("ExternalConnectionUser", fields: [connectedByUserId], references: [id])
+  syncLogs      IntegrationSyncLog[]
+  socialAccounts SocialAccount[]
+  advertisingAccounts AdvertisingAccount[]
+  shopifyProductMappings  ShopifyProductMapping[]
+  shopifyLocationMappings ShopifyLocationMapping[]
+  shopifyWebhookEvents    ShopifyWebhookEvent[]
+
+  @@unique([organizationId, provider, externalAccountId])
+  @@index([organizationId, provider])
+  @@index([organizationId, status])
+  @@map("external_connections")
+}
+
+// Job/sync tracking for every background operation against a provider connection
+model IntegrationSyncLog {
+  id             String    @id @default(cuid())
+  organizationId String
+  connectionId   String
+  provider       String
+  jobType        String    // token-refresh | health-check | sync-products | metrics-pull | …
+  status         String    @default("pending") // pending | running | success | failed | partial
+  startedAt      DateTime  @default(now())
+  completedAt    DateTime?
+  itemsProcessed Int?
+  itemsFailed    Int?
+  errorMessage   String?
+  metadata       Json?
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connection   ExternalConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, connectionId])
+  @@index([organizationId, provider, status])
+  @@index([connectionId, startedAt])
+  @@map("integration_sync_logs")
+}
+
+// ─────────────────────────────────────────────────────────────
+// UNIFIED COMMUNICATIONS — Stage 24B
+// ─────────────────────────────────────────────────────────────
+
+model SmsProvider {
+  id              String   @id @default(cuid())
+  organizationId  String
+  name            String
+  provider        String   // termii | twilio | vonage
+  apiKeyEncrypted String
+  senderId        String?
+  isDefault       Boolean  @default(false)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, provider])
+  @@index([organizationId, isDefault])
+  @@map("sms_providers")
+}
+
+model ChannelPreference {
+  id             String    @id @default(cuid())
+  organizationId String
+  userId         String?
+  email          String?
+  phone          String?
+  channel        String    // EMAIL | SMS | TELEGRAM | WHATSAPP | WEB_PUSH | IN_APP
+  messageType    String    // MARKETING | TRANSACTIONAL | ALL
+  status         String    @default("subscribed") // subscribed | unsubscribed | suppressed
+  consentAt      DateTime?
+  unsubscribedAt DateTime?
+  source         String?   // web | api | import | bot | system
+  metadata       Json?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id])
+
+  @@index([organizationId, channel, status])
+  @@index([organizationId, userId, channel])
+  @@index([organizationId, email, channel])
+  @@index([organizationId, phone, channel])
+  @@map("channel_preferences")
+}
+
+model PushSubscription {
+  id                String    @id @default(cuid())
+  organizationId    String
+  userId            String?
+  customerAccountId String?
+  endpoint          String
+  p256dhKey         String
+  authKey           String
+  userAgent         String?
+  isActive          Boolean   @default(true)
+  failureCount      Int       @default(0)
+  lastUsedAt        DateTime?
+  revokedAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user            User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customerAccount CustomerAccount? @relation(fields: [customerAccountId], references: [id], onDelete: Cascade)
+
+  // Partial unique indexes defined in raw SQL migration (WHERE userId IS NOT NULL / WHERE customerAccountId IS NOT NULL)
+  @@index([userId, endpoint])
+  @@index([customerAccountId, endpoint])
+  @@index([organizationId, userId])
+  @@index([organizationId, customerAccountId])
+  @@index([organizationId, isActive])
+  @@map("push_subscriptions")
+}
+
+model WhatsAppConfig {
+  id                      String    @id @default(cuid())
+  organizationId          String    @unique
+  phoneNumberId           String
+  businessAccountId       String
+  displayPhoneNumber      String?
+  businessAccountName     String?
+  accessTokenEncrypted    String
+  appSecretEncrypted      String?
+  webhookVerifyToken      String?
+  status                  String    @default("NOT_CONFIGURED")
+  webhookVerifiedAt       DateTime?
+  lastHealthCheckAt       DateTime?
+  qualityRating           String?
+  messagingLimit          String?
+  connectionId            String?
+  isActive                Boolean   @default(true)
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  organization            Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  templates               WhatsAppTemplate[]
+  conversations           WhatsAppConversation[]
+  orderEventMappings      WhatsAppOrderEventMapping[]
+
+  @@map("whatsapp_configs")
+}
+
+model WhatsAppTemplate {
+  id                 String    @id @default(cuid())
+  organizationId     String
+  whatsAppConfigId   String
+  providerTemplateId String?
+  name               String
+  language           String    @default("en_US")
+  category           String    // UTILITY | MARKETING | AUTHENTICATION
+  status             String    @default("DRAFT") // DRAFT|PENDING|APPROVED|REJECTED|PAUSED|DISABLED
+  components         Json?
+  rejectionReason    String?
+  lastSyncedAt       DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  config           WhatsAppConfig @relation(fields: [whatsAppConfigId], references: [id], onDelete: Cascade)
+  orderMappings    WhatsAppOrderEventMapping[]
+
+  @@unique([organizationId, name, language])
+  @@index([organizationId, status])
+  @@index([whatsAppConfigId])
+  @@map("whatsapp_templates")
+}
+
+model WhatsAppConversation {
+  id                     String    @id @default(cuid())
+  organizationId         String
+  whatsAppConfigId       String
+  providerConversationId String?
+  customerPhone          String
+  businessPhoneNumberId  String
+  customerAccountId      String?
+  orderId                String?
+  status                 String    @default("OPEN") // OPEN | CLOSED
+  windowExpiresAt        DateTime?
+  lastInboundAt          DateTime?
+  lastOutboundAt         DateTime?
+  unreadCount            Int       @default(0)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  config                WhatsAppConfig @relation(fields: [whatsAppConfigId], references: [id], onDelete: Cascade)
+  messages              WhatsAppMessage[]
+
+  @@index([organizationId, customerPhone])
+  @@index([organizationId, status])
+  @@index([whatsAppConfigId])
+  @@map("whatsapp_conversations")
+}
+
+model WhatsAppMessage {
+  id                  String    @id @default(cuid())
+  organizationId      String
+  conversationId      String
+  providerMessageId   String?
+  direction           String    // INBOUND | OUTBOUND
+  fromNumber          String
+  toNumber            String
+  messageType         String    @default("text") // text | template | image | document | location | unknown
+  body                String?
+  templateName        String?
+  templateLanguage    String?
+  templateComponents  Json?
+  status              String    @default("QUEUED") // QUEUED|SUBMITTED|SENT|DELIVERED|READ|FAILED
+  errorCode           Int?
+  errorMessage        String?
+  idempotencyKey      String?
+  communicationLogId  String?
+  sentAt              DateTime?
+  deliveredAt         DateTime?
+  readAt              DateTime?
+  failedAt            DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  conversation        WhatsAppConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, providerMessageId])
+  @@unique([idempotencyKey])
+  @@index([conversationId])
+  @@index([organizationId, direction])
+  @@index([organizationId, status])
+  @@map("whatsapp_messages")
+}
+
+model WhatsAppOrderEventMapping {
+  id               String   @id @default(cuid())
+  organizationId   String
+  whatsAppConfigId String
+  orderEvent       String   // ORDER_RECEIVED|PAYMENT_CONFIRMED|ORDER_CONFIRMED|ORDER_PROCESSING|ORDER_READY|ORDER_DISPATCHED|ORDER_COMPLETED|ORDER_CANCELLED
+  templateId       String
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  config           WhatsAppConfig   @relation(fields: [whatsAppConfigId], references: [id], onDelete: Cascade)
+  template         WhatsAppTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, orderEvent])
+  @@index([organizationId, isActive])
+  @@map("whatsapp_order_event_mappings")
+}
+
+model CommunicationLog {
+  id                String    @id @default(cuid())
+  organizationId    String
+  userId            String?
+  channel           String    // EMAIL | SMS | TELEGRAM | WHATSAPP | WEB_PUSH | IN_APP
+  messageType       String    // TRANSACTIONAL | MARKETING
+  recipient         String
+  subject           String?
+  status            String    @default("queued") // queued | sent | delivered | failed | bounced
+  providerMessageId String?
+  errorMessage      String?
+  attemptCount      Int       @default(0)
+  idempotencyKey    String?   @unique
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  failedAt          DateTime?
+  metadata          Json?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, channel, status])
+  @@index([organizationId, userId])
+  @@index([organizationId, createdAt])
+  @@map("communication_logs")
+}
+
+// ── Stage 24C: Marketing & Content Management ──────────────────────────────────
+
+enum MarketingCampaignStatus {
+  DRAFT
+  REVIEW
+  APPROVED
+  SCHEDULED
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum ContentDraftStatus {
+  DRAFT
+  REVIEW
+  APPROVED
+  SCHEDULED
+  PUBLISHED
+  ARCHIVED
+}
+
+model MarketingCampaign {
+  id              String                  @id @default(cuid())
+  organizationId  String
+  name            String
+  description     String?
+  objective       String                  @default("GENERIC")
+  status          MarketingCampaignStatus @default(DRAFT)
+  channels        String[]                @default([])
+  startDate       DateTime?
+  endDate         DateTime?
+  budgetMetadata  Json?
+  notes           String?
+  targetSegmentId String?
+  createdById     String?
+  approvedById    String?
+  approvedAt      DateTime?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  organization  Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  targetSegment CustomerSegment? @relation(fields: [targetSegmentId], references: [id])
+  contentDrafts ContentDraft[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@map("marketing_campaigns")
+}
+
+model ContentDraft {
+  id             String             @id @default(cuid())
+  organizationId String
+  campaignId     String?
+  title          String
+  body           String?
+  callToAction   String?
+  destinationUrl String?
+  targetChannel  String             @default("SOCIAL")
+  status         ContentDraftStatus @default(DRAFT)
+  ownerId        String?
+  scheduledAt    DateTime?
+  timezone       String             @default("UTC")
+  approvedById   String?
+  approvedAt     DateTime?
+  publishedAt    DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  organization        Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  campaign            MarketingCampaign?      @relation(fields: [campaignId], references: [id])
+  variants            ContentVariant[]
+  publicationAttempts PublicationAttempt[]
+  publicationTargets  SocialPublicationTarget[]
+
+  @@index([organizationId])
+  @@index([campaignId])
+  @@index([status])
+  @@map("content_drafts")
+}
+
+model ContentVariant {
+  id                String   @id @default(cuid())
+  draftId           String
+  platform          String
+  body              String?
+  callToAction      String?
+  mediaAssetIds     Json     @default("[]")
+  providerName      String?
+  externalAccountId String?
+  externalPostId    String?
+  externalStatus    String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  draft               ContentDraft            @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  publicationAttempts PublicationAttempt[]
+  publicationTargets  SocialPublicationTarget[]
+
+  @@unique([draftId, platform])
+  @@index([draftId])
+  @@map("content_variants")
+}
+
+model MediaAsset {
+  id             String   @id @default(cuid())
+  organizationId String
+  uploadedById   String?
+  filename       String
+  originalName   String
+  mimeType       String
+  size           Int
+  width          Int?
+  height         Int?
+  url            String
+  altText        String?
+  tags           Json     @default("[]")
+  category       String   @default("CAMPAIGN_IMAGE")
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([category])
+  @@map("media_assets")
+}
+
+// ── Stage 24E — Social Media Publishing ──────────────────────────────────────
+
+// Represents a specific social page/profile/account linked to an ExternalConnection
+model SocialAccount {
+  id                 String    @id @default(cuid())
+  organizationId     String
+  connectionId       String
+  provider           String    // FACEBOOK | INSTAGRAM | TIKTOK | SNAPCHAT
+  providerAccountId  String
+  accountType        String    // PAGE | BUSINESS | CREATOR | PUBLIC_PROFILE
+  displayName        String
+  username           String?
+  avatarUrl          String?
+  externalBusinessId String?
+  capabilities       String[]  @default([])
+  // CONNECTED | SCOPES_INCOMPLETE | APP_REVIEW_PENDING | AUDIT_PENDING | READY | TOKEN_EXPIRED | DISCONNECTED
+  approvalStatus     String    @default("CONNECTED")
+  isActive           Boolean   @default(true)
+  lastSyncedAt       DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  organization        Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connection          ExternalConnection      @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  publicationAttempts PublicationAttempt[]
+  publicationTargets  SocialPublicationTarget[]
+
+  @@unique([organizationId, provider, providerAccountId])
+  @@index([organizationId])
+  @@index([connectionId])
+  @@index([isActive])
+  @@map("social_accounts")
+}
+
+// Per-platform publication record — never overload ContentDraft with provider operational state
+model PublicationAttempt {
+  id                String    @id @default(cuid())
+  organizationId    String
+  draftId           String
+  variantId         String?
+  socialAccountId   String
+  provider          String
+  externalAccountId String
+  attemptNumber     Int       @default(1)
+  // PENDING | QUEUED | UPLOADING | PROCESSING | PUBLISHED | FAILED | RETRY_PENDING | REQUIRES_USER_ACTION | CANCELLED
+  status            String    @default("PENDING")
+  idempotencyKey    String    @unique
+  externalPostId    String?
+  providerPublishId String?   // TikTok publish_id / Instagram container id
+  providerStatus    String?
+  attemptedAt       DateTime?
+  publishedAt       DateTime?
+  errorCode         String?
+  errorMessage      String?
+  isRetryable       Boolean   @default(false)
+  retryAfter        DateTime?
+  providerEventId   String?   // webhook deduplication
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  organization  Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  draft         ContentDraft    @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  variant       ContentVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  socialAccount SocialAccount   @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([draftId])
+  @@index([socialAccountId])
+  @@index([status, retryAfter])
+  @@index([providerEventId])
+  @@map("publication_attempts")
+}
+
+// Explicit publication destinations — user must select which accounts receive each draft
+model SocialPublicationTarget {
+  id              String          @id @default(cuid())
+  organizationId  String
+  draftId         String
+  socialAccountId String
+  provider        String
+  variantId       String?
+  isCancelled     Boolean         @default(false)
+  createdBy       String
+  createdAt       DateTime        @default(now())
+
+  organization  Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  draft         ContentDraft    @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  socialAccount SocialAccount   @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  variant       ContentVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  @@unique([draftId, socialAccountId])
+  @@index([organizationId, draftId])
+  @@index([organizationId, socialAccountId])
+  @@map("social_publication_targets")
+}
+
+model StorefrontTestimonial {
+  id             String   @id @default(cuid())
+  organizationId String
+  customerName   String
+  quote          String
+  rating         Int?
+  location       String?
+  productName    String?
+  avatarUrl      String?
+  isActive       Boolean  @default(true)
+  displayOrder   Int      @default(0)
+  createdBy      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, isActive])
+  @@index([organizationId, displayOrder])
+  @@map("storefront_testimonials")
+}
+
+// ── Stage 24F — Advertising Integrations ─────────────────────────────────────
+
+model AdvertisingAccount {
+  id                  String    @id @default(cuid())
+  organizationId      String
+  connectionId        String
+  provider            String    // GOOGLE_ADS | META | TIKTOK
+  providerAccountId   String
+  displayName         String
+  currency            String    @default("USD")
+  timezone            String    @default("UTC")
+  accountStatus       String    @default("UNKNOWN") // ENABLED | PAUSED | SUSPENDED | CLOSED | UNKNOWN
+  capabilities        Json      @default("[]")
+  approvalStatus      String    @default("PENDING_PROVIDER_REVIEW") // PENDING_PROVIDER_REVIEW | APPROVED | REJECTED | NOT_REQUIRED
+  lastSyncedAt        DateTime?
+  isActive            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connection          ExternalConnection @relation(fields: [connectionId], references: [id])
+  campaigns           AdvertisingCampaign[]
+  metricSnapshots     AdvertisingMetricSnapshot[]
+  actions             AdvertisingAction[]
+
+  @@unique([organizationId, provider, providerAccountId])
+  @@index([organizationId, provider])
+  @@index([connectionId])
+  @@map("advertising_accounts")
+}
+
+model AdvertisingCampaign {
+  id                   String    @id @default(cuid())
+  organizationId       String
+  advertisingAccountId String
+  provider             String
+  providerCampaignId   String
+  name                 String
+  status               String    @default("UNKNOWN") // ACTIVE | PAUSED | REMOVED | ARCHIVED | UNKNOWN
+  objective            String?
+  budgetType           String?   // DAILY | LIFETIME
+  budgetAmountMicros   BigInt?
+  currency             String?
+  startDate            DateTime?
+  endDate              DateTime?
+  providerStatus       String?
+  lastSyncedAt         DateTime?
+  rawMeta              Json      @default("{}")
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  advertisingAccount  AdvertisingAccount  @relation(fields: [advertisingAccountId], references: [id], onDelete: Cascade)
+  adGroups            AdvertisingAdGroup[]
+  metricSnapshots     AdvertisingMetricSnapshot[]
+  actions             AdvertisingAction[]
+
+  @@unique([advertisingAccountId, providerCampaignId])
+  @@index([organizationId, provider])
+  @@index([advertisingAccountId])
+  @@map("advertising_campaigns")
+}
+
+model AdvertisingAdGroup {
+  id                String    @id @default(cuid())
+  organizationId    String
+  campaignId        String
+  provider          String
+  providerAdGroupId String
+  name              String
+  status            String    @default("UNKNOWN")
+  bidAmountMicros   BigInt?
+  rawMeta           Json      @default("{}")
+  lastSyncedAt      DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  organization  Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  campaign      AdvertisingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  ads           AdvertisingAd[]
+
+  @@unique([campaignId, providerAdGroupId])
+  @@index([organizationId])
+  @@index([campaignId])
+  @@map("advertising_ad_groups")
+}
+
+model AdvertisingAd {
+  id             String    @id @default(cuid())
+  organizationId String
+  adGroupId      String
+  provider       String
+  providerAdId   String
+  name           String?
+  status         String    @default("UNKNOWN")
+  rawMeta        Json      @default("{}")
+  lastSyncedAt   DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  adGroup       AdvertisingAdGroup @relation(fields: [adGroupId], references: [id], onDelete: Cascade)
+
+  @@unique([adGroupId, providerAdId])
+  @@index([organizationId])
+  @@index([adGroupId])
+  @@map("advertising_ads")
+}
+
+model AdvertisingMetricSnapshot {
+  id                   String   @id @default(cuid())
+  organizationId       String
+  advertisingAccountId String
+  campaignId           String?
+  date                 DateTime @db.Date
+  provider             String
+  impressions          Int      @default(0)
+  clicks               Int      @default(0)
+  spend                Decimal  @default(0) @db.Decimal(18, 6)
+  currency             String
+  conversions          Decimal? @db.Decimal(18, 6)
+  conversionValue      Decimal? @db.Decimal(18, 6)
+  reach                Int?
+  cpc                  Decimal? @db.Decimal(18, 6)
+  cpm                  Decimal? @db.Decimal(18, 6)
+  ctr                  Decimal? @db.Decimal(10, 6)
+  cpa                  Decimal? @db.Decimal(18, 6)
+  roas                 Decimal? @db.Decimal(10, 4)
+  createdAt            DateTime @default(now())
+
+  organization      Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  account           AdvertisingAccount  @relation(fields: [advertisingAccountId], references: [id], onDelete: Cascade)
+  campaign          AdvertisingCampaign? @relation(fields: [campaignId], references: [id])
+
+  @@unique([advertisingAccountId, campaignId, date, provider])
+  @@index([organizationId, provider, date])
+  @@index([advertisingAccountId, date])
+  @@map("advertising_metric_snapshots")
+}
+
+model AdvertisingAction {
+  id                   String    @id @default(cuid())
+  organizationId       String
+  provider             String
+  advertisingAccountId String
+  campaignId           String?
+  actionType           String    // CAMPAIGN_ENABLE | CAMPAIGN_PAUSE | CAMPAIGN_CREATE | BUDGET_INCREASE | BUDGET_DECREASE | AD_ENABLE | AD_PAUSE | BID_CHANGE
+  status               String    @default("DRAFT") // DRAFT|APPROVAL_REQUIRED|APPROVED|QUEUED|SUBMITTED|APPLIED|FAILED|REJECTED|CANCELLED
+  requestPayload       Json
+  previousValue        Json?
+  proposedValue        Json?
+  approvalId           String?
+  providerRequestId    String?
+  providerResult       Json?
+  errorMessage         String?
+  requestedById        String
+  approvedById         String?
+  submittedAt          DateTime?
+  appliedAt            DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  organization      Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  account           AdvertisingAccount  @relation(fields: [advertisingAccountId], references: [id])
+  campaign          AdvertisingCampaign? @relation(fields: [campaignId], references: [id])
+  requestedBy       User                @relation("AdvertisingActionRequester", fields: [requestedById], references: [id])
+  approvedBy        User?               @relation("AdvertisingActionApprover", fields: [approvedById], references: [id])
+
+  @@index([organizationId, status])
+  @@index([organizationId, provider])
+  @@index([advertisingAccountId])
+  @@map("advertising_actions")
+}
+
+// ─────────────────────────────────────────────────────────────
+// SHOPIFY INTEGRATION — Phase 24L
+// ─────────────────────────────────────────────────────────────
+
+enum ShopifySyncStatus {
+  NOT_SYNCED
+  SYNCING
+  SYNCED
+  OUT_OF_SYNC
+  FAILED
+  REQUIRES_MAPPING
+  CONFLICT
+}
+
+enum ShopifyWebhookStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
+  DUPLICATE
+}
+
+model ShopifyProductMapping {
+  id                     String            @id @default(cuid())
+  organizationId         String
+  externalConnectionId   String
+  productId              String
+  variantId              String?
+  shopifyProductId       String
+  shopifyVariantId       String?
+  shopifyInventoryItemId String?
+  shopifyHandle          String?
+  syncStatus             ShopifySyncStatus @default(NOT_SYNCED)
+  lastLocalHash          String?
+  lastSyncedAt           DateTime?
+  syncError              String?
+  syncRetryCount         Int               @default(0)
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+
+  product            Product             @relation(fields: [productId], references: [id])
+  variant            ProductVariant?     @relation(fields: [variantId], references: [id])
+  externalConnection ExternalConnection  @relation(fields: [externalConnectionId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, externalConnectionId, productId, variantId])
+  @@unique([organizationId, externalConnectionId, shopifyProductId, shopifyVariantId])
+  @@index([organizationId, externalConnectionId])
+  @@index([organizationId, syncStatus])
+  @@index([productId])
+}
+
+model ShopifyLocationMapping {
+  id                   String   @id @default(cuid())
+  organizationId       String
+  externalConnectionId String
+  locationId           String
+  shopifyLocationId    String
+  shopifyLocationName  String?
+  fulfillsOnlineOrders Boolean  @default(false)
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  location           Location           @relation(fields: [locationId], references: [id])
+  externalConnection ExternalConnection @relation(fields: [externalConnectionId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, externalConnectionId, locationId], map: "ShopifyLocationMapping_org_conn_loc_key")
+  @@unique([organizationId, externalConnectionId, shopifyLocationId], map: "ShopifyLocationMapping_org_conn_slid_key")
+  @@index([organizationId, externalConnectionId])
+}
+
+model ShopifyWebhookEvent {
+  id                   String               @id @default(cuid())
+  organizationId       String
+  externalConnectionId String
+  shopifyDeliveryId    String
+  shopifyEventId       String?
+  topic                String
+  shopDomain           String
+  receivedAt           DateTime             @default(now())
+  processedAt          DateTime?
+  status               ShopifyWebhookStatus @default(PENDING)
+  error                String?
+
+  externalConnection ExternalConnection @relation(fields: [externalConnectionId], references: [id], onDelete: Cascade)
+
+  @@unique([shopifyDeliveryId])
+  @@index([organizationId, externalConnectionId])
+  @@index([status])
+  @@index([topic, status])
+}
+
+// ─────────────────────────────────────────────────────────────
+// PHASE 24P — RETAIL OPERATIONAL CONTROLS
+// ─────────────────────────────────────────────────────────────
+
+model CycleCount {
+  id             String          @id @default(cuid())
+  organizationId String
+  locationId     String
+  reference      String
+  status         CycleCountStatus @default(SCHEDULED)
+  frequency      String
+  categoryId     String?
+  scheduledAt    DateTime
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdBy      String?
+  notes          String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  location Location          @relation(fields: [locationId], references: [id])
+  items    CycleCountItem[]
+
+  @@unique([organizationId, reference])
+  @@index([organizationId])
+  @@index([locationId])
+  @@index([organizationId, status])
+  @@index([scheduledAt])
+}
+
+enum CycleCountStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model CycleCountItem {
+  id             String     @id @default(cuid())
+  cycleCountId   String
+  productId      String
+  variantId      String?
+  systemQty      Decimal    @db.Decimal(15, 4)
+  countedQty     Decimal?   @db.Decimal(15, 4)
+  variance       Decimal?   @db.Decimal(15, 4)
+  countedAt      DateTime?
+
+  cycleCount CycleCount @relation(fields: [cycleCountId], references: [id], onDelete: Cascade)
+
+  @@index([cycleCountId])
+  @@index([productId])
+}
+
+model PriceHistory {
+  id             String        @id @default(cuid())
+  organizationId String
+  productId      String
+  variantId      String?
+  priceType      PriceType
+  oldPrice       Decimal       @db.Decimal(15, 2)
+  newPrice       Decimal       @db.Decimal(15, 2)
+  reason         String?
+  source         String?
+  changedBy      String?
+  effectiveAt    DateTime      @default(now())
+  createdAt      DateTime      @default(now())
+
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([organizationId])
+  @@index([productId])
+  @@index([productId, priceType])
+  @@index([organizationId, effectiveAt])
+}
+
+enum PriceType {
+  COST
+  SELLING
+}
+
+model PrintTemplate {
+  id             String             @id @default(cuid())
+  organizationId String
+  name           String
+  templateType   PrintTemplateType
+  isDefault      Boolean            @default(false)
+  isActive       Boolean            @default(true)
+  content        String
+  variables      Json               @default("[]")
+  paperSize      String             @default("A4")
+  orientation    String             @default("portrait")
+  createdBy      String?
+  updatedBy      String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@unique([organizationId, name, templateType])
+  @@index([organizationId])
+  @@index([organizationId, templateType])
+}
+
+enum PrintTemplateType {
+  RECEIPT
+  INVOICE
+  PO
+  GRN
+  QUOTATION
+  BARCODE_LABEL
+}
+
+model BankStatementImport {
+  id             String               @id @default(cuid())
+  organizationId String
+  bankAccountId  String
+  fileName       String
+  fileType       String
+  rowCount       Int                  @default(0)
+  matchedCount   Int                  @default(0)
+  unmatchedCount Int                  @default(0)
+  status         ImportStatus         @default(PENDING)
+  importedBy     String?
+  importedAt     DateTime             @default(now())
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  bankAccount  BankAccount            @relation(fields: [bankAccountId], references: [id])
+  transactions BankImportTransaction[]
+
+  @@index([organizationId])
+  @@index([bankAccountId])
+  @@index([status])
+}
+
+enum ImportStatus {
+  PENDING
+  PROCESSING
+  COMPLETE
+  FAILED
+}
+
+model BankImportTransaction {
+  id             String                  @id @default(cuid())
+  importId       String
+  organizationId String
+  bankAccountId  String
+  date           DateTime
+  description    String
+  amount         Decimal                 @db.Decimal(15, 2)
+  type           TransactionType
+  reference      String?
+  externalRef    String?
+  matchedTxnId   String?
+  matchStatus    MatchStatus             @default(UNMATCHED)
+  confirmedAt    DateTime?
+  confirmedBy    String?
+  createdAt      DateTime                @default(now())
+
+  import BankStatementImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  @@index([importId])
+  @@index([organizationId])
+  @@index([matchStatus])
+  @@index([date])
+}
+
+// Phase 24P: Daily Pulse delivery config per organization
+model DailyPulseConfig {
+  id             String   @id @default(cuid())
+  organizationId String   @unique
+  enabled        Boolean  @default(false)
+  deliveryTime   String   @default("08:00")
+  timezone       String   @default("UTC")
+  channels       Json     @default("[]")
+  recipientIds   Json     @default("[]")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+// System-level encrypted credentials (API keys, OAuth secrets, webhook secrets)
+model SystemCredential {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  ciphertext String
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+
+  @@index([key])
+}
+
+// Phase 24P: Idempotency log for daily pulse deliveries
+model DailyPulseDelivery {
+  id             String    @id @default(cuid())
+  organizationId String
+  pulseDate      DateTime  @db.Date
+  channel        String
+  recipientRef   String
+  idempotencyKey String    @unique
+  status         String    @default("PENDING")
+  createdAt      DateTime  @default(now())
+  sentAt         DateTime?
+  error          String?
+
+  @@index([organizationId, pulseDate])
 }

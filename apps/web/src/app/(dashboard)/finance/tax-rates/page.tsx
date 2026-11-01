@@ -25,8 +25,8 @@ export default function TaxRatesPage() {
   const { data: taxRates = [], isLoading } = useQuery<TaxRate[]>({
     queryKey: ['tax-rates'],
     queryFn: async () => {
-      const res = await api().get<TaxRate[]>('/tax-rates');
-      return res.data;
+      const res = await api().get<{ data: TaxRate[] }>('/tax-rates');
+      return res.data.data;
     },
   });
 
@@ -40,8 +40,8 @@ export default function TaxRatesPage() {
       setForm({ name: '', code: '', rate: '', description: '', isDefault: false });
       setErrors({});
     },
-    onError: (err: { response?: { data?: { message?: string | string[] } } }) => {
-      const msg = err?.response?.data?.message ?? 'Failed to create tax rate';
+    onError: (err: any) => {
+      const msg = err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to create tax rate';
       setErrors({ submit: Array.isArray(msg) ? msg.join(', ') : msg });
     },
   });

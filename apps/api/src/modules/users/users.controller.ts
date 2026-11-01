@@ -10,6 +10,7 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -24,13 +25,22 @@ import { ListUsersDto } from './dto/list-users.dto';
 @ApiBearerAuth('JWT')
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly config: ConfigService,
+  ) {}
 
   @Get()
   @Permissions(PERMISSIONS.ADMIN.MANAGE_USERS)
   @ApiOperation({ summary: 'List all users in the organization' })
   findAll(@CurrentUser() user: AuthUser, @Query() query: ListUsersDto) {
     return this.usersService.findAll(user.organizationId, query);
+  }
+
+  @Get('assignable')
+  @ApiOperation({ summary: 'List users available for assignment (any authenticated user)' })
+  getAssignable(@CurrentUser() user: AuthUser) {
+    return this.usersService.findAssignable(user.organizationId);
   }
 
   @Get('me')
@@ -56,7 +66,19 @@ export class UsersController {
   @Permissions(PERMISSIONS.ADMIN.MANAGE_USERS)
   @ApiOperation({ summary: 'Invite a new user to the organization' })
   invite(@CurrentUser() user: AuthUser, @Body() dto: InviteUserDto) {
-    return this.usersService.invite(user.organizationId, user, dto);
+    const appUrl = this.config.get<string>('APP_URL', 'http://localhost:3000');
+    return this.usersService.invite(user.organizationId, user, dto, appUrl);
+  }
+
+  @Patch(':id/profile')
+  @Permissions(PERMISSIONS.ADMIN.MANAGE_USERS)
+  @ApiOperation({ summary: 'Update a user profile (admin)' })
+  updateUser(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: { firstName?: string; lastName?: string; phone?: string; avatarUrl?: string },
+  ) {
+    return this.usersService.updateUserAdmin(user.organizationId, id, body, user);
   }
 
   @Patch(':id/activate')
@@ -100,5 +122,55 @@ export class UsersController {
     @Param('userRoleId') userRoleId: string,
   ) {
     return this.usersService.removeRole(user.organizationId, userId, userRoleId);
+  }
+
+  @Post(':id/set-temp-password')
+  @Permissions(PERMISSIONS.ADMIN.MANAGE_USERS)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Generate and email a temporary password to user (admin)' })
+  setTempPassword(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const appUrl = this.config.get<string>('APP_URL', 'http://localhost:3000');
+    return this.usersService.adminSetTempPassword(user.organizationId, id, appUrl, user);
+  }
+
+  @Post(':id/send-password-reset')
+  @Permissions(PERMISSIONS.ADMIN.MANAGE_USERS)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Send password reset email to user (admin)' })
+  sendPasswordReset(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const appUrl = this.config.get<string>('APP_URL', 'http://localhost:3000');
+    return this.usersService.sendPasswordReset(user.organizationId, id, appUrl, user);
+  }
+
+  @Post(':id/request-email-change')
+  @Permissions(PERMISSIONS.ADMIN.MANAGE_USERS)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Request email change — sends verification code to new email' })
+  requestEmailChange(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: { newEmail: string },
+  ) {
+    return this.usersService.requestEmailChange(user.organizationId, id, body.newEmail, user);
+  }
+
+  @Post(':id/confirm-email-change')
+  @Permissions(PERMISSIONS.ADMIN.MANAGE_USERS)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Confirm email change with verification code' })
+  confirmEmailChange(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: { code: string },
+  ) {
+    return this.usersService.confirmEmailChange(user.organizationId, id, body.code, user);
+  }
+
+  @Delete(':id')
+  @Permissions(PERMISSIONS.ADMIN.MANAGE_USERS)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Delete user permanently (super admin)' })
+  deleteUser(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.usersService.deleteUser(user.organizationId, id, user);
   }
 }

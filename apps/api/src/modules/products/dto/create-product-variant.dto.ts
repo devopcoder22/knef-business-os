@@ -1,5 +1,6 @@
-import { IsString, IsNotEmpty, IsOptional, IsObject } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsObject, IsEnum } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { BarcodeType } from '@prisma/client';
 
 export class CreateProductVariantDto {
   @ApiProperty()
@@ -21,6 +22,11 @@ export class CreateProductVariantDto {
   @IsOptional()
   @IsString()
   gtin?: string;
+
+  @ApiPropertyOptional({ enum: BarcodeType })
+  @IsOptional()
+  @IsEnum(BarcodeType)
+  barcodeType?: BarcodeType;
 
   @ApiProperty()
   @IsString()

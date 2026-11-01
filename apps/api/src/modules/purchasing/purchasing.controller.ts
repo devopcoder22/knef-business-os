@@ -9,9 +9,13 @@ import {
   Query,
   HttpCode,
   HttpStatus,
+  Res,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { Response } from 'express';
 import { PurchasingService } from './purchasing.service';
+import { PdfService } from '../../common/services/pdf.service';
+import { AuditService } from '../audit/audit.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { PERMISSIONS } from '@knef/constants';
@@ -29,27 +33,31 @@ import { CreatePurchaseReturnDto } from './dto/create-purchase-return.dto';
 @ApiBearerAuth('JWT')
 @Controller('purchase-orders')
 export class PurchaseOrdersController {
-  constructor(private readonly purchasingService: PurchasingService) {}
+  constructor(
+    private readonly purchasingService: PurchasingService,
+    private readonly pdfService: PdfService,
+    private readonly auditService: AuditService,
+  ) {}
 
   @Get()
   @Permissions(PERMISSIONS.PURCHASING.VIEW)
   @ApiOperation({ summary: 'List purchase orders' })
   findAll(@CurrentUser() user: AuthUser, @Query() query: ListPurchaseOrdersDto) {
-    return this.purchasingService.listPurchaseOrders(user.organizationId, query);
+    return this.purchasingService.listPurchaseOrders(user.organizationId, query, user.locationIds);
   }
 
   @Get(':id')
   @Permissions(PERMISSIONS.PURCHASING.VIEW)
   @ApiOperation({ summary: 'Get purchase order detail' })
   findOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.purchasingService.findPurchaseOrder(user.organizationId, id);
+    return this.purchasingService.findPurchaseOrder(user.organizationId, id, user.locationIds);
   }
 
   @Post()
   @Permissions(PERMISSIONS.PURCHASING.CREATE)
   @ApiOperation({ summary: 'Create purchase order (DRAFT)' })
   create(@CurrentUser() user: AuthUser, @Body() dto: CreatePurchaseOrderDto) {
-    return this.purchasingService.createPurchaseOrder(user.organizationId, dto, user.id);
+    return this.purchasingService.createPurchaseOrder(user.organizationId, dto, user.id, user.locationIds);
   }
 
   @Patch(':id')
@@ -76,7 +84,7 @@ export class PurchaseOrdersController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Approve purchase order' })
   approve(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.purchasingService.approvePurchaseOrder(user.organizationId, id, user.id);
+    return this.purchasingService.approvePurchaseOrder(user.organizationId, id, user.id, user.locationIds);
   }
 
   @Post(':id/cancel')
@@ -88,7 +96,7 @@ export class PurchaseOrdersController {
     @Param('id') id: string,
     @Body() body: { reason?: string },
   ) {
-    return this.purchasingService.cancelPurchaseOrder(user.organizationId, id, body.reason);
+    return this.purchasingService.cancelPurchaseOrder(user.organizationId, id, body.reason, user.id);
   }
 
   @Delete(':id')
@@ -98,6 +106,38 @@ export class PurchaseOrdersController {
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.purchasingService.deletePurchaseOrder(user.organizationId, id);
   }
+
+  @Get(':id/pdf')
+  @Permissions(PERMISSIONS.PURCHASING.VIEW)
+  @ApiOperation({ summary: 'Download purchase order as PDF' })
+  async generatePdf(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const po = await this.purchasingService.findPurchaseOrder(user.organizationId, id, user.locationIds);
+    void this.auditService.log({
+      organizationId: user.organizationId,
+      userId: user.id,
+      action: 'PO_PDF_DOWNLOADED',
+      entity: 'PurchaseOrder',
+      entityId: id,
+    });
+    const pdfBuffer = await this.pdfService.generatePoPdf(po as never, user.organizationId);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="po-${po.reference}.pdf"`,
+      'Content-Length': pdfBuffer.length,
+    });
+    res.end(pdfBuffer);
+  }
+
+  @Get(':id/three-way-match')
+  @Permissions(PERMISSIONS.PURCHASING.VIEW)
+  @ApiOperation({ summary: 'Three-way match: PO ↔ GRN ↔ Supplier Invoice' })
+  threeWayMatch(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.purchasingService.threeWayMatch(user.organizationId, id);
+  }
 }
 
 // ── Goods Receipts ─────────────────────────────────────────────
@@ -106,7 +146,11 @@ export class PurchaseOrdersController {
 @ApiBearerAuth('JWT')
 @Controller('goods-receipts')
 export class GoodsReceiptsController {
-  constructor(private readonly purchasingService: PurchasingService) {}
+  constructor(
+    private readonly purchasingService: PurchasingService,
+    private readonly pdfService: PdfService,
+    private readonly auditService: AuditService,
+  ) {}
 
   @Get()
   @Permissions(PERMISSIONS.PURCHASING.VIEW)
@@ -120,6 +164,7 @@ export class GoodsReceiptsController {
       user.organizationId,
       parseInt(page ?? '1'),
       parseInt(limit ?? '20'),
+      user.locationIds,
     );
   }
 
@@ -127,7 +172,7 @@ export class GoodsReceiptsController {
   @Permissions(PERMISSIONS.PURCHASING.VIEW)
   @ApiOperation({ summary: 'Get goods receipt detail' })
   findOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.purchasingService.findGoodsReceipt(user.organizationId, id);
+    return this.purchasingService.findGoodsReceipt(user.organizationId, id, user.locationIds);
   }
 
   @Post()
@@ -135,6 +180,31 @@ export class GoodsReceiptsController {
   @ApiOperation({ summary: 'Create goods receipt' })
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateGoodsReceiptDto) {
     return this.purchasingService.createGoodsReceipt(user.organizationId, dto, user.id);
+  }
+
+  @Get(':id/pdf')
+  @Permissions(PERMISSIONS.PURCHASING.VIEW)
+  @ApiOperation({ summary: 'Download goods received note as PDF' })
+  async generatePdf(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const grn = await this.purchasingService.findGoodsReceipt(user.organizationId, id, user.locationIds);
+    void this.auditService.log({
+      organizationId: user.organizationId,
+      userId: user.id,
+      action: 'GRN_PDF_DOWNLOADED',
+      entity: 'GoodsReceipt',
+      entityId: id,
+    });
+    const pdfBuffer = await this.pdfService.generateGrnPdf(grn as never, user.organizationId);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="grn-${grn.reference}.pdf"`,
+      'Content-Length': pdfBuffer.length,
+    });
+    res.end(pdfBuffer);
   }
 }
 

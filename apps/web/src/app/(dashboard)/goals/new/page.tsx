@@ -30,8 +30,8 @@ export default function NewGoalPage() {
       return (res.data as { id: string }).id;
     },
     onSuccess: (id) => router.push(`/goals/${id}`),
-    onError: (err: { response?: { data?: { message?: string | string[] } } }) => {
-      const msg = err?.response?.data?.message ?? 'Failed to create goal';
+    onError: (err: any) => {
+      const msg = err?.response?.data?.error?.message ?? err?.response?.data?.message ?? 'Failed to create goal';
       setErrors({ submit: Array.isArray(msg) ? msg.join(', ') : msg });
     },
   });

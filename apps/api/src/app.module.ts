@@ -4,6 +4,9 @@ import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { LoggerMiddleware } from './common/middleware/logger.middleware';
+import { RequestContextMiddleware } from './common/middleware/request-context.middleware';
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { PermissionGuard } from './common/guards/permission.guard';
 import appConfig, { validateConfig } from './config/app.config';
 import { CommonModule } from './common/services/common.module';
 import { HealthModule } from './modules/health/health.module';
@@ -17,6 +20,7 @@ import { PermissionsModule } from './modules/permissions/permissions.module';
 import { FeatureFlagsModule } from './modules/feature-flags/feature-flags.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { SettingsModule } from './modules/settings/settings.module';
+import { CredentialModule } from './modules/credentials/credential.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { BrandsModule } from './modules/brands/brands.module';
 import { ProductsModule } from './modules/products/products.module';
@@ -41,6 +45,29 @@ import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { CommunicationsModule } from './modules/communications/communications.module';
 import { AIModule } from './modules/ai/ai.module';
 import { AIActionsModule } from './modules/ai-actions/ai-actions.module';
+import { CalendarModule } from './modules/calendar/calendar.module';
+import { TelegramBotModule } from './modules/telegram-bot/telegram-bot.module';
+import { PlannerModule } from './modules/planner/planner.module';
+import { ExternalAgentsModule } from './modules/external-agents/external-agents.module';
+import { AdminModule } from './modules/admin/admin.module';
+import { AutomationModule } from './modules/automation/automation.module';
+import { BusinessIntelligenceModule } from './modules/business-intelligence/business-intelligence.module';
+import { BusinessRulesModule } from './modules/business-rules/business-rules.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { StorefrontModule } from './modules/storefront/storefront.module';
+import { UploadsModule } from './modules/uploads/uploads.module';
+import { BackupModule } from './modules/backup/backup.module';
+import { MarketingModule } from './modules/marketing/marketing.module';
+import { SocialModule } from './modules/social/social.module';
+import { TestimonialsModule } from './modules/testimonials/testimonials.module';
+import { AdvertisingModule } from './modules/advertising/advertising.module';
+import { WhatsAppModule } from './modules/whatsapp/whatsapp.module';
+import { ShopifyModule } from './modules/shopify/shopify.module';
+import { CycleCountsModule } from './modules/cycle-counts/cycle-counts.module';
+import { PriceHistoryModule } from './modules/price-history/price-history.module';
+import { BankReconciliationModule } from './modules/bank-reconciliation/bank-reconciliation.module';
+import { DailyPulseModule } from './modules/daily-pulse/daily-pulse.module';
+import { PrintTemplatesModule } from './modules/print-templates/print-templates.module';
 
 @Module({
   imports: [
@@ -82,6 +109,7 @@ import { AIActionsModule } from './modules/ai-actions/ai-actions.module';
     FeatureFlagsModule,
     AuditModule,
     SettingsModule,
+    CredentialModule,
     CategoriesModule,
     BrandsModule,
     ProductsModule,
@@ -106,14 +134,41 @@ import { AIActionsModule } from './modules/ai-actions/ai-actions.module';
     CommunicationsModule,
     AIModule,
     AIActionsModule,
+    CalendarModule,
+    TelegramBotModule,
+    PlannerModule,
+    ExternalAgentsModule,
+    AdminModule,
+    AutomationModule,
+    BusinessIntelligenceModule,
+    BusinessRulesModule,
+    DashboardModule,
+    StorefrontModule,
+    UploadsModule,
+    BackupModule,
+    MarketingModule,
+    SocialModule,
+    TestimonialsModule,
+    AdvertisingModule,
+    WhatsAppModule,
+    ShopifyModule,
+    CycleCountsModule,
+    PriceHistoryModule,
+    BankReconciliationModule,
+    DailyPulseModule,
+    PrintTemplatesModule,
   ],
   providers: [
-    // Apply ThrottlerGuard globally to all routes
+    // Rate limiting — must run before auth so unauthenticated bots are throttled
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // JWT authentication — @Public() on any handler/class skips it
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // Permission check — runs after JWT populates request.user
+    { provide: APP_GUARD, useClass: PermissionGuard },
   ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(LoggerMiddleware).forRoutes('*');
+    consumer.apply(RequestContextMiddleware, LoggerMiddleware).forRoutes('*');
   }
 }
