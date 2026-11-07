@@ -19,6 +19,9 @@ import {
   Activity,
   Scale,
   ShoppingBag,
+  Trash2,
+  Gift,
+  Tag,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -45,11 +48,14 @@ const ADMIN_NAV: AdminNavItem[] = [
   { label: 'API Keys', href: '/admin/api-keys', icon: Key },
   { label: 'Integrations', href: '/admin/integrations', icon: Plug },
   { label: 'Business Rules', href: '/admin/business-rules', icon: Scale },
+  { label: 'Discount Codes', href: '/admin/discounts', icon: Tag },
   { label: 'Approvals', href: '/admin/approvals', icon: CheckSquare },
   { label: 'Storefront', href: '/admin/storefront', icon: ShoppingBag },
   { label: 'Audit Logs', href: '/admin/audit', icon: FileText },
   { label: 'Security', href: '/admin/security', icon: ShieldAlert },
   { label: 'System Health', href: '/admin/health', icon: Activity },
+  { label: 'Gift Cards', href: '/admin/gift-cards', icon: Gift },
+  { label: 'Data Reset', href: '/admin/reset', icon: Trash2 },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

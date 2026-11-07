@@ -48,7 +48,7 @@ export default function ProductDetailPage() {
   const [selectedVariant, setSelectedVariant] = useState<ProductVariant | null>(null);
   const [selectedImage, setSelectedImage] = useState(0);
   const [quantity, setQuantity] = useState(1);
-  const [added, setAdded] = useState(false);
+
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['product', id],
@@ -97,7 +97,7 @@ export default function ProductDetailPage() {
       : [];
 
   function handleAddToCart() {
-    if (isOutOfStock || added) return;
+    if (isOutOfStock) return;
 
     addItem({
       productId: product.id,
@@ -111,9 +111,7 @@ export default function ProductDetailPage() {
       stock: totalAvailable,
     });
 
-    setAdded(true);
     toast('success', `${product.name} added to cart`);
-    setTimeout(() => setAdded(false), 3000);
   }
 
   function handleBuyNow() {
@@ -312,46 +310,37 @@ export default function ProductDetailPage() {
 
           {/* Actions */}
           <div className="flex flex-col sm:flex-row gap-3 pt-2">
-            <button
-              onClick={handleAddToCart}
-              disabled={isOutOfStock || maxQty === 0}
-              className={cn(
-                'flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm transition-all',
-                isOutOfStock
-                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                  : added
-                  ? 'bg-green-600 text-white'
-                  : 'bg-knef-primary text-white hover:bg-opacity-90',
-              )}
-            >
-              {added ? (
-                <>
-                  <Check size={18} />
-                  Added to Cart
-                </>
-              ) : (
-                <>
-                  <ShoppingCart size={18} />
-                  Add to Cart
-                </>
-              )}
-            </button>
-            {added ? (
+            {inCartQty > 0 ? (
               <Link
                 href="/cart"
-                className="flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm bg-knef-primary text-white hover:bg-opacity-90 transition-colors"
+                className="flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm bg-green-600 text-white hover:bg-green-700 transition-colors"
               >
                 <ShoppingCart size={18} />
                 View Cart
               </Link>
-            ) : !isOutOfStock ? (
+            ) : (
+              <button
+                onClick={handleAddToCart}
+                disabled={isOutOfStock || maxQty === 0}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm transition-all',
+                  isOutOfStock
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : 'bg-knef-primary text-white hover:bg-opacity-90',
+                )}
+              >
+                <ShoppingCart size={18} />
+                Add to Cart
+              </button>
+            )}
+            {inCartQty === 0 && !isOutOfStock && (
               <button
                 onClick={handleBuyNow}
                 className="flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm bg-knef-secondary text-knef-primary hover:bg-amber-400 transition-colors"
               >
                 Buy Now
               </button>
-            ) : null}
+            )}
           </div>
 
           {/* SKU */}

@@ -90,6 +90,8 @@ export interface CheckoutPayload {
   turnstileToken?: string;
   // NOTE: delivery fee is server-authoritative — never sent from the client.
   customerAccountId?: string;
+  couponCode?: string;
+  giftCardCode?: string;
   deliveryLandmark?: string;
   deliveryCountry?: string;
   deliveryPlaceId?: string;

@@ -64,6 +64,8 @@ model Organization {
   advertisingAds           AdvertisingAd[]
   advertisingMetricSnapshots AdvertisingMetricSnapshot[]
   advertisingActions       AdvertisingAction[]
+  discountCodes            DiscountCode[]
+  giftCards                GiftCard[]
 
   @@index([slug])
 }
@@ -3854,4 +3856,82 @@ model DailyPulseDelivery {
   error          String?
 
   @@index([organizationId, pulseDate])
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+model DiscountCode {
+  id              String       @id @default(cuid())
+  organizationId  String
+  code            String
+  type            DiscountType
+  value           Decimal      @db.Decimal(10, 2)
+  minOrderAmount  Decimal?     @db.Decimal(10, 2)
+  maxUses         Int?
+  usedCount       Int          @default(0)
+  expiresAt       DateTime?
+  isActive        Boolean      @default(true)
+  description     String?
+  createdBy       String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  organization    Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  usages          DiscountCodeUsage[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, isActive])
+  @@map("discount_codes")
+}
+
+model DiscountCodeUsage {
+  id             String   @id @default(cuid())
+  discountCodeId String
+  orderId        String?
+  customerEmail  String
+  discountAmount Decimal  @db.Decimal(10, 2)
+  usedAt         DateTime @default(now())
+
+  discountCode   DiscountCode @relation(fields: [discountCodeId], references: [id])
+
+  @@index([discountCodeId])
+  @@map("discount_code_usages")
+}
+
+model GiftCard {
+  id              String   @id @default(cuid())
+  organizationId  String
+  code            String
+  initialAmount   Decimal  @db.Decimal(10, 2)
+  remainingAmount Decimal  @db.Decimal(10, 2)
+  isActive        Boolean  @default(true)
+  expiresAt       DateTime?
+  issuedToEmail   String?
+  note            String?
+  createdBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization    Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  redemptions     GiftCardRedemption[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@map("gift_cards")
+}
+
+model GiftCardRedemption {
+  id          String   @id @default(cuid())
+  giftCardId  String
+  orderId     String?
+  amount      Decimal  @db.Decimal(10, 2)
+  redeemedAt  DateTime @default(now())
+
+  giftCard    GiftCard @relation(fields: [giftCardId], references: [id])
+
+  @@index([giftCardId])
+  @@map("gift_card_redemptions")
 }

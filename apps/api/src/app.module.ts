@@ -68,6 +68,8 @@ import { PriceHistoryModule } from './modules/price-history/price-history.module
 import { BankReconciliationModule } from './modules/bank-reconciliation/bank-reconciliation.module';
 import { DailyPulseModule } from './modules/daily-pulse/daily-pulse.module';
 import { PrintTemplatesModule } from './modules/print-templates/print-templates.module';
+import { GiftCardsModule } from './modules/gift-cards/gift-card.module';
+import { DiscountModule } from './modules/discounts/discount.module';
 
 @Module({
   imports: [
@@ -157,6 +159,8 @@ import { PrintTemplatesModule } from './modules/print-templates/print-templates.
     BankReconciliationModule,
     DailyPulseModule,
     PrintTemplatesModule,
+    GiftCardsModule,
+    DiscountModule,
   ],
   providers: [
     // Rate limiting — must run before auth so unauthenticated bots are throttled

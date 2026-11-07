@@ -23,7 +23,7 @@ const TERMII_PERMANENT_ERRORS = new Set([
 @Injectable()
 export class SmsSenderService {
   private readonly logger = new Logger(SmsSenderService.name);
-  private readonly termiiBaseUrl = 'https://v3.api.termii.com/api/sms/send';
+  private readonly termiiBaseUrl = 'https://v4.api.termii.com/api/sms/send';
 
   constructor(
     private readonly prisma: PrismaService,
@@ -96,7 +96,7 @@ export class SmsSenderService {
     const senderId = senderIdRaw !== null && senderIdRaw !== undefined ? senderIdRaw : 'KNEF';
 
     try {
-      const result = await this.dispatchViaProvider(provider.providerName, provider.apiKey, to, params.message, senderId);
+      const result = await this.dispatchViaProvider(provider.providerName, provider.apiKey, to, params.message, senderId, provider.baseUrl);
       await this.updateLog(params.logId, result.success ? 'sent' : 'failed', result.messageId, result.error);
       return result;
     } catch (err) {
@@ -113,10 +113,11 @@ export class SmsSenderService {
     to: string,
     message: string,
     senderId: string,
+    baseUrl?: string,
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
     switch (providerName) {
       case 'termii':
-        return this.sendViaTermii(apiKey, to, message, senderId);
+        return this.sendViaTermii(apiKey, to, message, senderId, baseUrl);
       default:
         return { success: false, error: `Unsupported SMS provider: ${providerName}` };
     }
@@ -127,10 +128,15 @@ export class SmsSenderService {
     to: string,
     message: string,
     from: string,
+    baseUrl?: string,
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    // Allow admin-configured base URL; normalize to always end at /api/sms/send
+    const endpoint = baseUrl
+      ? `${baseUrl.replace(/\/+$/, '')}/api/sms/send`
+      : this.termiiBaseUrl;
     let res: Response;
     try {
-      res = await fetch(this.termiiBaseUrl, {
+      res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -172,18 +178,41 @@ export class SmsSenderService {
   private async resolveProvider(
     organizationId: string,
     providerId?: string,
-  ): Promise<{ providerName: string; apiKey: string; senderId: string | null } | null> {
+  ): Promise<{ providerName: string; apiKey: string; senderId: string | null; baseUrl?: string } | null> {
     const record = providerId
       ? await this.prisma.smsProvider.findFirst({ where: { id: providerId, organizationId } })
       : await this.prisma.smsProvider.findFirst({
           where: { organizationId, isDefault: true, isActive: true },
         });
 
+    // Always load custom base URL from settings (overrides hardcoded default)
+    const baseUrlSetting = await this.prisma.systemSetting.findFirst({
+      where: { organizationId, key: 'sms.baseUrl' },
+      select: { value: true },
+    });
+    const baseUrl = baseUrlSetting?.value?.trim() || undefined;
+
     if (!record) {
-      // Fallback: check typed config for Termii credentials
+      // Fallback: check SMS settings stored via admin settings page
+      const settings = await this.prisma.systemSetting.findMany({
+        where: { organizationId, key: { in: ['sms.apiKey', 'sms.senderId'] } },
+        select: { key: true, value: true },
+      });
+      const settingsMap = Object.fromEntries(settings.map((s) => [s.key, s.value]));
+      if (settingsMap['sms.apiKey']) {
+        try {
+          const encKey = this.config.getOrThrow<string>('ENCRYPTION_KEY');
+          const apiKey = decrypt(settingsMap['sms.apiKey'], encKey);
+          return { providerName: 'termii', apiKey, senderId: settingsMap['sms.senderId'] ?? null, baseUrl };
+        } catch {
+          // If not encrypted, use as-is (plain key saved before encryption was added)
+          return { providerName: 'termii', apiKey: settingsMap['sms.apiKey'], senderId: settingsMap['sms.senderId'] ?? null, baseUrl };
+        }
+      }
+      // Final fallback: environment variables
       const envKey = this.config.get('TERMII_API_KEY');
       if (envKey) {
-        return { providerName: 'termii', apiKey: envKey, senderId: this.config.get('TERMII_SENDER_ID') ?? null };
+        return { providerName: 'termii', apiKey: envKey, senderId: this.config.get('TERMII_SENDER_ID') ?? null, baseUrl };
       }
       return null;
     }
@@ -191,7 +220,7 @@ export class SmsSenderService {
     try {
       const encKey = this.config.getOrThrow<string>('ENCRYPTION_KEY');
       const apiKey = decrypt(record.apiKeyEncrypted, encKey);
-      return { providerName: record.provider, apiKey, senderId: record.senderId };
+      return { providerName: record.provider, apiKey, senderId: record.senderId, baseUrl };
     } catch {
       this.logger.error(`Failed to decrypt SMS provider key for ${record.id}`);
       return null;

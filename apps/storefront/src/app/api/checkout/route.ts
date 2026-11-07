@@ -35,8 +35,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Server-authoritative monetary fields — strip anything the client sends
-    // that would influence pricing. The backend DTO also forbids these, but
-    // we strip at the BFF edge so a tampered client can't even forward them.
+    // that would influence pricing. couponCode and giftCardCode are allowed
+    // through so the backend can validate and apply them server-side.
     const {
       deliveryFee: _ignoredDeliveryFee,
       subtotal: _ignoredSubtotal,

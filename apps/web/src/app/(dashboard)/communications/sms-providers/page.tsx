@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Save, Eye, EyeOff, MessageSquare, CheckCircle, AlertCircle, Send } from 'lucide-react';
+import { Save, Eye, EyeOff, MessageSquare, CheckCircle, AlertCircle, Send, Globe } from 'lucide-react';
 import { api } from '@/lib/api';
 
 interface Setting { key: string; value: string; label: string; }
@@ -11,6 +11,7 @@ export default function SmsProvidersPage() {
   const qc = useQueryClient();
   const [apiKey, setApiKey] = useState('');
   const [senderId, setSenderId] = useState('');
+  const [baseUrl, setBaseUrl] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [testPhone, setTestPhone] = useState('');
   const [testResult, setTestResult] = useState<string | null>(null);
@@ -31,6 +32,7 @@ export default function SmsProvidersPage() {
       for (const s of settings) {
         if (s.key === 'sms.apiKey') setApiKey(s.value ?? '');
         if (s.key === 'sms.senderId') setSenderId(s.value ?? '');
+        if (s.key === 'sms.baseUrl') setBaseUrl(s.value ?? '');
       }
     }
   }, [data]);
@@ -41,10 +43,15 @@ export default function SmsProvidersPage() {
         settings: [
           { key: 'sms.apiKey', value: apiKey, label: 'Termii API Key' },
           { key: 'sms.senderId', value: senderId, label: 'SMS Sender ID' },
+          { key: 'sms.baseUrl', value: baseUrl || 'https://v4.api.termii.com', label: 'Termii Base URL' },
         ],
       });
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['sms-settings'] }); setSaved(true); setTimeout(() => setSaved(false), 2500); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sms-settings'] });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    },
     onError: () => setError('Failed to save settings'),
   });
 
@@ -97,6 +104,25 @@ export default function SmsProvidersPage() {
         </div>
 
         <div className="space-y-4">
+          {/* Base URL */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
+              <Globe size={13} className="text-gray-400" />
+              Base URL
+            </label>
+            <input
+              type="url"
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              placeholder="https://v4.api.termii.com"
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+            />
+            <p className="text-xs text-gray-400 mt-1">
+              Termii v4 API base URL. Default: <span className="font-mono">https://v4.api.termii.com</span>
+            </p>
+          </div>
+
+          {/* API Key */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">API Key</label>
             <div className="flex gap-2">
@@ -114,6 +140,7 @@ export default function SmsProvidersPage() {
             <p className="text-xs text-gray-400 mt-1">Get your API key from <span className="font-medium">app.termii.com → API Keys</span></p>
           </div>
 
+          {/* Sender ID */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Sender ID</label>
             <input

@@ -7,7 +7,7 @@ import { z } from 'zod';
 import Image from 'next/image';
 import Link from 'next/link';
 import Script from 'next/script';
-import { ArrowLeft, Package, Loader2, CheckCircle, ShieldCheck, MapPin } from 'lucide-react';
+import { ArrowLeft, Package, Loader2, CheckCircle, ShieldCheck, MapPin, Truck, Store, Tag, Gift, X, ChevronDown } from 'lucide-react';
 import { Turnstile } from '@marsidev/react-turnstile';
 import { useMutation } from '@tanstack/react-query';
 import {
@@ -35,7 +35,7 @@ const schema = z.object({
     .max(20, 'Phone number too long')
     .regex(/^\+?[\d\s\-()]+$/, 'Invalid phone number'),
   customerEmail: z.string().email('Valid email required'),
-  deliveryAddress: z.string().min(5, 'Delivery address is required'),
+  deliveryAddress: z.string().optional(),
   deliveryCountry: z.string().optional(),
   deliveryCity: z.string().optional(),
   deliveryState: z.string().optional(),
@@ -109,6 +109,24 @@ export default function CheckoutPage() {
   const [phoneOtpStep, setPhoneOtpStep] = useState<OtpStep>('idle');
   const [phoneOtp, setPhoneOtp] = useState('');
   const [phoneOtpError, setPhoneOtpError] = useState('');
+
+  // Shipping method
+  const [shippingMethod, setShippingMethod] = useState<'STORE_PICKUP' | 'DELIVERY'>('STORE_PICKUP');
+  const [showDeliveryPopup, setShowDeliveryPopup] = useState(false);
+
+  // Coupon
+  const [showCouponInput, setShowCouponInput] = useState(false);
+  const [couponInput, setCouponInput] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; discount: number } | null>(null);
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [couponError, setCouponError] = useState('');
+
+  // Gift card
+  const [showGiftCardInput, setShowGiftCardInput] = useState(false);
+  const [giftCardInput, setGiftCardInput] = useState('');
+  const [appliedGiftCard, setAppliedGiftCard] = useState<{ code: string; balance: number; amountToUse: number } | null>(null);
+  const [giftCardLoading, setGiftCardLoading] = useState(false);
+  const [giftCardError, setGiftCardError] = useState('');
 
   // Post-order account creation
   const [showRegister, setShowRegister] = useState(true);
@@ -232,27 +250,83 @@ export default function CheckoutPage() {
     }
   }
 
+  // Computed totals
+  const couponDiscount = appliedCoupon?.discount ?? 0;
+  const afterCoupon = Math.max(0, totalAmount - couponDiscount);
+  const giftCardAmountToUse = appliedGiftCard ? Math.min(appliedGiftCard.balance, afterCoupon) : 0;
+  const finalTotal = Math.max(0, afterCoupon - giftCardAmountToUse);
+
+  async function applyCoupon() {
+    if (!couponInput.trim()) return;
+    setCouponLoading(true);
+    setCouponError('');
+    try {
+      const res = await fetch('/api/coupon-validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: couponInput.trim().toUpperCase(), orderAmount: totalAmount }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Invalid coupon code');
+      setAppliedCoupon({ code: couponInput.trim().toUpperCase(), discount: data.discountAmount });
+      setShowCouponInput(false);
+      toast('success', `Coupon applied — ${formatNGN(data.discountAmount)} off`);
+    } catch (err) {
+      setCouponError((err as Error).message);
+    } finally {
+      setCouponLoading(false);
+    }
+  }
+
+  async function applyGiftCard() {
+    if (!giftCardInput.trim()) return;
+    setGiftCardLoading(true);
+    setGiftCardError('');
+    try {
+      const res = await fetch('/api/gift-card-validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: giftCardInput.trim().toUpperCase() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Invalid gift card code');
+      const toUse = Math.min(data.remainingAmount, afterCoupon);
+      setAppliedGiftCard({ code: giftCardInput.trim().toUpperCase(), balance: data.remainingAmount, amountToUse: toUse });
+      setShowGiftCardInput(false);
+      toast('success', `Gift card applied — ${formatNGN(toUse)} redeemed`);
+    } catch (err) {
+      setGiftCardError((err as Error).message);
+    } finally {
+      setGiftCardLoading(false);
+    }
+  }
+
   const placeMutation = useMutation({
     mutationFn: (payload: FormData & { paystackReference?: string }) =>
       createOrder({
         customerName: payload.customerName,
         customerPhone: payload.customerPhone,
         customerEmail: payload.customerEmail,
-        deliveryAddress: payload.deliveryAddress,
-        deliveryCity: payload.deliveryCity,
-        deliveryState: payload.deliveryState ? `${payload.deliveryState}${payload.deliveryCountry && payload.deliveryCountry !== 'Nigeria' ? `, ${payload.deliveryCountry}` : ''}` : payload.deliveryCountry,
-        deliveryPhone: payload.deliveryPhone,
-        deliveryLandmark: payload.deliveryLandmark || undefined,
-        deliveryCountry: payload.deliveryCountry || undefined,
-        deliveryPlaceId: placeIdRef.current || undefined,
-        deliveryLatitude: latitudeRef.current ?? undefined,
-        deliveryLongitude: longitudeRef.current ?? undefined,
-        deliveryAddressSource: addressSourceRef.current,
+        deliveryAddress: shippingMethod === 'DELIVERY' ? payload.deliveryAddress : undefined,
+        deliveryCity: shippingMethod === 'DELIVERY' ? payload.deliveryCity : undefined,
+        deliveryState: shippingMethod === 'DELIVERY' && payload.deliveryState
+          ? `${payload.deliveryState}${payload.deliveryCountry && payload.deliveryCountry !== 'Nigeria' ? `, ${payload.deliveryCountry}` : ''}`
+          : shippingMethod === 'DELIVERY' ? payload.deliveryCountry : undefined,
+        deliveryPhone: shippingMethod === 'DELIVERY' ? payload.deliveryPhone : undefined,
+        deliveryLandmark: shippingMethod === 'DELIVERY' ? payload.deliveryLandmark || undefined : undefined,
+        deliveryCountry: shippingMethod === 'DELIVERY' ? payload.deliveryCountry || undefined : undefined,
+        deliveryPlaceId: shippingMethod === 'DELIVERY' ? placeIdRef.current || undefined : undefined,
+        deliveryLatitude: shippingMethod === 'DELIVERY' ? latitudeRef.current ?? undefined : undefined,
+        deliveryLongitude: shippingMethod === 'DELIVERY' ? longitudeRef.current ?? undefined : undefined,
+        deliveryAddressSource: shippingMethod === 'DELIVERY' ? addressSourceRef.current : undefined,
+        deliveryMethod: shippingMethod === 'DELIVERY' ? 'DELIVERY' : 'PICKUP',
         paymentMethod: payload.paymentMethod,
         paystackReference: payload.paystackReference,
         notes: payload.notes || undefined,
         idempotencyKey: crypto.randomUUID(),
         turnstileToken: turnstileToken ?? undefined,
+        ...(appliedCoupon ? { couponCode: appliedCoupon.code } : {}),
+        ...(appliedGiftCard ? { giftCardCode: appliedGiftCard.code } : {}),
         items: items.map((i) => ({
           productId: i.productId,
           variantId: i.variantId ?? undefined,
@@ -279,6 +353,10 @@ export default function CheckoutPage() {
       setSubmitError('Please verify your email address before placing the order');
       return;
     }
+    if (shippingMethod === 'DELIVERY' && (!data.deliveryAddress || data.deliveryAddress.length < 5)) {
+      setSubmitError('Please enter a delivery address');
+      return;
+    }
     setFormSnapshot(data);
 
     if (data.paymentMethod === 'PAYSTACK') {
@@ -289,7 +367,7 @@ export default function CheckoutPage() {
       const handler = window.PaystackPop.setup({
         key: PAYSTACK_PUBLIC_KEY,
         email: data.customerEmail,
-        amount: Math.round(totalAmount * 100), // kobo
+        amount: Math.round(finalTotal * 100), // kobo
         currency: 'NGN',
         ref: `KNEF-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
         metadata: { customerName: data.customerName, customerPhone: data.customerPhone },
@@ -471,6 +549,43 @@ export default function CheckoutPage() {
   // ── Checkout form ──────────────────────────────────────────────────────────
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* Delivery note popup */}
+      {showDeliveryPopup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 relative">
+            <button
+              type="button"
+              onClick={() => { setShippingMethod('STORE_PICKUP'); setShowDeliveryPopup(false); }}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+            >
+              <X size={18} />
+            </button>
+            <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center mb-4">
+              <Truck size={22} className="text-blue-600" />
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Delivery Note</h3>
+            <p className="text-sm text-gray-600 leading-relaxed mb-5">
+              Delivery takes <strong>1–3 working days in Lagos</strong> and <strong>2–7 working days outside Lagos</strong>, after order and payment confirmation.
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => setShowDeliveryPopup(false)}
+                className="w-full py-2.5 bg-knef-primary text-white rounded-xl font-semibold text-sm hover:bg-opacity-90 transition-colors"
+              >
+                Continue with Delivery
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShippingMethod('STORE_PICKUP'); setShowDeliveryPopup(false); }}
+                className="w-full py-2.5 bg-gray-100 text-gray-700 rounded-xl font-semibold text-sm hover:bg-gray-200 transition-colors"
+              >
+                Switch to Store Pickup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {PAYSTACK_PUBLIC_KEY && (
         <Script src="https://js.paystack.co/v1/inline.js" strategy="lazyOnload" />
       )}
@@ -502,7 +617,50 @@ export default function CheckoutPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
         {/* ── Left: Form ── */}
         <div className="space-y-8">
+          {/* Returning customer */}
+          <div className="text-sm text-gray-500">
+            Returning customer?{' '}
+            <Link href="/login?redirect=/checkout" className="text-knef-primary font-medium hover:underline">
+              Click here to login
+            </Link>
+          </div>
+
           <form id="checkout-form" onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+            {/* ── Shipping Method ── */}
+            <div>
+              <h2 className="font-semibold text-gray-900 mb-3">Shipping Method</h2>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShippingMethod('STORE_PICKUP')}
+                  className={cn(
+                    'flex flex-col items-center gap-2 p-4 rounded-xl border-2 font-medium text-sm transition-all',
+                    shippingMethod === 'STORE_PICKUP'
+                      ? 'border-knef-primary bg-knef-primary/5 text-knef-primary'
+                      : 'border-gray-200 text-gray-600 hover:border-gray-300',
+                  )}
+                >
+                  <Store size={22} />
+                  <span>Store Pickup</span>
+                  <span className="text-xs font-normal text-green-600">Free</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setShippingMethod('DELIVERY'); setShowDeliveryPopup(true); }}
+                  className={cn(
+                    'flex flex-col items-center gap-2 p-4 rounded-xl border-2 font-medium text-sm transition-all',
+                    shippingMethod === 'DELIVERY'
+                      ? 'border-knef-primary bg-knef-primary/5 text-knef-primary'
+                      : 'border-gray-200 text-gray-600 hover:border-gray-300',
+                  )}
+                >
+                  <Truck size={22} />
+                  <span>Delivery</span>
+                  <span className="text-xs font-normal text-gray-400">Address required</span>
+                </button>
+              </div>
+            </div>
+
             {/* ── Contact Details ── */}
             <div>
               <h2 className="font-semibold text-gray-900 mb-4">Contact Details</h2>
@@ -681,8 +839,8 @@ export default function CheckoutPage() {
               </div>
             </div>
 
-            {/* ── Delivery Address ── */}
-            <div>
+            {/* ── Delivery Address (only shown when DELIVERY selected) ── */}
+            {shippingMethod === 'DELIVERY' && <div>
               <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
                 <MapPin size={16} className="text-knef-primary" />
                 Delivery Address
@@ -835,7 +993,7 @@ export default function CheckoutPage() {
                   className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary transition-colors"
                 />
               </div>
-            </div>
+            </div>}
 
             {/* ── Payment Method ── */}
             <div>
@@ -844,7 +1002,7 @@ export default function CheckoutPage() {
               </label>
               <div className="grid grid-cols-2 gap-3">
                 {([
-                  { value: 'CASH', label: 'Cash on Delivery', sub: 'Pay when you receive your order' },
+                  { value: 'CASH', label: shippingMethod === 'STORE_PICKUP' ? 'Pay in Store' : 'Cash on Delivery', sub: shippingMethod === 'STORE_PICKUP' ? 'Pay when you pick up' : 'Pay when you receive your order' },
                   { value: 'BANK_TRANSFER', label: 'Bank Transfer', sub: 'Transfer before dispatch' },
                   ...(PAYSTACK_PUBLIC_KEY ? [{ value: 'PAYSTACK' as const, label: 'Pay with Card', sub: 'Debit/credit card via Paystack' }] : []),
                 ] as const).map(({ value, label, sub }) => (
@@ -916,13 +1074,111 @@ export default function CheckoutPage() {
               ))}
             </div>
 
-            <div className="border-t border-gray-100 px-4 py-4">
-              <div className="flex justify-between items-center font-bold text-lg">
-                <span className="text-gray-900">Total</span>
-                <span className="text-knef-primary">{formatNGN(totalAmount)}</span>
+            <div className="border-t border-gray-100 px-4 py-4 space-y-2">
+              <div className="flex justify-between items-center text-sm text-gray-600">
+                <span>Subtotal</span>
+                <span>{formatNGN(totalAmount)}</span>
               </div>
-              <p className="text-xs text-gray-400 mt-1">Payment collected on delivery / in store</p>
+              {appliedCoupon && (
+                <div className="flex justify-between items-center text-sm text-green-700">
+                  <span className="flex items-center gap-1"><Tag size={12} /> Coupon ({appliedCoupon.code})</span>
+                  <div className="flex items-center gap-1">
+                    <span>−{formatNGN(couponDiscount)}</span>
+                    <button type="button" onClick={() => setAppliedCoupon(null)} className="text-gray-400 hover:text-red-500 ml-1"><X size={12} /></button>
+                  </div>
+                </div>
+              )}
+              {appliedGiftCard && (
+                <div className="flex justify-between items-center text-sm text-blue-700">
+                  <span className="flex items-center gap-1"><Gift size={12} /> Gift Card ({appliedGiftCard.code})</span>
+                  <div className="flex items-center gap-1">
+                    <span>−{formatNGN(giftCardAmountToUse)}</span>
+                    <button type="button" onClick={() => setAppliedGiftCard(null)} className="text-gray-400 hover:text-red-500 ml-1"><X size={12} /></button>
+                  </div>
+                </div>
+              )}
+              <div className="flex justify-between items-center font-bold text-lg pt-1 border-t border-gray-100">
+                <span className="text-gray-900">Total</span>
+                <span className="text-knef-primary">{formatNGN(finalTotal)}</span>
+              </div>
+              <p className="text-xs text-gray-400">Payment collected on delivery / in store</p>
             </div>
+          </div>
+
+          {/* Coupon */}
+          <div className="border border-gray-200 rounded-xl overflow-hidden">
+            {!appliedCoupon && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowCouponInput(!showCouponInput)}
+                  className="w-full flex items-center justify-between px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  <span className="flex items-center gap-2"><Tag size={14} className="text-knef-primary" /> Have a coupon? Click here to enter your code</span>
+                  <ChevronDown size={14} className={cn('transition-transform', showCouponInput && 'rotate-180')} />
+                </button>
+                {showCouponInput && (
+                  <div className="px-4 pb-4 space-y-2 border-t border-gray-100">
+                    <div className="flex gap-2 mt-3">
+                      <input
+                        type="text"
+                        value={couponInput}
+                        onChange={(e) => { setCouponInput(e.target.value.toUpperCase()); setCouponError(''); }}
+                        placeholder="Enter coupon code"
+                        className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary uppercase tracking-wide"
+                      />
+                      <button
+                        type="button"
+                        onClick={applyCoupon}
+                        disabled={couponLoading || !couponInput.trim()}
+                        className="px-4 py-2 bg-knef-primary text-white text-sm rounded-lg hover:bg-opacity-90 disabled:opacity-50"
+                      >
+                        {couponLoading ? <Loader2 size={14} className="animate-spin" /> : 'Apply'}
+                      </button>
+                    </div>
+                    {couponError && <p className="text-xs text-red-600">{couponError}</p>}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Gift Card */}
+          <div className="border border-gray-200 rounded-xl overflow-hidden">
+            {!appliedGiftCard && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowGiftCardInput(!showGiftCardInput)}
+                  className="w-full flex items-center justify-between px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  <span className="flex items-center gap-2"><Gift size={14} className="text-blue-500" /> Redeem Gift Card/Voucher? Click here to enter your code</span>
+                  <ChevronDown size={14} className={cn('transition-transform', showGiftCardInput && 'rotate-180')} />
+                </button>
+                {showGiftCardInput && (
+                  <div className="px-4 pb-4 space-y-2 border-t border-gray-100">
+                    <div className="flex gap-2 mt-3">
+                      <input
+                        type="text"
+                        value={giftCardInput}
+                        onChange={(e) => { setGiftCardInput(e.target.value.toUpperCase()); setGiftCardError(''); }}
+                        placeholder="e.g. GC-XXXX-XXXX-XXXX"
+                        className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 uppercase tracking-wide font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={applyGiftCard}
+                        disabled={giftCardLoading || !giftCardInput.trim()}
+                        className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        {giftCardLoading ? <Loader2 size={14} className="animate-spin" /> : 'Apply'}
+                      </button>
+                    </div>
+                    {giftCardError && <p className="text-xs text-red-600">{giftCardError}</p>}
+                  </div>
+                )}
+              </>
+            )}
           </div>
 
           {/* Turnstile */}
