@@ -11,6 +11,16 @@ interface TermiiResponse {
   code?: string;
 }
 
+interface BrevoSmsResponse {
+  reference?: string;
+  messageId?: number;
+  smsCount?: number;
+  usedCredits?: number;
+  remainingCredits?: number;
+  code?: string;
+  message?: string;
+}
+
 // Termii error codes that indicate a permanent failure (do not retry)
 const TERMII_PERMANENT_ERRORS = new Set([
   'invalid_phone_number',
@@ -118,9 +128,53 @@ export class SmsSenderService {
     switch (providerName) {
       case 'termii':
         return this.sendViaTermii(apiKey, to, message, senderId, baseUrl);
+      case 'brevo':
+        return this.sendViaBrevo(apiKey, to, message, senderId);
       default:
         return { success: false, error: `Unsupported SMS provider: ${providerName}` };
     }
+  }
+
+  private async sendViaBrevo(
+    apiKey: string,
+    to: string,
+    message: string,
+    sender: string,
+  ): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    let res: Response;
+    try {
+      res = await fetch('https://api.brevo.com/v3/transactionalSMS/sms', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'api-key': apiKey,
+        },
+        body: JSON.stringify({
+          sender: sender.slice(0, 11),
+          recipient: to,
+          content: message,
+          type: 'transactional',
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+    } catch (err) {
+      if (err instanceof Error && err.name === 'TimeoutError') {
+        throw new Error('Brevo API timeout');
+      }
+      throw err;
+    }
+
+    const data = (await res.json()) as BrevoSmsResponse;
+
+    if (!res.ok) {
+      const errMsg = data.message ?? `Brevo error: ${res.status}`;
+      if (res.status >= 400 && res.status < 500) {
+        return { success: false, error: errMsg };
+      }
+      throw new Error(errMsg);
+    }
+
+    return { success: true, messageId: data.reference ?? String(data.messageId ?? '') };
   }
 
   private async sendViaTermii(
@@ -195,17 +249,30 @@ export class SmsSenderService {
     if (!record) {
       // Fallback: check SMS settings stored via admin settings page
       const settings = await this.prisma.systemSetting.findMany({
-        where: { organizationId, key: { in: ['sms.apiKey', 'sms.senderId'] } },
+        where: { organizationId, key: { in: ['sms.apiKey', 'sms.senderId', 'sms.provider', 'sms.brevoApiKey'] } },
         select: { key: true, value: true },
       });
       const settingsMap = Object.fromEntries(settings.map((s) => [s.key, s.value]));
+      const providerName = settingsMap['sms.provider'] ?? 'termii';
+
+      // Brevo path
+      if (providerName === 'brevo' && settingsMap['sms.brevoApiKey']) {
+        try {
+          const encKey = this.config.getOrThrow<string>('ENCRYPTION_KEY');
+          const apiKey = decrypt(settingsMap['sms.brevoApiKey'], encKey);
+          return { providerName: 'brevo', apiKey, senderId: settingsMap['sms.senderId'] ?? null };
+        } catch {
+          return { providerName: 'brevo', apiKey: settingsMap['sms.brevoApiKey'], senderId: settingsMap['sms.senderId'] ?? null };
+        }
+      }
+
+      // Termii path (default)
       if (settingsMap['sms.apiKey']) {
         try {
           const encKey = this.config.getOrThrow<string>('ENCRYPTION_KEY');
           const apiKey = decrypt(settingsMap['sms.apiKey'], encKey);
           return { providerName: 'termii', apiKey, senderId: settingsMap['sms.senderId'] ?? null, baseUrl };
         } catch {
-          // If not encrypted, use as-is (plain key saved before encryption was added)
           return { providerName: 'termii', apiKey: settingsMap['sms.apiKey'], senderId: settingsMap['sms.senderId'] ?? null, baseUrl };
         }
       }
