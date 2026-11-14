@@ -7,7 +7,29 @@ import { z } from 'zod';
 import Image from 'next/image';
 import Link from 'next/link';
 import Script from 'next/script';
-import { ArrowLeft, Package, Loader2, CheckCircle, ShieldCheck, MapPin, Truck, Store, Tag, Gift, X, ChevronDown } from 'lucide-react';
+import {
+  ArrowLeft,
+  Package,
+  Loader2,
+  CheckCircle,
+  ShieldCheck,
+  MapPin,
+  Truck,
+  Store,
+  Tag,
+  Gift,
+  X,
+  ChevronDown,
+  CreditCard,
+  Banknote,
+  Eye,
+  EyeOff,
+  Lock,
+  AlertTriangle,
+  Check,
+  UserRound,
+} from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { Turnstile } from '@marsidev/react-turnstile';
 import { useMutation } from '@tanstack/react-query';
 import {
@@ -16,11 +38,9 @@ import {
   verifyEmailOtp,
   requestSmsOtp,
   verifySmsOtp,
-  postOrderRegister,
   verifyPaystackPayment,
   fetchPaymentConfig,
 } from '@/lib/api';
-import type { AuthResult } from '@/lib/api';
 import type { OrderConfirmation } from '@/types';
 import { useCartStore } from '@/stores/cart.store';
 import { useCustomerStore } from '@/stores/customer.store';
@@ -46,12 +66,45 @@ const schema = z.object({
   deliveryState: z.string().optional(),
   deliveryPhone: z.string().optional(),
   deliveryLandmark: z.string().max(200, 'Landmark too long').optional(),
-  paymentMethod: z.enum(['CASH', 'BANK_TRANSFER', 'PAYSTACK']),
+  paymentMethod: z.enum(['CASH', 'PAYSTACK']),
   notes: z.string().max(500, 'Notes too long').optional(),
 });
 
 type FormData = z.infer<typeof schema>;
 type OtpStep = 'idle' | 'sending' | 'sent' | 'verifying' | 'verified';
+type PaymentChoice = FormData['paymentMethod'];
+type PaymentOption = {
+  value: PaymentChoice;
+  title: string;
+  sub: string;
+  icon: LucideIcon;
+  badge?: { text: string; tone: 'green' | 'amber' };
+  disabled?: boolean;
+};
+
+/** Payment on delivery is offered only for Lagos (Nigeria) addresses. Mirrors the API rule. */
+function isLagos(country?: string, state?: string) {
+  if (country && country !== 'Nigeria') return false;
+  const s = (state ?? '').trim().toLowerCase();
+  return s === 'lagos' || s === 'lagos state';
+}
+
+/** 0–4 score for the password strength meter. */
+function passwordScore(pw: string) {
+  if (!pw) return 0;
+  let score = pw.length >= 8 ? 1 : 0;
+  if (pw.length >= 12) score++;
+  if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) score++;
+  if (/\d/.test(pw) && /[^A-Za-z0-9]/.test(pw)) score++;
+  return Math.min(score, 4);
+}
+const STRENGTH = [
+  { label: 'Too short', bar: 'bg-gray-200', text: 'text-gray-400' },
+  { label: 'Weak', bar: 'bg-red-400', text: 'text-red-500' },
+  { label: 'Fair', bar: 'bg-amber-400', text: 'text-amber-600' },
+  { label: 'Good', bar: 'bg-lime-500', text: 'text-lime-600' },
+  { label: 'Strong', bar: 'bg-green-500', text: 'text-green-600' },
+];
 
 declare global {
   interface Window {
@@ -132,21 +185,20 @@ export default function CheckoutPage() {
   const [giftCardLoading, setGiftCardLoading] = useState(false);
   const [giftCardError, setGiftCardError] = useState('');
 
-  // Post-order account creation
-  const [showRegister, setShowRegister] = useState(true);
-  const [regPassword, setRegPassword] = useState('');
-  const [regError, setRegError] = useState('');
-  const [regLoading, setRegLoading] = useState(false);
-  const [registered, setRegistered] = useState(false);
-
-  // Logged-in customer / create an account at checkout
+  // Logged-in customer, or a required account created with the order
   const customer = useCustomerStore((s) => s.customer);
   const accessToken = useCustomerStore((s) => s.accessToken);
   const isAuthenticated = useCustomerStore((s) => s.isAuthenticated);
   const setAuth = useCustomerStore((s) => s.setAuth);
-  const [createAccount, setCreateAccount] = useState(false);
   const [accountPassword, setAccountPassword] = useState('');
+  const [accountPasswordConfirm, setAccountPasswordConfirm] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [accountCreated, setAccountCreated] = useState(false);
   const [savedToAccount, setSavedToAccount] = useState(false);
+
+  // Terms and payment-on-delivery notice
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [showLagosPopup, setShowLagosPopup] = useState(false);
 
   // Card payments (server-driven Paystack)
   const [paystackEnabled, setPaystackEnabled] = useState(false);
@@ -186,6 +238,37 @@ export default function CheckoutPage() {
   const watchPhone = useWatch({ control, name: 'customerPhone' });
   const watchCountry = useWatch({ control, name: 'deliveryCountry' });
   const watchPaymentMethod = useWatch({ control, name: 'paymentMethod' });
+  const watchState = useWatch({ control, name: 'deliveryState' });
+
+  const addressInLagos = isLagos(watchCountry, watchState);
+  const stateChosen = !!watchState?.trim();
+  const podBlocked =
+    shippingMethod === 'DELIVERY' && watchPaymentMethod === 'CASH' && stateChosen && !addressInLagos;
+
+  // Each shipping method has its own pair of options; preselect the sensible default when it changes.
+  useEffect(() => {
+    setValue('paymentMethod', shippingMethod === 'DELIVERY' && paystackEnabled ? 'PAYSTACK' : 'CASH');
+  }, [shippingMethod, paystackEnabled, setValue]);
+
+  function selectPayment(value: PaymentChoice) {
+    setValue('paymentMethod', value, { shouldValidate: true });
+    setSubmitError('');
+    if (shippingMethod === 'DELIVERY' && value === 'CASH') setShowLagosPopup(true);
+  }
+
+  function dismissLagosPopup(confirmLagos: boolean) {
+    setShowLagosPopup(false);
+    if (confirmLagos) {
+      setValue('deliveryCountry', 'Nigeria');
+      setValue('deliveryState', 'Lagos');
+      return;
+    }
+    // Not in Lagos (or closed the notice without confirming): fall back to paying online.
+    if (!addressInLagos && paystackEnabled) setValue('paymentMethod', 'PAYSTACK');
+  }
+
+  const pwScore = passwordScore(accountPassword);
+  const passwordsMatch = accountPasswordConfirm.length > 0 && accountPassword === accountPasswordConfirm;
 
   // Prefill contact details for a logged-in customer (only into empty fields)
   useEffect(() => {
@@ -365,7 +448,8 @@ export default function CheckoutPage() {
         turnstileToken: turnstileToken ?? undefined,
         ...(appliedCoupon ? { couponCode: appliedCoupon.code } : {}),
         ...(appliedGiftCard ? { giftCardCode: appliedGiftCard.code } : {}),
-        ...(!isAuthenticated && createAccount ? { createAccount: true, accountPassword } : {}),
+        termsAccepted,
+        ...(!isAuthenticated ? { createAccount: true, accountPassword, accountPasswordConfirm } : {}),
         items: items.map((i) => ({
           productId: i.productId,
           variantId: i.variantId ?? undefined,
@@ -378,6 +462,7 @@ export default function CheckoutPage() {
       setSavedToAccount(!!order.linkedToAccount);
       if (order.account) {
         setAuth(order.account.customer, order.account.accessToken, order.account.refreshToken);
+        setAccountCreated(true);
         toast('success', 'Your account has been created');
       }
       if (order.accountError) toast('error', order.accountError);
@@ -411,8 +496,31 @@ export default function CheckoutPage() {
       setSubmitError('Please enter a delivery address');
       return;
     }
-    if (!isAuthenticated && createAccount && accountPassword.length < 8) {
-      setSubmitError('Choose a password of at least 8 characters to create your account');
+    if (shippingMethod === 'DELIVERY' && !data.deliveryState?.trim()) {
+      setSubmitError('Please select the state for your delivery address');
+      return;
+    }
+    if (data.paymentMethod === 'PAYSTACK' && !paystackEnabled) {
+      setSubmitError('Online payment is temporarily unavailable. Please choose another payment option.');
+      return;
+    }
+    if (shippingMethod === 'DELIVERY' && data.paymentMethod === 'CASH' && !isLagos(data.deliveryCountry, data.deliveryState)) {
+      setSubmitError('Payment on delivery is only available in Lagos. Please pay online with Paystack.');
+      setShowLagosPopup(true);
+      return;
+    }
+    if (!isAuthenticated) {
+      if (accountPassword.length < 8) {
+        setSubmitError('Create a password of at least 8 characters for your account');
+        return;
+      }
+      if (accountPassword !== accountPasswordConfirm) {
+        setSubmitError('Your passwords do not match');
+        return;
+      }
+    }
+    if (!termsAccepted) {
+      setSubmitError('Please accept the Terms and Conditions to place your order');
       return;
     }
     setFormSnapshot(data);
@@ -476,34 +584,6 @@ export default function CheckoutPage() {
     }
   }
 
-  async function handlePostOrderRegister() {
-    if (!formSnapshot || !orderRef) return;
-    if (!regPassword || regPassword.length < 8) {
-      setRegError('Password must be at least 8 characters');
-      return;
-    }
-    setRegLoading(true);
-    setRegError('');
-    try {
-      const nameParts = formSnapshot.customerName.trim().split(' ');
-      const firstName = nameParts[0] ?? formSnapshot.customerName;
-      const lastName = nameParts.slice(1).join(' ') || '-';
-      await postOrderRegister({
-        orderReference: orderRef,
-        email: formSnapshot.customerEmail,
-        password: regPassword,
-        firstName,
-        lastName,
-        phone: formSnapshot.customerPhone,
-      });
-      setRegistered(true);
-    } catch (err) {
-      setRegError((err as { message?: string })?.message ?? 'Failed to create account. Try registering separately.');
-    } finally {
-      setRegLoading(false);
-    }
-  }
-
   // ── Empty cart guard ───────────────────────────────────────────────────────
   if (items.length === 0 && step === 'form') {
     return (
@@ -558,67 +638,29 @@ export default function CheckoutPage() {
             </Link>
           </div>
 
-          {/* Create account */}
+          {/* Account */}
           <div className="bg-white border border-gray-100 rounded-2xl p-6 flex flex-col gap-4">
             <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
-              <ShieldCheck size={20} className="text-blue-600" />
+              <UserRound size={20} className="text-blue-600" />
             </div>
             <div>
-              <h3 className="font-semibold text-gray-900 mb-1">Save Your Order History</h3>
-              <p className="text-sm text-gray-500">Create a free account to track all your orders in one place.</p>
-            </div>
-
-            {registered || savedToAccount ? (
-              <div className="mt-auto text-sm text-green-700 font-medium flex items-center gap-1.5">
-                <CheckCircle size={16} />
-                {registered ? 'Account created!' : 'Saved to your account.'}{' '}
-                <Link href="/account" className="underline hover:no-underline">
-                  Go to my account →
-                </Link>
-              </div>
-            ) : showRegister ? (
-              <div className="mt-auto space-y-3">
-                <p className="text-xs text-gray-500">
-                  Account email: <strong className="text-gray-700">{formSnapshot.customerEmail}</strong>
-                </p>
-                <input
-                  type="password"
-                  placeholder="Create a password (min 8 chars)"
-                  value={regPassword}
-                  onChange={(e) => setRegPassword(e.target.value)}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 transition-colors"
-                />
-                {regError && <p className="text-xs text-red-600">{regError}</p>}
-                <button
-                  onClick={handlePostOrderRegister}
-                  disabled={regLoading}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  {regLoading ? (
-                    <>
-                      <Loader2 size={15} className="animate-spin" />
-                      Creating Account…
-                    </>
-                  ) : (
-                    'Create Account'
-                  )}
-                </button>
-                <button
-                  onClick={() => setShowRegister(false)}
-                  className="w-full text-xs text-gray-400 hover:text-gray-600 transition-colors"
-                >
-                  No thanks
-                </button>
-              </div>
-            ) : (
-              <p className="mt-auto text-sm text-gray-400">
-                You can{' '}
-                <Link href="/register" className="text-blue-600 hover:underline">
-                  register later
-                </Link>{' '}
-                at any time.
+              <h3 className="font-semibold text-gray-900 mb-1">
+                {accountCreated ? 'Your Account Is Ready' : 'Saved to Your Account'}
+              </h3>
+              <p className="text-sm text-gray-500">
+                {accountCreated
+                  ? `You're signed in as ${formSnapshot.customerEmail}. Log in with this email next time.`
+                  : savedToAccount
+                    ? 'This order is in your order history alongside your previous orders.'
+                    : 'Log in to see this order in your order history.'}
               </p>
-            )}
+            </div>
+            <Link
+              href={accountCreated || savedToAccount ? '/account/orders' : '/login?redirect=/account/orders'}
+              className="mt-auto inline-flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors"
+            >
+              View My Orders →
+            </Link>
           </div>
         </div>
 
@@ -674,6 +716,97 @@ export default function CheckoutPage() {
                 Switch to Store Pickup
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Payment on delivery — Lagos only */}
+      {showLagosPopup && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="lagos-popup-title"
+        >
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 relative">
+            <button
+              type="button"
+              aria-label="Close"
+              onClick={() => dismissLagosPopup(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+            >
+              <X size={18} />
+            </button>
+            {stateChosen && !addressInLagos ? (
+              <>
+                <div className="w-12 h-12 rounded-xl bg-red-50 flex items-center justify-center mb-4">
+                  <AlertTriangle size={22} className="text-red-500" />
+                </div>
+                <h3 id="lagos-popup-title" className="text-lg font-bold text-gray-900 mb-2">
+                  Not available for your address
+                </h3>
+                <p className="text-sm text-gray-600 leading-relaxed mb-5">
+                  Payment on Delivery is only available to customers in <strong>Lagos</strong>. Your delivery address is in{' '}
+                  <strong>{watchState}</strong>
+                  {watchCountry && watchCountry !== 'Nigeria' ? `, ${watchCountry}` : ''}. Please pay online with Paystack —
+                  card or bank transfer.
+                </p>
+                <div className="flex flex-col gap-2">
+                  {paystackEnabled && (
+                    <button
+                      type="button"
+                      onClick={() => dismissLagosPopup(false)}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 bg-knef-primary text-white rounded-xl font-semibold text-sm hover:bg-opacity-90 transition-colors"
+                    >
+                      <CreditCard size={16} /> Pay Online Instead
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowLagosPopup(false);
+                      setShippingMethod('STORE_PICKUP');
+                    }}
+                    className="w-full py-2.5 bg-gray-100 text-gray-700 rounded-xl font-semibold text-sm hover:bg-gray-200 transition-colors"
+                  >
+                    Switch to Store Pickup
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="w-12 h-12 rounded-xl bg-amber-50 flex items-center justify-center mb-4">
+                  <MapPin size={22} className="text-amber-600" />
+                </div>
+                <h3 id="lagos-popup-title" className="text-lg font-bold text-gray-900 mb-2">
+                  Lagos deliveries only
+                </h3>
+                <p className="text-sm text-gray-600 leading-relaxed mb-5">
+                  Payment on Delivery is only available to customers with a delivery address in <strong>Lagos</strong>.
+                  If you&apos;re outside Lagos, please pay online with Paystack — card or bank transfer.
+                </p>
+                <div className="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={() => dismissLagosPopup(true)}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 bg-knef-primary text-white rounded-xl font-semibold text-sm hover:bg-opacity-90 transition-colors"
+                  >
+                    <Check size={16} /> My address is in Lagos
+                  </button>
+                  {paystackEnabled && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowLagosPopup(false);
+                        setValue('paymentMethod', 'PAYSTACK');
+                      }}
+                      className="w-full py-2.5 bg-gray-100 text-gray-700 rounded-xl font-semibold text-sm hover:bg-gray-200 transition-colors"
+                    >
+                      I&apos;m outside Lagos — Pay Online
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -1088,71 +1221,216 @@ export default function CheckoutPage() {
 
             {/* ── Payment Method ── */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <h2 className="font-semibold text-gray-900 mb-3">
                 Payment Method <span className="text-red-500">*</span>
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                {([
-                  { value: 'CASH', label: shippingMethod === 'STORE_PICKUP' ? 'Pay in Store' : 'Cash on Delivery', sub: shippingMethod === 'STORE_PICKUP' ? 'Pay when you pick up' : 'Pay when you receive your order' },
-                  { value: 'BANK_TRANSFER', label: 'Bank Transfer', sub: 'Transfer before dispatch' },
-                  ...(paystackEnabled ? [{ value: 'PAYSTACK' as const, label: 'Pay with Card', sub: 'Card, transfer or USSD via Paystack' }] : []),
-                ] as const).map(({ value, label, sub }) => (
-                  <label
-                    key={value}
-                    className="relative flex cursor-pointer rounded-xl border border-gray-200 p-3 hover:border-blue-300 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50 transition-colors"
-                  >
-                    <input {...register('paymentMethod')} type="radio" value={value} className="sr-only" />
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">{label}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{sub}</p>
-                    </div>
-                  </label>
-                ))}
+              </h2>
+              <input type="hidden" {...register('paymentMethod')} />
+              <div role="radiogroup" aria-label="Payment method" className="space-y-3">
+                {(() => {
+                  const online: PaymentOption = {
+                    value: 'PAYSTACK',
+                    title: 'Pay Online with Paystack',
+                    sub: paystackEnabled ? 'Card or Bank Transfer — fast and secure' : 'Temporarily unavailable',
+                    icon: CreditCard,
+                    badge: paystackEnabled ? { text: 'Secure', tone: 'green' } : undefined,
+                    disabled: !paystackEnabled,
+                  };
+                  const options: PaymentOption[] =
+                    shippingMethod === 'STORE_PICKUP'
+                      ? [
+                          {
+                            value: 'CASH',
+                            title: 'Pay in Store',
+                            sub: 'Pay with cash, card or transfer when you pick up',
+                            icon: Store,
+                          },
+                          online,
+                        ]
+                      : [
+                          online,
+                          {
+                            value: 'CASH',
+                            title: 'Payment on Delivery',
+                            sub: 'Pay when your order arrives',
+                            icon: Banknote,
+                            badge: { text: 'Lagos only', tone: 'amber' },
+                          },
+                        ];
+                  return options.map((opt) => {
+                    const selected = watchPaymentMethod === opt.value;
+                    const Icon = opt.icon;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        disabled={opt.disabled}
+                        onClick={() => selectPayment(opt.value)}
+                        className={cn(
+                          'w-full flex items-center gap-4 rounded-2xl border-2 p-4 text-left transition-all',
+                          selected
+                            ? 'border-knef-primary bg-knef-primary/5 shadow-sm'
+                            : 'border-gray-200 bg-white hover:border-gray-300',
+                          opt.disabled && 'opacity-50 cursor-not-allowed hover:border-gray-200',
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            'w-11 h-11 shrink-0 rounded-xl flex items-center justify-center transition-colors',
+                            selected ? 'bg-knef-primary text-white' : 'bg-gray-100 text-gray-500',
+                          )}
+                        >
+                          <Icon size={20} />
+                        </span>
+                        <span className="flex-1 min-w-0">
+                          <span className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-semibold text-gray-900">{opt.title}</span>
+                            {opt.badge && (
+                              <span
+                                className={cn(
+                                  'text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full',
+                                  opt.badge.tone === 'green' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700',
+                                )}
+                              >
+                                {opt.badge.text}
+                              </span>
+                            )}
+                          </span>
+                          <span className="block text-xs text-gray-500 mt-0.5">{opt.sub}</span>
+                        </span>
+                        <span
+                          className={cn(
+                            'w-5 h-5 shrink-0 rounded-full border-2 flex items-center justify-center transition-colors',
+                            selected ? 'border-knef-primary bg-knef-primary' : 'border-gray-300',
+                          )}
+                        >
+                          {selected && <Check size={12} className="text-white" strokeWidth={3} />}
+                        </span>
+                      </button>
+                    );
+                  });
+                })()}
               </div>
+              {podBlocked && (
+                <div className="mt-3 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                  <span>
+                    Payment on Delivery is only available in Lagos. Your address is in <strong>{watchState}</strong> —
+                    please pay online{paystackEnabled ? '' : ' or choose Store Pickup'}.
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* ── Account ── */}
             {isAuthenticated && customer ? (
-              <div className="flex items-start gap-2 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
-                <ShieldCheck size={16} className="mt-0.5 shrink-0" />
+              <div className="flex items-start gap-3 rounded-2xl border border-green-200 bg-green-50 px-4 py-4 text-sm text-green-800">
+                <span className="w-9 h-9 shrink-0 rounded-xl bg-green-100 flex items-center justify-center">
+                  <ShieldCheck size={18} />
+                </span>
                 <span>
-                  Signed in as <strong>{customer.email}</strong>. This order will be saved to your account.
+                  <span className="block font-semibold">Signed in as {customer.email}</span>
+                  <span className="block text-green-700/80 mt-0.5">This order will be saved to your account.</span>
                 </span>
               </div>
             ) : (
-              <div className="rounded-xl border border-gray-200 p-4">
-                <label className="flex items-start gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={createAccount}
-                    onChange={(e) => setCreateAccount(e.target.checked)}
-                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-knef-primary focus:ring-knef-primary"
-                  />
-                  <span>
-                    <span className="block text-sm font-medium text-gray-900">Create an account</span>
-                    <span className="block text-xs text-gray-500 mt-0.5">
-                      Track this and future orders, and check out faster next time. We&apos;ll use the email above.
-                    </span>
+              <div className="rounded-2xl border border-gray-200 bg-gradient-to-b from-gray-50/80 to-white p-5">
+                <div className="flex items-start gap-3 mb-4">
+                  <span className="w-10 h-10 shrink-0 rounded-xl bg-knef-primary/10 flex items-center justify-center">
+                    <UserRound size={20} className="text-knef-primary" />
                   </span>
-                </label>
-                {createAccount && (
-                  <div className="mt-3">
-                    <label htmlFor="account-password" className="block text-sm font-medium text-gray-700 mb-1">
-                      Choose a password <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      id="account-password"
-                      type="password"
-                      autoComplete="new-password"
-                      minLength={8}
-                      maxLength={128}
-                      value={accountPassword}
-                      onChange={(e) => setAccountPassword(e.target.value)}
-                      placeholder="At least 8 characters"
-                      className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary"
-                    />
+                  <div>
+                    <h2 className="font-semibold text-gray-900">Create Your Account</h2>
+                    <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">
+                      An account is required to check out. Track your orders and check out faster next time — we&apos;ll
+                      use {emailValid ? <strong className="text-gray-700">{watchEmail}</strong> : 'the email above'}.
+                    </p>
                   </div>
-                )}
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label htmlFor="account-password" className="block text-sm font-medium text-gray-700 mb-1">
+                      Password <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                      <input
+                        id="account-password"
+                        type={showPassword ? 'text' : 'password'}
+                        autoComplete="new-password"
+                        maxLength={128}
+                        value={accountPassword}
+                        onChange={(e) => setAccountPassword(e.target.value)}
+                        placeholder="At least 8 characters"
+                        className="w-full border border-gray-200 bg-white rounded-xl pl-10 pr-11 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary transition-colors"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((v) => !v)}
+                        aria-label={showPassword ? 'Hide passwords' : 'Show passwords'}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600"
+                      >
+                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                    {accountPassword && (
+                      <div className="mt-2 flex items-center gap-3">
+                        <div className="flex flex-1 gap-1">
+                          {[1, 2, 3, 4].map((i) => (
+                            <span
+                              key={i}
+                              className={cn(
+                                'h-1.5 flex-1 rounded-full transition-colors',
+                                pwScore >= i ? STRENGTH[pwScore].bar : 'bg-gray-200',
+                              )}
+                            />
+                          ))}
+                        </div>
+                        <span className={cn('text-xs font-medium w-16 text-right', STRENGTH[pwScore].text)}>
+                          {STRENGTH[pwScore].label}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <label htmlFor="account-password-confirm" className="block text-sm font-medium text-gray-700 mb-1">
+                      Confirm Password <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                      <input
+                        id="account-password-confirm"
+                        type={showPassword ? 'text' : 'password'}
+                        autoComplete="new-password"
+                        maxLength={128}
+                        value={accountPasswordConfirm}
+                        onChange={(e) => setAccountPasswordConfirm(e.target.value)}
+                        placeholder="Re-enter your password"
+                        className={cn(
+                          'w-full border bg-white rounded-xl pl-10 pr-11 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary transition-colors',
+                          accountPasswordConfirm && !passwordsMatch ? 'border-red-300' : 'border-gray-200',
+                          passwordsMatch && 'border-green-300',
+                        )}
+                      />
+                      {passwordsMatch && (
+                        <CheckCircle size={16} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-green-500" />
+                      )}
+                    </div>
+                    {accountPasswordConfirm && !passwordsMatch && (
+                      <p className="mt-1 text-xs text-red-600">Passwords don&apos;t match</p>
+                    )}
+                  </div>
+                </div>
+
+                <p className="mt-4 text-xs text-gray-500">
+                  Already have an account?{' '}
+                  <Link href="/login?redirect=/checkout" className="text-knef-primary font-medium hover:underline">
+                    Log in
+                  </Link>
+                </p>
               </div>
             )}
 
@@ -1239,16 +1517,16 @@ export default function CheckoutPage() {
               </div>
               <p className="text-xs text-gray-400">
                 {watchPaymentMethod === 'PAYSTACK'
-                  ? 'Paid securely online via Paystack'
-                  : watchPaymentMethod === 'BANK_TRANSFER'
-                    ? 'Pay by bank transfer before dispatch'
-                    : 'Payment collected on delivery / in store'}
+                  ? 'Paid securely online via Paystack (card or bank transfer)'
+                  : shippingMethod === 'DELIVERY'
+                    ? 'Payment collected on delivery (Lagos only)'
+                    : 'Pay when you pick up in store'}
               </p>
             </div>
           </div>
 
           {/* Coupon */}
-          <div className="border border-gray-200 rounded-xl overflow-hidden">
+          <div className={cn("mt-4 border border-gray-200 rounded-xl overflow-hidden bg-white", appliedCoupon && "hidden")}>
             {!appliedCoupon && (
               <>
                 <button
@@ -1286,7 +1564,7 @@ export default function CheckoutPage() {
           </div>
 
           {/* Gift Card */}
-          <div className="border border-gray-200 rounded-xl overflow-hidden">
+          <div className={cn("mt-3 border border-gray-200 rounded-xl overflow-hidden bg-white", appliedGiftCard && "hidden")}>
             {!appliedGiftCard && (
               <>
                 <button
@@ -1335,6 +1613,50 @@ export default function CheckoutPage() {
             </div>
           )}
 
+          {/* Terms and Conditions */}
+          {!pendingPayment && (
+            <label
+              className={cn(
+                'mt-5 flex items-start gap-3 rounded-2xl border p-4 cursor-pointer transition-colors',
+                termsAccepted ? 'border-knef-primary/40 bg-knef-primary/5' : 'border-gray-200 bg-white hover:border-gray-300',
+              )}
+            >
+              <input
+                type="checkbox"
+                checked={termsAccepted}
+                onChange={(e) => {
+                  setTermsAccepted(e.target.checked);
+                  setSubmitError('');
+                }}
+                className="sr-only peer"
+              />
+              <span
+                aria-hidden="true"
+                className={cn(
+                  'mt-0.5 w-5 h-5 shrink-0 rounded-md border-2 flex items-center justify-center transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-knef-primary peer-focus-visible:ring-offset-2',
+                  termsAccepted ? 'bg-knef-primary border-knef-primary' : 'border-gray-300 bg-white',
+                )}
+              >
+                {termsAccepted && <Check size={13} className="text-white" strokeWidth={3} />}
+              </span>
+              <span className="text-sm text-gray-600 leading-relaxed">
+                I have read and agree to the{' '}
+                <a href="/terms" target="_blank" rel="noopener noreferrer" className="font-medium text-knef-primary hover:underline">
+                  Terms and Conditions
+                </a>
+                ,{' '}
+                <a href="/returns" target="_blank" rel="noopener noreferrer" className="font-medium text-knef-primary hover:underline">
+                  Returns Policy
+                </a>{' '}
+                and{' '}
+                <a href="/privacy" target="_blank" rel="noopener noreferrer" className="font-medium text-knef-primary hover:underline">
+                  Privacy Policy
+                </a>
+                . <span className="text-red-500">*</span>
+              </span>
+            </label>
+          )}
+
           {/* Error */}
           {submitError && (
             <p className="mt-3 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{submitError}</p>
@@ -1375,7 +1697,7 @@ export default function CheckoutPage() {
             <button
               form="checkout-form"
               type="submit"
-              disabled={placeMutation.isPending || (!!SITE_KEY && !turnstileToken)}
+              disabled={placeMutation.isPending || (!!SITE_KEY && !turnstileToken) || !termsAccepted || podBlocked}
               className="mt-5 w-full flex items-center justify-center gap-2 py-4 bg-knef-primary text-white rounded-xl font-bold text-base hover:bg-opacity-90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {placeMutation.isPending ? (
@@ -1384,19 +1706,19 @@ export default function CheckoutPage() {
                   Placing Order…
                 </>
               ) : watchPaymentMethod === 'PAYSTACK' ? (
-                'Place Order & Pay'
+                <>
+                  <Lock size={18} />
+                  Place Order &amp; Pay {formatNGN(finalTotal)}
+                </>
               ) : (
                 'Place Order'
               )}
             </button>
           )}
 
-          <p className="text-xs text-center text-gray-400 mt-3">
-            By placing your order you agree to our{' '}
-            <a href="/terms" className="underline hover:text-gray-600">
-              terms
-            </a>
-            . Card payments are processed by Paystack; we never see your card details.
+          <p className="flex items-center justify-center gap-1.5 text-xs text-center text-gray-400 mt-3">
+            <ShieldCheck size={13} />
+            Online payments are processed securely by Paystack. We never see your card details.
           </p>
         </div>
       </div>

@@ -34,6 +34,14 @@ function publicResponse<T>(data: T, meta?: Record<string, unknown>) {
 
 import { generateReference } from '../../common/utils/references';
 
+/** True when the delivery address is in Lagos State, Nigeria (state may arrive as "Lagos" or "Lagos State"). */
+export function isLagosAddress(dto: Pick<CreatePublicOrderDto, 'deliveryState' | 'deliveryCountry'>): boolean {
+  const country = dto.deliveryCountry?.trim().toLowerCase();
+  if (country && country !== 'nigeria') return false;
+  const state = (dto.deliveryState ?? '').split(',')[0].trim().toLowerCase();
+  return state === 'lagos' || state === 'lagos state';
+}
+
 export interface PublicCardPayment {
   provider: 'paystack';
   reference: string;
@@ -331,6 +339,13 @@ export class EcommerceService {
       throw new BadRequestException('Order must have at least one item');
     }
 
+    // Payment on delivery is only offered within Lagos, Nigeria.
+    if (dto.deliveryMethod === 'DELIVERY' && dto.paymentMethod === 'CASH' && !isLagosAddress(dto)) {
+      throw new BadRequestException(
+        'Payment on delivery is only available for delivery addresses in Lagos. Please pay online instead.',
+      );
+    }
+
     // Idempotency check
     if (dto.idempotencyKey) {
       const existing = await this.prisma.salesOrder.findFirst({
@@ -366,7 +381,7 @@ export class EcommerceService {
       }
       if (await this.storefrontAuth.emailHasAccount(organizationId, dto.customerEmail)) {
         throw new ConflictException(
-          'An account with this email already exists. Please log in to continue, or untick "Create an account".',
+          'An account with this email already exists. Please log in to continue checking out.',
         );
       }
     }

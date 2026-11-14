@@ -31,8 +31,28 @@ export async function POST(request: NextRequest) {
     if (!bodyClean.customerPhone || !bodyClean.customerName) {
       return NextResponse.json({ error: 'Customer name and phone are required' }, { status: 400 });
     }
-    if (!bodyClean.paymentMethod) {
-      return NextResponse.json({ error: 'Payment method is required' }, { status: 400 });
+    if (bodyClean.paymentMethod !== 'CASH' && bodyClean.paymentMethod !== 'PAYSTACK') {
+      return NextResponse.json({ error: 'Please choose a payment method' }, { status: 400 });
+    }
+    if (bodyClean.termsAccepted !== true) {
+      return NextResponse.json({ error: 'Please accept the Terms and Conditions to place your order' }, { status: 400 });
+    }
+
+    // Storefront checkout requires an account: either signed in (token verified by the API)
+    // or creating one with this order.
+    const auth = request.headers.get('authorization');
+    const signedIn = !!auth?.startsWith('Bearer ');
+    if (!signedIn) {
+      const password = typeof bodyClean.accountPassword === 'string' ? bodyClean.accountPassword : '';
+      if (bodyClean.createAccount !== true || password.length < 8) {
+        return NextResponse.json(
+          { error: 'Please create a password (at least 8 characters) for your account to check out' },
+          { status: 400 },
+        );
+      }
+      if (bodyClean.accountPasswordConfirm !== password) {
+        return NextResponse.json({ error: 'Your passwords do not match' }, { status: 400 });
+      }
     }
 
     const locationId = (bodyClean.locationId as string | undefined) || LOCATION_ID;
@@ -57,8 +77,12 @@ export async function POST(request: NextRequest) {
       customerAccountId: _ignoredCustomerAccountId,
       paystackCallbackUrl: _ignoredCallbackUrl,
       paystackReference: _ignoredPaystackReference,
+      termsAccepted: _termsAccepted,
+      accountPasswordConfirm: _passwordConfirm,
       ...sanitized
     } = bodyClean;
+    void _termsAccepted;
+    void _passwordConfirm;
     void _ignoredDeliveryFee;
     void _ignoredSubtotal;
     void _ignoredTotalAmount;
@@ -74,8 +98,7 @@ export async function POST(request: NextRequest) {
     }
 
     const headers: Record<string, string> = { 'Content-Type': 'application/json', 'x-api-key': API_KEY };
-    const auth = request.headers.get('authorization');
-    if (auth?.startsWith('Bearer ')) headers.Authorization = auth; // verified by the API
+    if (signedIn && auth) headers.Authorization = auth; // verified by the API
 
     const res = await fetch(`${BACKEND}/api/v1/ecommerce/public/orders`, {
       method: 'POST',

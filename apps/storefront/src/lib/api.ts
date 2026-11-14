@@ -83,7 +83,7 @@ export interface CheckoutPayload {
   deliveryState?: string;
   deliveryPhone?: string;
   deliveryMethod?: 'PICKUP' | 'DELIVERY';
-  paymentMethod: 'CASH' | 'BANK_TRANSFER' | 'PAYSTACK';
+  paymentMethod: 'CASH' | 'PAYSTACK';
   notes?: string;
   items: Array<{ productId: string; variantId?: string; quantity: number }>;
   idempotencyKey?: string;
@@ -94,6 +94,9 @@ export interface CheckoutPayload {
   giftCardCode?: string;
   createAccount?: boolean;
   accountPassword?: string;
+  /** Checked by the storefront server only; never forwarded to the API. */
+  accountPasswordConfirm?: string;
+  termsAccepted: boolean;
   deliveryLandmark?: string;
   deliveryCountry?: string;
   deliveryPlaceId?: string;

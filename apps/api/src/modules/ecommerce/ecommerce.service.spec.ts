@@ -273,6 +273,7 @@ describe('EcommerceService.createPublicOrder — server-authoritative totals', (
       paymentMethod: 'CASH',
       deliveryMethod: 'DELIVERY',
       deliveryAddress: '1 Test Rd',
+      deliveryState: 'Lagos',
     });
 
     expect(result.data.totalAmount).toBe('5000');
@@ -363,6 +364,30 @@ describe('EcommerceService.createPublicOrder — discounts, card payments and ac
       totalAmount: new Prisma.Decimal(data.totalAmount as string),
       status: data.status as OrderStatus,
     }));
+  });
+
+  it('L. payment on delivery outside Lagos is rejected before anything is created', async () => {
+    await expect(
+      service.createPublicOrder(
+        ORG_ID,
+        baseDto({ deliveryMethod: 'DELIVERY', deliveryState: 'Ogun', deliveryCountry: 'Nigeria', deliveryAddress: '1 Road' }),
+      ),
+    ).rejects.toThrow('only available for delivery addresses in Lagos');
+    await expect(
+      service.createPublicOrder(ORG_ID, baseDto({ deliveryMethod: 'DELIVERY', deliveryState: 'Lagos', deliveryCountry: 'Ghana' })),
+    ).rejects.toThrow('Lagos');
+    expect(prisma.salesOrder.create).not.toHaveBeenCalled();
+  });
+
+  it('L. payment on delivery in Lagos, and pay-in-store pickup anywhere, are accepted', async () => {
+    await expect(
+      service.createPublicOrder(
+        ORG_ID,
+        baseDto({ deliveryMethod: 'DELIVERY', deliveryState: 'Lagos', deliveryCountry: 'Nigeria', deliveryAddress: '1 Road' }),
+      ),
+    ).resolves.toBeDefined();
+    await expect(service.createPublicOrder(ORG_ID, baseDto({ deliveryMethod: 'PICKUP' }))).resolves.toBeDefined();
+    expect(prisma.salesOrder.create).toHaveBeenCalledTimes(2);
   });
 
   it('F. coupon is priced on the server and recorded once', async () => {
