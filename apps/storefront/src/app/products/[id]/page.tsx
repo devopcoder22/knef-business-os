@@ -243,9 +243,10 @@ export default function ProductDetailPage() {
 
           {/* Short description */}
           {product.shortDesc && (
-            <p className="text-gray-600 text-sm leading-relaxed">
-              {product.shortDesc}
-            </p>
+            <div
+              className="prose prose-sm prose-gray max-w-none text-gray-600 leading-relaxed"
+              dangerouslySetInnerHTML={{ __html: sanitizeHtml(product.shortDesc) }}
+            />
           )}
 
           {/* Variants */}
