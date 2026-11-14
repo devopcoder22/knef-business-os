@@ -60,7 +60,7 @@ export default function SmsProvidersPage() {
         settings: [
           { key: 'sms.provider', value: activeProvider, label: 'Active SMS Provider' },
           { key: 'sms.apiKey', value: termiiApiKey, label: 'Termii API Key' },
-          { key: 'sms.senderId', value: activeProvider === 'termii' ? termiiSenderId : brevoSenderId, label: 'SMS Sender ID' },
+          { key: 'sms.senderId', value: termiiSenderId, label: 'Termii Sender ID' },
           { key: 'sms.baseUrl', value: termiiBaseUrl || 'https://v4.api.termii.com', label: 'Termii Base URL' },
           { key: 'sms.brevoApiKey', value: brevoApiKey, label: 'Brevo API Key' },
           { key: 'sms.brevoSenderId', value: brevoSenderId, label: 'Brevo Sender Name' },

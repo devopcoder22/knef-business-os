@@ -193,19 +193,36 @@ export class EmailService {
     }
   }
 
+  /** Settings may hold an encrypted value or (legacy) plaintext — try decrypt, fall back to raw. */
+  private decryptSetting(value: string): string {
+    try {
+      return decrypt(value, this.config.get<string>('ENCRYPTION_KEY')!);
+    } catch {
+      return value;
+    }
+  }
+
+  /**
+   * Sends a transactional SMS immediately via the org's active provider (sms.provider: termii | brevo).
+   */
   async sendSms(organizationId: string, to: string, message: string): Promise<SendEmailResult> {
     try {
-      // Prefer per-org DB setting, fall back to env var
-      const dbApiKey = await this.prisma.systemSetting.findFirst({
-        where: { organizationId, key: 'sms.apiKey' },
-        select: { value: true },
+      const rows = await this.prisma.systemSetting.findMany({
+        where: {
+          organizationId,
+          key: { in: ['sms.provider', 'sms.apiKey', 'sms.senderId', 'sms.baseUrl', 'sms.brevoApiKey', 'sms.brevoSenderId'] },
+        },
+        select: { key: true, value: true },
       });
-      const dbSenderId = await this.prisma.systemSetting.findFirst({
-        where: { organizationId, key: 'sms.senderId' },
-        select: { value: true },
-      });
-      const apiKey = dbApiKey?.value || this.config.get('TERMII_API_KEY');
-      const senderId = dbSenderId?.value || 'OE Alert';
+      const s = Object.fromEntries(rows.map((r) => [r.key, r.value?.trim() ?? '']));
+
+      if (s['sms.provider'] === 'brevo') {
+        return await this.sendSmsViaBrevo(to, message, s['sms.brevoApiKey'], s['sms.brevoSenderId'] || s['sms.senderId']);
+      }
+
+      const apiKey = s['sms.apiKey'] ? this.decryptSetting(s['sms.apiKey']) : this.config.get('TERMII_API_KEY');
+      const senderId = s['sms.senderId'] || 'OE Alert';
+      const baseUrl = (s['sms.baseUrl'] || 'https://v4.api.termii.com').replace(/\/+$/, '');
 
       if (!apiKey) {
         this.logger.warn('SMS: TERMII_API_KEY not set');
@@ -228,12 +245,14 @@ export class EmailService {
         from: senderId,
         sms: message,
         type: 'plain',
-        channel: 'generic',
+        // 'dnd' route delivers transactional messages (OTP) to DND-activated Nigerian numbers;
+        // 'generic' silently fails for them.
+        channel: 'dnd',
       };
 
-      this.logger.log(`SMS: sending to ${recipient} via Termii`);
+      this.logger.log(`SMS: sending to ${recipient} via Termii (sender=${senderId})`);
 
-      const response = await fetch('https://v4.api.termii.com/api/sms/send', {
+      const response = await fetch(`${baseUrl}/api/sms/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -254,6 +273,43 @@ export class EmailService {
       this.logger.error(`SMS: unexpected error: ${message}`);
       return { success: false, error: message };
     }
+  }
+
+  private async sendSmsViaBrevo(
+    to: string,
+    message: string,
+    encryptedOrRawKey: string | undefined,
+    sender: string | undefined,
+  ): Promise<SendEmailResult> {
+    if (!encryptedOrRawKey) {
+      return { success: false, error: 'SMS not configured — set the Brevo API key in SMS Providers settings' };
+    }
+    if (!sender) {
+      return { success: false, error: 'SMS not configured — set the Brevo sender name in SMS Providers settings' };
+    }
+    const apiKey = this.decryptSetting(encryptedOrRawKey);
+
+    // Brevo expects international format without '+', e.g. 2348012345678
+    let recipient = to.replace(/[\s\-()]/g, '');
+    if (recipient.startsWith('+')) recipient = recipient.slice(1);
+    else if (/^0\d{10}$/.test(recipient)) recipient = `234${recipient.slice(1)}`;
+    else if (/^\d{10}$/.test(recipient)) recipient = `234${recipient}`;
+
+    this.logger.log(`SMS: sending to ${recipient} via Brevo (sender=${sender})`);
+    const response = await fetch('https://api.brevo.com/v3/transactionalSMS/sms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+      body: JSON.stringify({ sender: sender.slice(0, 11), recipient, content: message, type: 'transactional' }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const responseText = await response.text();
+    if (!response.ok) {
+      this.logger.error(`SMS: Brevo error ${response.status}: ${responseText}`);
+      return { success: false, error: `Brevo SMS error ${response.status}: ${responseText}` };
+    }
+    this.logger.log(`SMS: Brevo accepted message to ${recipient}`);
+    const data = JSON.parse(responseText) as { reference?: string; messageId?: number };
+    return { success: true, messageId: data.reference ?? String(data.messageId ?? `brevo-sms-${Date.now()}`) };
   }
 
   private async sendViaMailgun(

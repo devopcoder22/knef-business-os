@@ -106,7 +106,8 @@ export class SmsSenderService {
     const senderId = senderIdRaw !== null && senderIdRaw !== undefined ? senderIdRaw : 'KNEF';
 
     try {
-      const result = await this.dispatchViaProvider(provider.providerName, provider.apiKey, to, params.message, senderId, provider.baseUrl);
+      const channel = params.messageType === 'MARKETING' ? 'generic' : 'dnd';
+      const result = await this.dispatchViaProvider(provider.providerName, provider.apiKey, to, params.message, senderId, provider.baseUrl, channel);
       await this.updateLog(params.logId, result.success ? 'sent' : 'failed', result.messageId, result.error);
       return result;
     } catch (err) {
@@ -124,10 +125,11 @@ export class SmsSenderService {
     message: string,
     senderId: string,
     baseUrl?: string,
+    channel: 'dnd' | 'generic' = 'dnd',
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
     switch (providerName) {
       case 'termii':
-        return this.sendViaTermii(apiKey, to, message, senderId, baseUrl);
+        return this.sendViaTermii(apiKey, to, message, senderId, baseUrl, channel);
       case 'brevo':
         return this.sendViaBrevo(apiKey, to, message, senderId);
       default:
@@ -183,6 +185,7 @@ export class SmsSenderService {
     message: string,
     from: string,
     baseUrl?: string,
+    channel: 'dnd' | 'generic' = 'dnd',
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
     // Allow admin-configured base URL; normalize to always end at /api/sms/send
     const endpoint = baseUrl
@@ -199,7 +202,8 @@ export class SmsSenderService {
           sms: message,
           type: 'plain',
           api_key: apiKey,
-          channel: 'generic',
+          // 'dnd' reaches DND-activated numbers (transactional); marketing stays on 'generic'
+          channel,
         }),
         signal: AbortSignal.timeout(15000),
       });
@@ -249,7 +253,7 @@ export class SmsSenderService {
     if (!record) {
       // Fallback: check SMS settings stored via admin settings page
       const settings = await this.prisma.systemSetting.findMany({
-        where: { organizationId, key: { in: ['sms.apiKey', 'sms.senderId', 'sms.provider', 'sms.brevoApiKey'] } },
+        where: { organizationId, key: { in: ['sms.apiKey', 'sms.senderId', 'sms.provider', 'sms.brevoApiKey', 'sms.brevoSenderId'] } },
         select: { key: true, value: true },
       });
       const settingsMap = Object.fromEntries(settings.map((s) => [s.key, s.value]));
@@ -257,12 +261,13 @@ export class SmsSenderService {
 
       // Brevo path
       if (providerName === 'brevo' && settingsMap['sms.brevoApiKey']) {
+        const brevoSender = settingsMap['sms.brevoSenderId'] || settingsMap['sms.senderId'] || null;
         try {
           const encKey = this.config.getOrThrow<string>('ENCRYPTION_KEY');
           const apiKey = decrypt(settingsMap['sms.brevoApiKey'], encKey);
-          return { providerName: 'brevo', apiKey, senderId: settingsMap['sms.senderId'] ?? null };
+          return { providerName: 'brevo', apiKey, senderId: brevoSender };
         } catch {
-          return { providerName: 'brevo', apiKey: settingsMap['sms.brevoApiKey'], senderId: settingsMap['sms.senderId'] ?? null };
+          return { providerName: 'brevo', apiKey: settingsMap['sms.brevoApiKey'], senderId: brevoSender };
         }
       }
 
