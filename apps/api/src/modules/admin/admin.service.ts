@@ -214,7 +214,11 @@ export class AdminService {
             await tx.customerSegmentMember.deleteMany({ where: { customer: { organizationId } } });
             const { count: customerCount } = await tx.customer.deleteMany({ where: { organizationId } });
             const { count: segmentCount } = await tx.customerSegment.deleteMany({ where: { organizationId } });
-            deleted['customers'] = customerCount + segmentCount;
+            // Storefront login accounts belong to this category too. Without this, a reset left
+            // orphaned accounts behind: the customer vanished from admin but the email stayed
+            // "already registered". Refresh tokens, saved addresses and push subscriptions cascade.
+            const { count: accountCount } = await tx.customerAccount.deleteMany({ where: { organizationId } });
+            deleted['customers'] = customerCount + segmentCount + accountCount;
           }
 
           if (categories.includes('staff') && staffUserIds.length > 0) {

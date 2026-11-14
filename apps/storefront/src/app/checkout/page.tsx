@@ -46,6 +46,8 @@ import { useCartStore } from '@/stores/cart.store';
 import { useCustomerStore } from '@/stores/customer.store';
 import { formatNGN, cn } from '@/lib/utils';
 import { toast } from '@/components/ui/toast';
+import { CheckoutLoginModal } from '@/components/checkout/checkout-login-modal';
+import type { AuthResult } from '@/lib/api';
 
 const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
 const MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
@@ -199,6 +201,10 @@ export default function CheckoutPage() {
   // Terms and payment-on-delivery notice
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [showLagosPopup, setShowLagosPopup] = useState(false);
+
+  // Sign in without leaving checkout
+  const [showLogin, setShowLogin] = useState(false);
+  const [loginNotice, setLoginNotice] = useState<string | undefined>();
 
   // Card payments (server-driven Paystack)
   const [paystackEnabled, setPaystackEnabled] = useState(false);
@@ -478,9 +484,28 @@ export default function CheckoutPage() {
       setStep('success');
     },
     onError: (err: unknown) => {
-      setSubmitError((err as { message?: string })?.message ?? 'Failed to place order. Please try again.');
+      const message = (err as { message?: string })?.message ?? 'Failed to place order. Please try again.';
+      setSubmitError(message);
+      // Guest used an email that already has an account: offer to sign in right here.
+      if (/already exists/i.test(message)) {
+        openLogin('An account already exists for this email. Sign in to place your order — your details are kept.');
+      }
     },
   });
+
+  function openLogin(notice?: string) {
+    setLoginNotice(notice);
+    setShowLogin(true);
+  }
+
+  function handleCheckoutLogin(result: AuthResult) {
+    setAuth(result.customer, result.accessToken, result.refreshToken);
+    setShowLogin(false);
+    setAccountPassword('');
+    setAccountPasswordConfirm('');
+    setSubmitError('');
+    toast('success', `Welcome back, ${result.customer.firstName}!`);
+  }
 
   async function onSubmit(data: FormData) {
     setSubmitError('');
@@ -719,6 +744,14 @@ export default function CheckoutPage() {
           </div>
         </div>
       )}
+      <CheckoutLoginModal
+        open={showLogin}
+        initialEmail={emailValid ? watchEmail : undefined}
+        notice={loginNotice}
+        onClose={() => setShowLogin(false)}
+        onSuccess={handleCheckoutLogin}
+      />
+
       {/* Payment on delivery — Lagos only */}
       {showLagosPopup && (
         <div
@@ -842,12 +875,18 @@ export default function CheckoutPage() {
         {/* ── Left: Form ── */}
         <div className="space-y-8">
           {/* Returning customer */}
-          <div className="text-sm text-gray-500">
-            Returning customer?{' '}
-            <Link href="/login?redirect=/checkout" className="text-knef-primary font-medium hover:underline">
-              Click here to login
-            </Link>
-          </div>
+          {!isAuthenticated && (
+            <div className="text-sm text-gray-500">
+              Returning customer?{' '}
+              <button
+                type="button"
+                onClick={() => openLogin()}
+                className="text-knef-primary font-medium hover:underline"
+              >
+                Click here to login
+              </button>
+            </div>
+          )}
 
           <form id="checkout-form" onSubmit={handleSubmit(onSubmit)} className="space-y-5">
             {/* ── Shipping Method ── */}
@@ -1427,9 +1466,14 @@ export default function CheckoutPage() {
 
                 <p className="mt-4 text-xs text-gray-500">
                   Already have an account?{' '}
-                  <Link href="/login?redirect=/checkout" className="text-knef-primary font-medium hover:underline">
-                    Log in
-                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => openLogin()}
+                    className="text-knef-primary font-medium hover:underline"
+                  >
+                    Log in here
+                  </button>{' '}
+                  — you won&apos;t lose your checkout progress.
                 </p>
               </div>
             )}

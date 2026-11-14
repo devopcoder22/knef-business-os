@@ -123,6 +123,10 @@ export class StorefrontAuthService {
       where: { id: account.id },
       data: { lastLoginAt: new Date() },
     });
+    if (!account.customerId) {
+      // Best effort: a login must never fail because the CRM link could not be repaired.
+      await this.relinkCustomerRecord(account).catch(() => undefined);
+    }
 
     const tokens = await this.generateTokenPair(account.id, organizationId, account.email);
     return {
@@ -134,6 +138,56 @@ export class StorefrontAuthService {
         lastName: account.lastName,
       },
     };
+  }
+
+  /**
+   * An account whose CRM Customer was deleted (e.g. by an admin data reset) is invisible in the
+   * admin Customers list. Re-link it to an unlinked Customer with the same email/phone, or create one.
+   */
+  async relinkCustomerRecord(account: {
+    id: string;
+    organizationId: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    phone: string | null;
+  }) {
+    const unlinked = { customerAccount: { is: null } };
+    let customer =
+      (account.phone
+        ? await this.prisma.customer.findFirst({
+            where: { organizationId: account.organizationId, phone: account.phone, ...unlinked },
+          })
+        : null) ??
+      (await this.prisma.customer.findFirst({
+        where: { organizationId: account.organizationId, email: account.email, ...unlinked },
+      }));
+
+    if (!customer) {
+      const phoneTaken = account.phone
+        ? await this.prisma.customer.findFirst({
+            where: { organizationId: account.organizationId, phone: account.phone },
+            select: { id: true },
+          })
+        : null;
+      customer = await this.prisma.customer.create({
+        data: {
+          id: createId(),
+          organizationId: account.organizationId,
+          code: `WEB-${Date.now()}`,
+          firstName: account.firstName,
+          lastName: account.lastName,
+          email: account.email,
+          phone: account.phone && !phoneTaken ? account.phone : `WEB-${Date.now()}`,
+        },
+      });
+    }
+
+    await this.prisma.customerAccount.updateMany({
+      where: { id: account.id, customerId: null },
+      data: { customerId: customer.id },
+    });
+    return customer.id;
   }
 
   async refresh(rawRefreshToken: string) {
