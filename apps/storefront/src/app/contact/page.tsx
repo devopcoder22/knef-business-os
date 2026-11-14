@@ -27,7 +27,7 @@ export default async function ContactPage() {
   const settings = await getStorefrontSettings();
 
   const address = settings.footerAddress || 'Lagos, Nigeria';
-  const phone = settings.footerPhone || '+234 800 000 0000';
+  const phone = settings.footerPhone || '';
   const email = settings.footerEmail || 'info@knefgadgets.com';
 
   return (
@@ -40,10 +40,12 @@ export default async function ContactPage() {
           <h2 className="font-semibold text-gray-900 mb-4">KNEF Technology &amp; IT Solutions</h2>
           <div className="space-y-3 text-sm text-gray-600">
             <p>{address}</p>
-            <p>
-              <span className="font-medium">Phone:</span>{' '}
-              <a href={`tel:${phone.replace(/\s/g, '')}`} className="hover:text-blue-600">{phone}</a>
-            </p>
+            {phone && (
+              <p>
+                <span className="font-medium">Phone:</span>{' '}
+                <a href={`tel:${phone.replace(/\s/g, '')}`} className="hover:text-blue-600">{phone}</a>
+              </p>
+            )}
             <p>
               <span className="font-medium">Email:</span>{' '}
               <a href={`mailto:${email}`} className="hover:text-blue-600">{email}</a>

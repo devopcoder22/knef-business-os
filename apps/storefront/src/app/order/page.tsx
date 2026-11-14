@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { PackageSearch, CheckCircle, Clock, XCircle, Loader2, AlertCircle } from 'lucide-react';
-import { fetchOrder } from '@/lib/api';
+import { fetchOrder, fetchStorefrontSettings } from '@/lib/api';
 import { formatNGN, formatDate, cn } from '@/lib/utils';
 
 const STATUS_DISPLAY: Record<
@@ -42,6 +42,14 @@ function OrderTrackContent() {
   const [submitted, setSubmitted] = useState(false);
   const [queryRef, setQueryRef] = useState(initialRef);
   const [queryEmail, setQueryEmail] = useState('');
+
+  const { data: settings = {} } = useQuery({
+    queryKey: ['storefront-settings'],
+    queryFn: fetchStorefrontSettings,
+    staleTime: 60_000,
+  });
+  const supportEmail = settings.footerEmail || 'info@knefgadgets.com';
+  const supportPhone = settings.footerPhone || '';
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['order', queryRef, queryEmail],
@@ -202,19 +210,17 @@ function OrderTrackContent() {
           <div className="px-6 py-4 bg-gray-50 border-t border-gray-100">
             <p className="text-sm text-gray-600">
               Questions about your order? Contact us at{' '}
-              <a
-                href="mailto:info@knef.ng"
-                className="text-knef-primary hover:underline"
-              >
-                info@knef.ng
-              </a>{' '}
-              or call{' '}
-              <a
-                href="tel:+2348000000000"
-                className="text-knef-primary hover:underline"
-              >
-                +234 800 000 0000
+              <a href={`mailto:${supportEmail}`} className="text-knef-primary hover:underline">
+                {supportEmail}
               </a>
+              {supportPhone && (
+                <>
+                  {' '}or call{' '}
+                  <a href={`tel:${supportPhone.replace(/\s/g, '')}`} className="text-knef-primary hover:underline">
+                    {supportPhone}
+                  </a>
+                </>
+              )}
               .
             </p>
           </div>

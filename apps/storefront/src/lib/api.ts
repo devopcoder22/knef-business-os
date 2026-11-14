@@ -251,8 +251,17 @@ export interface StorefrontSettings {
 export async function fetchStorefrontSettings(): Promise<StorefrontSettings> {
   try {
     const res: { data: Array<{ key: string; value: string }> } = await apiFetch('/api/storefront-settings');
+    return parseStorefrontSettings(res.data ?? []);
+  } catch {
+    return {};
+  }
+}
+
+/** Turns the API's key/value rows into StorefrontSettings (used in the browser and by the server layout). */
+export function parseStorefrontSettings(rows: Array<{ key: string; value: string }>): StorefrontSettings {
+  {
     const settings: StorefrontSettings = {};
-    for (const item of res.data ?? []) {
+    for (const item of rows) {
       // Handle adsense.* keys separately (they have a different prefix)
       if (item.key.startsWith('adsense.')) {
         const subKey = item.key.slice('adsense.'.length); // e.g. "enabled", "publisherId"
@@ -294,8 +303,6 @@ export async function fetchStorefrontSettings(): Promise<StorefrontSettings> {
       }
     }
     return settings;
-  } catch {
-    return {};
   }
 }
 

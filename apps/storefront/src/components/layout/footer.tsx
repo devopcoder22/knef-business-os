@@ -28,7 +28,7 @@ export function Footer() {
   const logoSrc = settings.logoUrl || '/logo.png';
   const description = settings.footerDescription || 'Your trusted destination for smartphones, gadgets, and consumer electronics in Lagos, Nigeria. Genuine products, competitive prices.';
   const address = settings.footerAddress || 'Lagos, Nigeria';
-  const phone = settings.footerPhone || '+234 800 000 0000';
+  const phone = settings.footerPhone || '';
   const email = settings.footerEmail || 'info@knefgadgets.com';
 
   const socialLinks = [
@@ -59,12 +59,14 @@ export function Footer() {
                 <MapPin size={14} />
                 <span>{address}</span>
               </div>
-              <div className="flex items-center gap-2">
-                <Phone size={14} />
-                <a href={`tel:${phone.replace(/\s/g, '')}`} className="hover:text-white transition-colors">
-                  {phone}
-                </a>
-              </div>
+              {phone && (
+                <div className="flex items-center gap-2">
+                  <Phone size={14} />
+                  <a href={`tel:${phone.replace(/\s/g, '')}`} className="hover:text-white transition-colors">
+                    {phone}
+                  </a>
+                </div>
+              )}
               <div className="flex items-center gap-2">
                 <Mail size={14} />
                 <a href={`mailto:${email}`} className="hover:text-white transition-colors">
