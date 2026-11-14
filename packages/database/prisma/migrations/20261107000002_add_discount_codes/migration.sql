@@ -43,7 +43,7 @@ CREATE UNIQUE INDEX "discount_codes_organizationId_code_key" ON "discount_codes"
 CREATE INDEX "discount_code_usages_discountCodeId_idx" ON "discount_code_usages"("discountCodeId");
 
 -- AddForeignKey
-ALTER TABLE "discount_codes" ADD CONSTRAINT "discount_codes_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "discount_codes" ADD CONSTRAINT "discount_codes_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "discount_code_usages" ADD CONSTRAINT "discount_code_usages_discountCodeId_fkey" FOREIGN KEY ("discountCodeId") REFERENCES "discount_codes"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
