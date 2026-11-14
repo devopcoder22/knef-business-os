@@ -150,6 +150,14 @@ export interface AuthResult {
   customer: { id: string; email: string; firstName: string; lastName: string };
 }
 
+/**
+ * The API wraps every response as { data: ... }. Auth callers need the inner object
+ * (tokens + customer); reading the envelope directly left customer undefined after login.
+ */
+function unwrap<T>(res: T | { data: T }): T {
+  return res && typeof res === 'object' && 'data' in (res as object) ? (res as { data: T }).data : (res as T);
+}
+
 export async function customerRegister(body: {
   email: string;
   firstName: string;
@@ -158,7 +166,7 @@ export async function customerRegister(body: {
   password: string;
   turnstileToken?: string;
 }): Promise<AuthResult> {
-  return apiFetch('/api/auth/register', { method: 'POST', body: JSON.stringify(body) });
+  return unwrap(await apiFetch<AuthResult | { data: AuthResult }>('/api/auth/register', { method: 'POST', body: JSON.stringify(body) }));
 }
 
 export async function customerLogin(body: {
@@ -166,7 +174,7 @@ export async function customerLogin(body: {
   password: string;
   turnstileToken?: string;
 }): Promise<AuthResult> {
-  return apiFetch('/api/auth/login', { method: 'POST', body: JSON.stringify(body) });
+  return unwrap(await apiFetch<AuthResult | { data: AuthResult }>('/api/auth/login', { method: 'POST', body: JSON.stringify(body) }));
 }
 
 export async function customerLogout(
@@ -181,10 +189,13 @@ export async function customerLogout(
 }
 
 export async function customerRefresh(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
-  return apiFetch('/api/auth/refresh', {
-    method: 'POST',
-    body: JSON.stringify({ refreshToken }),
-  });
+  type Tokens = { accessToken: string; refreshToken: string };
+  return unwrap(
+    await apiFetch<Tokens | { data: Tokens }>('/api/auth/refresh', {
+      method: 'POST',
+      body: JSON.stringify({ refreshToken }),
+    }),
+  );
 }
 
 export async function getProfile(token: string) {
@@ -198,9 +209,11 @@ export async function getMyOrders(token: string, page = 1) {
 }
 
 export async function getMyOrder(token: string, reference: string) {
-  return apiFetch(`/api/account/orders/${encodeURIComponent(reference)}`, {
+  return unwrap(
+    await apiFetch(`/api/account/orders/${encodeURIComponent(reference)}`, {
     headers: { Authorization: `Bearer ${token}` },
-  });
+  }),
+  );
 }
 
 export interface StorefrontSettings {
@@ -363,9 +376,11 @@ export interface SavedAddress {
 }
 
 export async function listSavedAddresses(token: string): Promise<SavedAddress[]> {
-  return apiFetch('/api/account/addresses', {
+  return unwrap(
+    await apiFetch('/api/account/addresses', {
     headers: { Authorization: `Bearer ${token}` },
-  });
+  }),
+  );
 }
 
 export async function createSavedAddress(
@@ -375,11 +390,13 @@ export async function createSavedAddress(
     isDefault?: boolean;
   },
 ): Promise<SavedAddress> {
-  return apiFetch('/api/account/addresses', {
+  return unwrap(
+    await apiFetch('/api/account/addresses', {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     body: JSON.stringify(dto),
-  });
+  }),
+  );
 }
 
 export async function updateSavedAddress(
@@ -387,11 +404,13 @@ export async function updateSavedAddress(
   id: string,
   dto: Partial<Omit<SavedAddress, 'id' | 'createdAt' | 'updatedAt'>>,
 ): Promise<SavedAddress> {
-  return apiFetch(`/api/account/addresses/${encodeURIComponent(id)}`, {
+  return unwrap(
+    await apiFetch(`/api/account/addresses/${encodeURIComponent(id)}`, {
     method: 'PUT',
     headers: { Authorization: `Bearer ${token}` },
     body: JSON.stringify(dto),
-  });
+  }),
+  );
 }
 
 export async function deleteSavedAddress(token: string, id: string): Promise<void> {
@@ -402,8 +421,10 @@ export async function deleteSavedAddress(token: string, id: string): Promise<voi
 }
 
 export async function setDefaultAddress(token: string, id: string): Promise<SavedAddress> {
-  return apiFetch(`/api/account/addresses/${encodeURIComponent(id)}/default`, {
+  return unwrap(
+    await apiFetch(`/api/account/addresses/${encodeURIComponent(id)}/default`, {
     method: 'PATCH',
     headers: { Authorization: `Bearer ${token}` },
-  });
+  }),
+  );
 }

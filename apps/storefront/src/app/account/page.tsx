@@ -22,8 +22,8 @@ export default function AccountPage() {
   }, []);
 
   useEffect(() => {
-    if (hydrated && !isAuthenticated) router.replace('/login?from=/account');
-  }, [hydrated, isAuthenticated, router]);
+    if (hydrated && (!isAuthenticated || !customer)) router.replace('/login?from=/account');
+  }, [hydrated, isAuthenticated, customer, router]);
 
   async function handleLogout() {
     if (accessToken && refreshToken) {

@@ -65,6 +65,13 @@ export const useCustomerStore = create<CustomerStore>()(
         refreshToken: state.refreshToken,
         isAuthenticated: state.isAuthenticated,
       }),
+      // Self-heal sessions saved by an older build that stored "signed in" without the
+      // customer or tokens (blank account page, "Sign in" still shown in the header).
+      onRehydrateStorage: () => (state) => {
+        if (state?.isAuthenticated && (!state.customer?.email || !state.accessToken)) {
+          state.clearAuth();
+        }
+      },
     },
   ),
 );
