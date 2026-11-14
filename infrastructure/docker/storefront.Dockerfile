@@ -18,7 +18,9 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 ENV NEXT_PUBLIC_TURNSTILE_SITE_KEY=0x4AAAAAAFZ_7Qph45mfl9bO
-ENV NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY=pk_live_2c4569d967e53a3c322d323c729c897f7164a030
+# Card payments disabled until the server-side Paystack flow and secret key are in place.
+# (Public key was pk_live_2c4569d967e53a3c322d323c729c897f7164a030.)
+ENV NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY=
 
 RUN corepack enable && corepack prepare pnpm@9.1.4 --activate
 
