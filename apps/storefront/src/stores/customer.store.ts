@@ -18,6 +18,7 @@ interface CustomerStore {
 
   setAuth: (customer: CustomerInfo, accessToken: string, refreshToken: string) => void;
   updateTokens: (accessToken: string, refreshToken: string) => void;
+  updateCustomer: (patch: Partial<Pick<CustomerInfo, 'firstName' | 'lastName'>>) => void;
   clearAuth: () => void;
 }
 
@@ -50,6 +51,9 @@ export const useCustomerStore = create<CustomerStore>()(
         set({ accessToken, refreshToken });
         setCookie('knef-customer-token', accessToken, 1);
       },
+
+      updateCustomer: (patch) =>
+        set((state) => (state.customer ? { customer: { ...state.customer, ...patch } } : {})),
 
       clearAuth: () => {
         set({ customer: null, accessToken: null, refreshToken: null, isAuthenticated: false });

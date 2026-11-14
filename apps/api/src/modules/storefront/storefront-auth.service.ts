@@ -235,6 +235,32 @@ export class StorefrontAuthService {
     return account;
   }
 
+  /** Customer edits their own name; the linked CRM Customer is kept in sync so admin shows the same. */
+  async updateProfile(accountId: string, dto: { firstName: string; lastName: string }) {
+    const account = await this.prisma.customerAccount.findUnique({
+      where: { id: accountId },
+      select: { id: true, customerId: true, isActive: true },
+    });
+    if (!account || !account.isActive) throw new NotFoundException('Account not found');
+
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.customerAccount.update({
+        where: { id: accountId },
+        data: { firstName: dto.firstName, lastName: dto.lastName },
+        select: { id: true, email: true, firstName: true, lastName: true, phone: true },
+      }),
+      ...(account.customerId
+        ? [
+            this.prisma.customer.update({
+              where: { id: account.customerId },
+              data: { firstName: dto.firstName, lastName: dto.lastName },
+            }),
+          ]
+        : []),
+    ]);
+    return updated;
+  }
+
   async postOrderRegister(
     organizationId: string,
     dto: {

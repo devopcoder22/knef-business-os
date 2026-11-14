@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Get,
+  Patch,
   Body,
   UseGuards,
   HttpCode,
@@ -16,6 +17,7 @@ import { CurrentCustomer } from './decorators/current-customer.decorator';
 import { CustomerRegisterDto } from './dto/customer-register.dto';
 import { CustomerLoginDto } from './dto/customer-login.dto';
 import { CustomerRefreshDto } from './dto/customer-refresh.dto';
+import { UpdateCustomerProfileDto } from './dto/update-profile.dto';
 import { PostOrderRegisterDto } from './dto/post-order-register.dto';
 import type { CustomerAccountContext } from './guards/customer-jwt.guard';
 
@@ -63,6 +65,15 @@ export class StorefrontAuthController {
   @ApiOperation({ summary: 'Get customer profile' })
   profile(@CurrentCustomer() customer: CustomerAccountContext) {
     return this.authService.getProfile(customer.id);
+  }
+
+  @Patch('profile')
+  @UseGuards(CustomerJwtGuard)
+  @Throttle({ short: { ttl: 60000, limit: 10 } })
+  @ApiBearerAuth('customer-JWT')
+  @ApiOperation({ summary: 'Update the signed-in customer’s name' })
+  updateProfile(@CurrentCustomer() customer: CustomerAccountContext, @Body() dto: UpdateCustomerProfileDto) {
+    return this.authService.updateProfile(customer.id, dto);
   }
 
   @Post('logout')

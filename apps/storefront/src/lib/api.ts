@@ -202,6 +202,22 @@ export async function getProfile(token: string) {
   return apiFetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
 }
 
+export async function updateProfile(
+  token: string,
+  body: { firstName: string; lastName: string },
+): Promise<{ id: string; email: string; firstName: string; lastName: string }> {
+  return unwrap(
+    await apiFetch<
+      | { id: string; email: string; firstName: string; lastName: string }
+      | { data: { id: string; email: string; firstName: string; lastName: string } }
+    >('/api/auth/me', {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
 export async function getMyOrders(token: string, page = 1) {
   return apiFetch(`/api/account/orders?page=${page}`, {
     headers: { Authorization: `Bearer ${token}` },
