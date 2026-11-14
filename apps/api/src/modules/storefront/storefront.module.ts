@@ -37,5 +37,6 @@ import { StorefrontPushController } from './storefront-push.controller';
     CustomerJwtGuard,
     CustomerAddressService,
   ],
+  exports: [StorefrontAuthService],
 })
 export class StorefrontModule {}

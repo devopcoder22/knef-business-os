@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -17,15 +17,20 @@ import {
   requestSmsOtp,
   verifySmsOtp,
   postOrderRegister,
+  verifyPaystackPayment,
+  fetchPaymentConfig,
 } from '@/lib/api';
 import type { AuthResult } from '@/lib/api';
+import type { OrderConfirmation } from '@/types';
 import { useCartStore } from '@/stores/cart.store';
+import { useCustomerStore } from '@/stores/customer.store';
 import { formatNGN, cn } from '@/lib/utils';
 import { toast } from '@/components/ui/toast';
 
 const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
 const MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
-const PAYSTACK_PUBLIC_KEY = process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY ?? '';
+
+type PendingPayment = NonNullable<OrderConfirmation['payment']> & { amountDue: number };
 
 const schema = z.object({
   customerName: z.string().min(2, 'Full name is required').max(100, 'Name is too long'),
@@ -50,17 +55,16 @@ type OtpStep = 'idle' | 'sending' | 'sent' | 'verifying' | 'verified';
 
 declare global {
   interface Window {
-    PaystackPop?: {
-      setup(options: {
-        key: string;
-        email: string;
-        amount: number;
-        currency: string;
-        ref: string;
-        metadata?: Record<string, unknown>;
-        onClose: () => void;
-        callback: (response: { reference: string }) => void;
-      }): { openIframe: () => void };
+    // Paystack InlineJS v2 — resumes a transaction the server already initialized.
+    PaystackPop?: new () => {
+      resumeTransaction(
+        accessCode: string,
+        callbacks?: {
+          onSuccess?: (transaction: { reference?: string }) => void;
+          onCancel?: () => void;
+          onError?: (error: { message?: string }) => void;
+        },
+      ): void;
     };
     google?: {
       maps?: {
@@ -135,6 +139,30 @@ export default function CheckoutPage() {
   const [regLoading, setRegLoading] = useState(false);
   const [registered, setRegistered] = useState(false);
 
+  // Logged-in customer / create an account at checkout
+  const customer = useCustomerStore((s) => s.customer);
+  const accessToken = useCustomerStore((s) => s.accessToken);
+  const isAuthenticated = useCustomerStore((s) => s.isAuthenticated);
+  const setAuth = useCustomerStore((s) => s.setAuth);
+  const [createAccount, setCreateAccount] = useState(false);
+  const [accountPassword, setAccountPassword] = useState('');
+  const [savedToAccount, setSavedToAccount] = useState(false);
+
+  // Card payments (server-driven Paystack)
+  const [paystackEnabled, setPaystackEnabled] = useState(false);
+  const [pendingPayment, setPendingPayment] = useState<PendingPayment | null>(null);
+  const [verifyingPayment, setVerifyingPayment] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    fetchPaymentConfig().then((c) => {
+      if (active) setPaystackEnabled(c.paystackEnabled);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const addressInputRef = useRef<HTMLInputElement | null>(null);
   const placeIdRef = useRef<string | null>(null);
   const latitudeRef = useRef<number | null>(null);
@@ -157,6 +185,17 @@ export default function CheckoutPage() {
   const watchEmail = useWatch({ control, name: 'customerEmail' });
   const watchPhone = useWatch({ control, name: 'customerPhone' });
   const watchCountry = useWatch({ control, name: 'deliveryCountry' });
+  const watchPaymentMethod = useWatch({ control, name: 'paymentMethod' });
+
+  // Prefill contact details for a logged-in customer (only into empty fields)
+  useEffect(() => {
+    if (!isAuthenticated || !customer) return;
+    if (!getValues('customerEmail')) setValue('customerEmail', customer.email);
+    if (!getValues('customerName')) {
+      const name = `${customer.firstName} ${customer.lastName === '-' ? '' : customer.lastName}`.trim();
+      if (name) setValue('customerName', name);
+    }
+  }, [isAuthenticated, customer, getValues, setValue]);
 
   const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(watchEmail ?? '');
   const phoneValid = /^\+?[\d\s\-()]{7,}$/.test(watchPhone ?? '');
@@ -302,7 +341,7 @@ export default function CheckoutPage() {
   }
 
   const placeMutation = useMutation({
-    mutationFn: (payload: FormData & { paystackReference?: string }) =>
+    mutationFn: (payload: FormData) =>
       createOrder({
         customerName: payload.customerName,
         customerPhone: payload.customerPhone,
@@ -321,20 +360,35 @@ export default function CheckoutPage() {
         deliveryAddressSource: shippingMethod === 'DELIVERY' ? addressSourceRef.current : undefined,
         deliveryMethod: shippingMethod === 'DELIVERY' ? 'DELIVERY' : 'PICKUP',
         paymentMethod: payload.paymentMethod,
-        paystackReference: payload.paystackReference,
         notes: payload.notes || undefined,
         idempotencyKey: crypto.randomUUID(),
         turnstileToken: turnstileToken ?? undefined,
         ...(appliedCoupon ? { couponCode: appliedCoupon.code } : {}),
         ...(appliedGiftCard ? { giftCardCode: appliedGiftCard.code } : {}),
+        ...(!isAuthenticated && createAccount ? { createAccount: true, accountPassword } : {}),
         items: items.map((i) => ({
           productId: i.productId,
           variantId: i.variantId ?? undefined,
           quantity: i.quantity,
         })),
-      }),
+      }, isAuthenticated ? accessToken : null),
     onSuccess: (res) => {
-      setOrderRef(res.data.reference);
+      const order = res.data;
+      setOrderRef(order.reference);
+      setSavedToAccount(!!order.linkedToAccount);
+      if (order.account) {
+        setAuth(order.account.customer, order.account.accessToken, order.account.refreshToken);
+        toast('success', 'Your account has been created');
+      }
+      if (order.accountError) toast('error', order.accountError);
+
+      if (order.payment) {
+        // Order is saved; it completes once the card payment is verified.
+        const payment: PendingPayment = { ...order.payment, amountDue: Number(order.amountDue ?? order.totalAmount) };
+        setPendingPayment(payment);
+        openPaystack(payment);
+        return;
+      }
       clearCart();
       setStep('success');
     },
@@ -357,32 +411,69 @@ export default function CheckoutPage() {
       setSubmitError('Please enter a delivery address');
       return;
     }
-    setFormSnapshot(data);
-
-    if (data.paymentMethod === 'PAYSTACK') {
-      if (!window.PaystackPop) {
-        setSubmitError('Paystack is still loading. Please wait a moment and try again.');
-        return;
-      }
-      const handler = window.PaystackPop.setup({
-        key: PAYSTACK_PUBLIC_KEY,
-        email: data.customerEmail,
-        amount: Math.round(finalTotal * 100), // kobo
-        currency: 'NGN',
-        ref: `KNEF-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
-        metadata: { customerName: data.customerName, customerPhone: data.customerPhone },
-        onClose: () => {
-          setSubmitError('Payment cancelled. Your order was not placed.');
-        },
-        callback: async (response) => {
-          await placeMutation.mutateAsync({ ...data, paystackReference: response.reference });
-        },
-      });
-      handler.openIframe();
+    if (!isAuthenticated && createAccount && accountPassword.length < 8) {
+      setSubmitError('Choose a password of at least 8 characters to create your account');
       return;
     }
+    setFormSnapshot(data);
 
+    // For card payments the server creates the order, starts the Paystack transaction and
+    // returns an access code; onSuccess then opens the Paystack popup.
     await placeMutation.mutateAsync(data);
+  }
+
+  function openPaystack(payment: PendingPayment) {
+    setSubmitError('');
+    if (!window.PaystackPop) {
+      // Popup script not available — use Paystack's hosted page; it returns to /checkout/payment-return.
+      window.location.href = payment.authorizationUrl;
+      return;
+    }
+    try {
+      const popup = new window.PaystackPop();
+      popup.resumeTransaction(payment.accessCode, {
+        onSuccess: () => {
+          void confirmPayment(payment.reference);
+        },
+        onCancel: () => {
+          setSubmitError('Payment was not completed. Your order is saved — click "Pay now" to try again.');
+        },
+        onError: (error) => {
+          setSubmitError(error?.message ?? 'The card payment window could not be opened. Please try again.');
+        },
+      });
+    } catch {
+      window.location.href = payment.authorizationUrl;
+    }
+  }
+
+  async function confirmPayment(reference: string) {
+    setVerifyingPayment(true);
+    setSubmitError('');
+    try {
+      // Paystack can take a few seconds to report success; poll briefly.
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const res = await verifyPaystackPayment(reference);
+        if (res.data.status === 'paid') {
+          clearCart();
+          setPendingPayment(null);
+          setStep('success');
+          return;
+        }
+        if (res.data.status === 'failed') {
+          setSubmitError('Your card payment did not go through. Click "Pay now" to try again.');
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2500));
+      }
+      setSubmitError(
+        'We have not received confirmation from Paystack yet. If you completed payment, wait a moment and click "I\'ve paid". Your order is saved.',
+      );
+    } catch (err) {
+      setSubmitError((err as { message?: string })?.message ?? 'Could not check your payment. Please try again.');
+    } finally {
+      setVerifyingPayment(false);
+    }
   }
 
   async function handlePostOrderRegister() {
@@ -477,10 +568,10 @@ export default function CheckoutPage() {
               <p className="text-sm text-gray-500">Create a free account to track all your orders in one place.</p>
             </div>
 
-            {registered ? (
+            {registered || savedToAccount ? (
               <div className="mt-auto text-sm text-green-700 font-medium flex items-center gap-1.5">
                 <CheckCircle size={16} />
-                Account created!{' '}
+                {registered ? 'Account created!' : 'Saved to your account.'}{' '}
                 <Link href="/account" className="underline hover:no-underline">
                   Go to my account →
                 </Link>
@@ -586,8 +677,8 @@ export default function CheckoutPage() {
           </div>
         </div>
       )}
-      {PAYSTACK_PUBLIC_KEY && (
-        <Script src="https://js.paystack.co/v1/inline.js" strategy="lazyOnload" />
+      {paystackEnabled && (
+        <Script src="https://js.paystack.co/v2/inline.js" strategy="lazyOnload" />
       )}
       {MAPS_KEY && (
         <Script
@@ -1004,7 +1095,7 @@ export default function CheckoutPage() {
                 {([
                   { value: 'CASH', label: shippingMethod === 'STORE_PICKUP' ? 'Pay in Store' : 'Cash on Delivery', sub: shippingMethod === 'STORE_PICKUP' ? 'Pay when you pick up' : 'Pay when you receive your order' },
                   { value: 'BANK_TRANSFER', label: 'Bank Transfer', sub: 'Transfer before dispatch' },
-                  ...(PAYSTACK_PUBLIC_KEY ? [{ value: 'PAYSTACK' as const, label: 'Pay with Card', sub: 'Debit/credit card via Paystack' }] : []),
+                  ...(paystackEnabled ? [{ value: 'PAYSTACK' as const, label: 'Pay with Card', sub: 'Card, transfer or USSD via Paystack' }] : []),
                 ] as const).map(({ value, label, sub }) => (
                   <label
                     key={value}
@@ -1019,6 +1110,51 @@ export default function CheckoutPage() {
                 ))}
               </div>
             </div>
+
+            {/* ── Account ── */}
+            {isAuthenticated && customer ? (
+              <div className="flex items-start gap-2 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+                <ShieldCheck size={16} className="mt-0.5 shrink-0" />
+                <span>
+                  Signed in as <strong>{customer.email}</strong>. This order will be saved to your account.
+                </span>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-gray-200 p-4">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={createAccount}
+                    onChange={(e) => setCreateAccount(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-knef-primary focus:ring-knef-primary"
+                  />
+                  <span>
+                    <span className="block text-sm font-medium text-gray-900">Create an account</span>
+                    <span className="block text-xs text-gray-500 mt-0.5">
+                      Track this and future orders, and check out faster next time. We&apos;ll use the email above.
+                    </span>
+                  </span>
+                </label>
+                {createAccount && (
+                  <div className="mt-3">
+                    <label htmlFor="account-password" className="block text-sm font-medium text-gray-700 mb-1">
+                      Choose a password <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      id="account-password"
+                      type="password"
+                      autoComplete="new-password"
+                      minLength={8}
+                      maxLength={128}
+                      value={accountPassword}
+                      onChange={(e) => setAccountPassword(e.target.value)}
+                      placeholder="At least 8 characters"
+                      className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-knef-primary"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* ── Notes ── */}
             <div>
@@ -1101,7 +1237,13 @@ export default function CheckoutPage() {
                 <span className="text-gray-900">Total</span>
                 <span className="text-knef-primary">{formatNGN(finalTotal)}</span>
               </div>
-              <p className="text-xs text-gray-400">Payment collected on delivery / in store</p>
+              <p className="text-xs text-gray-400">
+                {watchPaymentMethod === 'PAYSTACK'
+                  ? 'Paid securely online via Paystack'
+                  : watchPaymentMethod === 'BANK_TRANSFER'
+                    ? 'Pay by bank transfer before dispatch'
+                    : 'Payment collected on delivery / in store'}
+              </p>
             </div>
           </div>
 
@@ -1198,28 +1340,63 @@ export default function CheckoutPage() {
             <p className="mt-3 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{submitError}</p>
           )}
 
-          <button
-            form="checkout-form"
-            type="submit"
-            disabled={placeMutation.isPending || (!!SITE_KEY && !turnstileToken)}
-            className="mt-5 w-full flex items-center justify-center gap-2 py-4 bg-knef-primary text-white rounded-xl font-bold text-base hover:bg-opacity-90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {placeMutation.isPending ? (
-              <>
-                <Loader2 size={20} className="animate-spin" />
-                Placing Order…
-              </>
-            ) : (
-              'Place Order'
-            )}
-          </button>
+          {pendingPayment ? (
+            // Order exists and is waiting for its card payment — never create a second order here.
+            <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
+              <p className="text-sm text-amber-900">
+                Order <strong className="font-mono">{orderRef}</strong> is saved and waiting for a card payment of{' '}
+                <strong>{formatNGN(pendingPayment.amountDue)}</strong>.
+              </p>
+              <button
+                type="button"
+                onClick={() => openPaystack(pendingPayment)}
+                disabled={verifyingPayment}
+                className="w-full flex items-center justify-center gap-2 py-3.5 bg-knef-primary text-white rounded-xl font-bold hover:bg-opacity-90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                Pay now
+              </button>
+              <button
+                type="button"
+                onClick={() => confirmPayment(pendingPayment.reference)}
+                disabled={verifyingPayment}
+                className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-medium text-amber-900 hover:underline disabled:opacity-60"
+              >
+                {verifyingPayment ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" />
+                    Checking your payment…
+                  </>
+                ) : (
+                  "I've paid — check my payment"
+                )}
+              </button>
+            </div>
+          ) : (
+            <button
+              form="checkout-form"
+              type="submit"
+              disabled={placeMutation.isPending || (!!SITE_KEY && !turnstileToken)}
+              className="mt-5 w-full flex items-center justify-center gap-2 py-4 bg-knef-primary text-white rounded-xl font-bold text-base hover:bg-opacity-90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {placeMutation.isPending ? (
+                <>
+                  <Loader2 size={20} className="animate-spin" />
+                  Placing Order…
+                </>
+              ) : watchPaymentMethod === 'PAYSTACK' ? (
+                'Place Order & Pay'
+              ) : (
+                'Place Order'
+              )}
+            </button>
+          )}
 
           <p className="text-xs text-center text-gray-400 mt-3">
             By placing your order you agree to our{' '}
             <a href="/terms" className="underline hover:text-gray-600">
               terms
             </a>
-            . No card details are collected online.
+            . Card payments are processed by Paystack; we never see your card details.
           </p>
         </div>
       </div>

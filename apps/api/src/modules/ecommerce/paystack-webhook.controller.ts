@@ -10,8 +10,17 @@ import {
 import type { Request, Response } from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { Public } from '../../common/decorators/public.decorator';
-import { PrismaService } from '../../common/services/prisma.service';
 import { CredentialService } from '../credentials/credential.service';
+import { PaystackService } from './paystack.service';
+
+function signatureMatches(body: string, signature: string, secret: string): boolean {
+  const expected = createHmac('sha512', secret).update(body).digest('hex');
+  try {
+    return timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+  } catch {
+    return false;
+  }
+}
 
 @Controller('webhooks/paystack')
 @Public()
@@ -19,8 +28,8 @@ export class PaystackWebhookController {
   private readonly logger = new Logger(PaystackWebhookController.name);
 
   constructor(
-    private readonly prisma: PrismaService,
     private readonly credentialService: CredentialService,
+    private readonly paystack: PaystackService,
   ) {}
 
   @Post()
@@ -30,28 +39,29 @@ export class PaystackWebhookController {
     @Req() req: Request,
     @Res() res: Response,
   ): Promise<void> {
-    const secret = await this.credentialService.resolve('PAYSTACK_WEBHOOK_SECRET');
-    if (!secret) {
-      this.logger.error('PAYSTACK_WEBHOOK_SECRET not configured');
+    // Paystack signs webhooks with the account's secret key (HMAC-SHA512 of the raw body).
+    // PAYSTACK_WEBHOOK_SECRET is accepted as an alternative for existing configurations.
+    const secrets = [
+      await this.credentialService.resolve('PAYSTACK_SECRET_KEY'),
+      await this.credentialService.resolve('PAYSTACK_WEBHOOK_SECRET'),
+    ].filter((s): s is string => !!s);
+
+    if (secrets.length === 0) {
+      this.logger.error('Paystack webhook received but no Paystack secret is configured — ignoring');
       res.status(200).json({ status: 'ignored' });
       return;
     }
 
-    const rawBody: Buffer | string =
-      (req as Request & { rawBody?: Buffer | string }).rawBody ??
-      JSON.stringify(req.body);
-
-    const bodyStr = typeof rawBody === 'string' ? rawBody : rawBody.toString('utf8');
-    const expected = createHmac('sha512', secret).update(bodyStr).digest('hex');
-
-    let signatureValid = false;
-    try {
-      signatureValid = timingSafeEqual(Buffer.from(signature ?? ''), Buffer.from(expected));
-    } catch {
-      signatureValid = false;
+    const rawBody: Buffer | string | undefined = (req as Request & { rawBody?: Buffer | string }).rawBody;
+    if (!rawBody) {
+      // Without the exact raw bytes the signature cannot be checked — fail closed.
+      this.logger.error('Paystack webhook: raw body unavailable, cannot verify signature');
+      res.status(400).json({ error: 'Raw body unavailable' });
+      return;
     }
+    const bodyStr = typeof rawBody === 'string' ? rawBody : rawBody.toString('utf8');
 
-    if (!signatureValid) {
+    if (!signature || !secrets.some((s) => signatureMatches(bodyStr, signature, s))) {
       this.logger.warn('Invalid Paystack webhook signature');
       res.status(401).json({ error: 'Invalid signature' });
       return;
@@ -65,30 +75,20 @@ export class PaystackWebhookController {
       return;
     }
 
-    const eventType = event.event;
-    const data = event.data ?? {};
+    this.logger.log(`Paystack webhook received: ${event.event}`);
 
-    this.logger.log(`Paystack webhook received: ${eventType}`);
-
-    if (eventType === 'charge.success') {
-      const reference = data['reference'] as string | undefined;
-      if (reference) {
-        await this.prisma.payment.updateMany({
-          where: { gatewayRef: reference, status: 'PENDING' },
-          data: { status: 'COMPLETED', receivedAt: new Date() },
-        }).catch(err => {
-          this.logger.warn(`Paystack charge.success update failed (ref=${reference}): ${(err as Error).message}`);
-        });
-      }
-    } else if (eventType === 'charge.failed') {
-      const reference = data['reference'] as string | undefined;
-      if (reference) {
-        await this.prisma.payment.updateMany({
-          where: { gatewayRef: reference, status: 'PENDING' },
-          data: { status: 'FAILED' },
-        }).catch(err => {
-          this.logger.warn(`Paystack charge.failed update failed (ref=${reference}): ${(err as Error).message}`);
-        });
+    if (event.event === 'charge.success') {
+      const reference = event.data?.['reference'];
+      if (typeof reference === 'string' && reference) {
+        // Never trust the webhook body for amounts: re-verify with Paystack's API.
+        try {
+          const result = await this.paystack.verifyAndConfirm(reference);
+          this.logger.log(`Paystack webhook ref=${reference} → ${result.status}`);
+        } catch (err) {
+          this.logger.error(`Paystack webhook confirm failed (ref=${reference}): ${(err as Error).message}`);
+          res.status(500).json({ error: 'Processing failed' }); // Paystack will retry
+          return;
+        }
       }
     }
 

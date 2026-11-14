@@ -127,10 +127,15 @@ interface MockPrisma {
   inventoryLevel: { findFirst: AnyMock };
   user: { findFirst: AnyMock };
   payment: { create: AnyMock };
+  discountCodeUsage: { create: AnyMock };
+  giftCard: { updateMany: AnyMock };
+  giftCardRedemption: { create: AnyMock };
+  $executeRaw: AnyMock;
+  $transaction: AnyMock;
 }
 
 function makePrismaMock(): MockPrisma {
-  return {
+  const m = {
     salesOrder: { findFirst: fn(), create: fn() },
     customer: { findFirst: fn(), create: fn() },
     location: { findFirst: fn() },
@@ -139,7 +144,44 @@ function makePrismaMock(): MockPrisma {
     inventoryLevel: { findFirst: fn() },
     user: { findFirst: fn() },
     payment: { create: fn() },
+    discountCodeUsage: { create: fn() },
+    giftCard: { updateMany: fn() },
+    giftCardRedemption: { create: fn() },
+    $executeRaw: fn(),
+    $transaction: fn(),
+  } as MockPrisma;
+  // Interactive transaction: run the callback against the same mock client
+  m.$transaction.mockImplementation(async (cb: (tx: MockPrisma) => unknown) => cb(m));
+  return m;
+}
+
+function makeDeps() {
+  return {
+    eventEmitter: { emit: jest.fn() },
+    discount: { validate: jest.fn() },
+    giftCards: { validate: jest.fn() },
+    paystack: { initialize: jest.fn(), isConfigured: jest.fn(), verifyAndConfirm: jest.fn() },
+    auth: {
+      resolveAccountIdFromToken: jest.fn().mockResolvedValue(null),
+      emailHasAccount: jest.fn().mockResolvedValue(false),
+      createAccountForOrder: jest.fn(),
+    },
   };
+}
+
+function makeService(prisma: MockPrisma, deps: ReturnType<typeof makeDeps>) {
+  const inventory: Partial<InventoryService> = {};
+  return new EcommerceService(
+    prisma as unknown as PrismaService,
+    inventory as InventoryService,
+    deps.eventEmitter as never,
+    { get: () => undefined } as never,
+    { resolve: jest.fn().mockResolvedValue(null) } as never,
+    deps.discount as never,
+    deps.giftCards as never,
+    deps.paystack as never,
+    deps.auth as never,
+  );
 }
 
 describe('EcommerceService.createPublicOrder — server-authoritative totals', () => {
@@ -148,15 +190,7 @@ describe('EcommerceService.createPublicOrder — server-authoritative totals', (
 
   beforeEach(() => {
     prisma = makePrismaMock();
-    const inventory: Partial<InventoryService> = {};
-    const eventEmitter = { emit: jest.fn() } as never;
-    service = new EcommerceService(
-      prisma as unknown as PrismaService,
-      inventory as InventoryService,
-      eventEmitter,
-      { get: () => undefined } as never,
-      { resolve: jest.fn().mockResolvedValue(null) } as never,
-    );
+    service = makeService(prisma, makeDeps());
 
     // Common happy-path mocks
     prisma.salesOrder.findFirst.mockResolvedValue(null); // no idempotency hit by default
@@ -285,5 +319,192 @@ describe('EcommerceService.createPublicOrder — server-authoritative totals', (
 
     // salesOrder.create called exactly once across the two requests
     expect(prisma.salesOrder.create).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── F–K: coupons, gift cards, Paystack and accounts ──────────────────────────
+
+describe('EcommerceService.createPublicOrder — discounts, card payments and accounts', () => {
+  let prisma: MockPrisma;
+  let deps: ReturnType<typeof makeDeps>;
+  let service: EcommerceService;
+
+  const baseDto = (overrides: Partial<CreatePublicOrderDto> = {}): CreatePublicOrderDto => ({
+    customerEmail: 'buyer@example.com',
+    customerName: 'Ada Buyer',
+    customerPhone: '+2348000000001',
+    locationId: LOCATION_ID,
+    items: [{ productId: PRODUCT_ID, quantity: 2 }], // 2 × 5000 = 10000
+    paymentMethod: 'CASH',
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    prisma = makePrismaMock();
+    deps = makeDeps();
+    service = makeService(prisma, deps);
+
+    prisma.salesOrder.findFirst.mockResolvedValue(null);
+    prisma.customer.findFirst.mockResolvedValue({ id: CUSTOMER_ID, email: 'buyer@example.com' });
+    prisma.location.findFirst.mockResolvedValue({ id: LOCATION_ID, isActive: true });
+    prisma.product.findFirst.mockResolvedValue({
+      id: PRODUCT_ID,
+      name: 'Widget',
+      status: 'ACTIVE',
+      trackInventory: false,
+      sellingPrice: new Prisma.Decimal('5000'),
+      costPrice: new Prisma.Decimal('2000'),
+    });
+    prisma.user.findFirst.mockResolvedValue({ id: USER_ID });
+    prisma.payment.create.mockResolvedValue({ id: 'pay-1' });
+    prisma.salesOrder.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      id: 'order-1',
+      reference: data.reference as string,
+      totalAmount: new Prisma.Decimal(data.totalAmount as string),
+      status: data.status as OrderStatus,
+    }));
+  });
+
+  it('F. coupon is priced on the server and recorded once', async () => {
+    deps.discount.validate.mockResolvedValue({ valid: true, discountAmount: 1500, discountCode: { id: 'dc-1' } });
+    prisma.$executeRaw.mockResolvedValue(1);
+
+    const res = await service.createPublicOrder(ORG_ID, baseDto({ couponCode: 'save15' }));
+
+    expect(deps.discount.validate).toHaveBeenCalledWith(ORG_ID, 'save15', 10000, 'buyer@example.com');
+    expect(res.data).toMatchObject({ totalAmount: '8500', discountAmount: '1500', amountDue: '8500' });
+    const order = prisma.salesOrder.create.mock.calls[0][0] as { data: { discountAmount: string } };
+    expect(order.data.discountAmount).toBe('1500');
+    expect(prisma.discountCodeUsage.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('F. coupon that hit its usage limit concurrently rejects the order', async () => {
+    deps.discount.validate.mockResolvedValue({ valid: true, discountAmount: 1500, discountCode: { id: 'dc-1' } });
+    prisma.$executeRaw.mockResolvedValue(0);
+    await expect(service.createPublicOrder(ORG_ID, baseDto({ couponCode: 'SAVE15' }))).rejects.toThrow(
+      'usage limit',
+    );
+  });
+
+  it('G. gift card covers part of the total and is debited conditionally', async () => {
+    deps.giftCards.validate.mockResolvedValue({ remainingAmount: new Prisma.Decimal('3000'), giftCard: { id: 'gc-1' } });
+    prisma.giftCard.updateMany.mockResolvedValue({ count: 1 });
+
+    const res = await service.createPublicOrder(ORG_ID, baseDto({ giftCardCode: 'gc-abcd' }));
+
+    expect(deps.giftCards.validate).toHaveBeenCalledWith(ORG_ID, 'GC-ABCD');
+    expect(res.data).toMatchObject({ totalAmount: '10000', giftCardAmount: '3000', amountDue: '7000' });
+    const debit = prisma.giftCard.updateMany.mock.calls[0][0] as {
+      where: { remainingAmount: { gte: Prisma.Decimal } };
+    };
+    expect(debit.where.remainingAmount.gte.toString()).toBe('3000');
+    // Gift card payment (completed) + remaining balance (pending)
+    expect(prisma.payment.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('H. Paystack: server initializes the transaction, order waits in DRAFT, no confirmation yet', async () => {
+    deps.paystack.initialize.mockResolvedValue({
+      accessCode: 'ac_123',
+      authorizationUrl: 'https://checkout.paystack.com/ac_123',
+    });
+
+    const res = await service.createPublicOrder(ORG_ID, baseDto({ paymentMethod: 'PAYSTACK' }));
+
+    const init = deps.paystack.initialize.mock.calls[0][0] as { amountKobo: number; reference: string };
+    expect(init.amountKobo).toBe(1_000_000); // server-computed, in kobo
+    expect(init.reference).toMatch(/^KNEF-[0-9A-F]{20}$/);
+    expect(res.data.status).toBe(OrderStatus.DRAFT);
+    expect(res.data.payment).toMatchObject({ provider: 'paystack', accessCode: 'ac_123', reference: init.reference });
+    const pay = prisma.payment.create.mock.calls[0][0] as {
+      data: { status: string; gatewayRef: string; method: string };
+    };
+    expect(pay.data).toMatchObject({ method: 'PAYSTACK', status: 'PENDING', gatewayRef: init.reference });
+    expect(deps.eventEmitter.emit).not.toHaveBeenCalled();
+  });
+
+  it('H. Paystack init failure creates nothing', async () => {
+    deps.paystack.initialize.mockRejectedValue(new Error('provider down'));
+    await expect(service.createPublicOrder(ORG_ID, baseDto({ paymentMethod: 'PAYSTACK' }))).rejects.toThrow();
+    expect(prisma.salesOrder.create).not.toHaveBeenCalled();
+  });
+
+  it('H. gift card covering the full total skips Paystack and confirms the order', async () => {
+    deps.giftCards.validate.mockResolvedValue({ remainingAmount: new Prisma.Decimal('50000'), giftCard: { id: 'gc-1' } });
+    prisma.giftCard.updateMany.mockResolvedValue({ count: 1 });
+
+    const res = await service.createPublicOrder(ORG_ID, baseDto({ paymentMethod: 'PAYSTACK', giftCardCode: 'GC-1' }));
+
+    expect(deps.paystack.initialize).not.toHaveBeenCalled();
+    expect(res.data).toMatchObject({ status: OrderStatus.CONFIRMED, amountDue: '0', payment: null });
+  });
+
+  it('I. logged-in customer: order is linked from the verified token only', async () => {
+    deps.auth.resolveAccountIdFromToken.mockResolvedValue('acct-1');
+
+    const res = await service.createPublicOrder(ORG_ID, baseDto(), 'customer.jwt');
+
+    expect(deps.auth.resolveAccountIdFromToken).toHaveBeenCalledWith('customer.jwt', ORG_ID);
+    const order = prisma.salesOrder.create.mock.calls[0][0] as { data: { customerAccountId?: string } };
+    expect(order.data.customerAccountId).toBe('acct-1');
+    expect(res.data.linkedToAccount).toBe(true);
+  });
+
+  it('I. invalid token falls back to a guest order', async () => {
+    const res = await service.createPublicOrder(ORG_ID, baseDto(), 'bad.jwt');
+    const order = prisma.salesOrder.create.mock.calls[0][0] as { data: { customerAccountId?: string } };
+    expect(order.data.customerAccountId).toBeUndefined();
+    expect(res.data.linkedToAccount).toBe(false);
+  });
+
+  it('J. guest can create an account at checkout; tokens are returned', async () => {
+    deps.auth.createAccountForOrder.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', customer: { id: 'acct-9' } });
+
+    const res = await service.createPublicOrder(
+      ORG_ID,
+      baseDto({ createAccount: true, accountPassword: 'secret123' }),
+    );
+
+    expect(deps.auth.createAccountForOrder).toHaveBeenCalledWith(
+      ORG_ID,
+      expect.objectContaining({
+        orderId: 'order-1',
+        customerId: CUSTOMER_ID,
+        email: 'buyer@example.com',
+        firstName: 'Ada',
+        lastName: 'Buyer',
+      }),
+    );
+    expect(res.data).toMatchObject({ linkedToAccount: true, account: { accessToken: 'a' }, accountError: null });
+  });
+
+  it('J. existing account email is rejected before any order is created', async () => {
+    deps.auth.emailHasAccount.mockResolvedValue(true);
+    await expect(
+      service.createPublicOrder(ORG_ID, baseDto({ createAccount: true, accountPassword: 'secret123' })),
+    ).rejects.toThrow('already exists');
+    expect(prisma.salesOrder.create).not.toHaveBeenCalled();
+  });
+
+  it('K. account creation failure after the order does not fail the order', async () => {
+    deps.auth.createAccountForOrder.mockRejectedValue(new Error('db hiccup'));
+    const res = await service.createPublicOrder(
+      ORG_ID,
+      baseDto({ createAccount: true, accountPassword: 'secret123' }),
+    );
+    expect(res.data.reference).toBeDefined();
+    expect(res.data.account).toBeNull();
+    expect(res.data.accountError).toMatch(/could not create your account/);
+  });
+});
+
+describe('CreatePublicOrderDto — client cannot choose the linked account', () => {
+  it('rejects a client-supplied customerAccountId', async () => {
+    await expect(
+      CLIENT_CHANNEL_GLOBAL_PIPE.transform(validBasePayload({ customerAccountId: 'someone-else' }), {
+        type: 'body',
+        metatype: CreatePublicOrderDto,
+        data: '',
+      }),
+    ).rejects.toThrow(BadRequestException);
   });
 });

@@ -252,6 +252,86 @@ export class StorefrontAuthService {
     };
   }
 
+  /**
+   * Resolves the logged-in customer from a customer access token.
+   * Returns null for missing, invalid, expired, staff or other-organisation tokens.
+   */
+  async resolveAccountIdFromToken(token: string, organizationId: string): Promise<string | null> {
+    try {
+      const payload = this.jwtService.verify<{ sub: string; orgId: string; type: string }>(token, {
+        secret: this.configService.getOrThrow<string>('JWT_SECRET'),
+      });
+      if (payload.type !== 'customer' || payload.orgId !== organizationId) return null;
+      const account = await this.prisma.customerAccount.findFirst({
+        where: { id: payload.sub, organizationId, isActive: true },
+        select: { id: true },
+      });
+      return account?.id ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  async emailHasAccount(organizationId: string, email: string): Promise<boolean> {
+    const existing = await this.prisma.customerAccount.findFirst({
+      where: { organizationId, email: email.toLowerCase().trim() },
+      select: { id: true },
+    });
+    return !!existing;
+  }
+
+  /**
+   * Creates a customer account during checkout and links the order to it.
+   * Called server-side by the checkout flow right after the order is created.
+   */
+  async createAccountForOrder(
+    organizationId: string,
+    params: {
+      orderId: string;
+      customerId: string;
+      email: string;
+      password: string;
+      firstName: string;
+      lastName: string;
+      phone?: string;
+    },
+  ) {
+    const email = params.email.toLowerCase().trim();
+    if (await this.emailHasAccount(organizationId, email)) {
+      throw new ConflictException('Email already registered');
+    }
+
+    const passwordHash = await bcrypt.hash(params.password, BCRYPT_ROUNDS);
+    const account = await this.prisma.customerAccount.create({
+      data: {
+        id: createId(),
+        organizationId,
+        customerId: params.customerId,
+        email,
+        firstName: params.firstName,
+        lastName: params.lastName,
+        phone: params.phone,
+        passwordHash,
+      },
+    });
+
+    await this.prisma.salesOrder.updateMany({
+      where: { id: params.orderId, organizationId },
+      data: { customerAccountId: account.id },
+    });
+
+    const tokens = await this.generateTokenPair(account.id, organizationId, account.email);
+    return {
+      ...tokens,
+      customer: {
+        id: account.id,
+        email: account.email,
+        firstName: account.firstName,
+        lastName: account.lastName,
+      },
+    };
+  }
+
   async forgotPassword(organizationId: string, email: string): Promise<void> {
     const account = await this.prisma.customerAccount.findFirst({
       where: { organizationId, email: email.toLowerCase().trim(), isActive: true },

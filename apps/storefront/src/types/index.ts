@@ -110,7 +110,30 @@ export interface OrderConfirmation {
   orderId: string;
   reference: string;
   totalAmount: string;
+  discountAmount?: string;
+  giftCardAmount?: string;
+  amountDue?: string;
   status: string;
+  /** Present when the order needs a Paystack card payment to complete. */
+  payment?: {
+    provider: 'paystack';
+    reference: string;
+    accessCode: string;
+    authorizationUrl: string;
+  } | null;
+  linkedToAccount?: boolean;
+  /** Present when an account was created at checkout — log the customer in with these. */
+  account?: {
+    accessToken: string;
+    refreshToken: string;
+    customer: { id: string; email: string; firstName: string; lastName: string };
+  } | null;
+  accountError?: string | null;
+}
+
+export interface PaystackVerifyResult {
+  status: 'paid' | 'pending' | 'failed';
+  orderReference?: string;
 }
 
 export interface OrderDetail {

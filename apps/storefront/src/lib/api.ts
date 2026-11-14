@@ -10,6 +10,7 @@ import type {
   Category,
   OrderConfirmation,
   OrderDetail,
+  PaystackVerifyResult,
 } from '@/types';
 
 const isServer = typeof window === 'undefined';
@@ -83,15 +84,16 @@ export interface CheckoutPayload {
   deliveryPhone?: string;
   deliveryMethod?: 'PICKUP' | 'DELIVERY';
   paymentMethod: 'CASH' | 'BANK_TRANSFER' | 'PAYSTACK';
-  paystackReference?: string;
   notes?: string;
   items: Array<{ productId: string; variantId?: string; quantity: number }>;
   idempotencyKey?: string;
   turnstileToken?: string;
-  // NOTE: delivery fee is server-authoritative — never sent from the client.
-  customerAccountId?: string;
+  // NOTE: delivery fee, discounts and totals are server-authoritative — never sent from the client.
+  // A logged-in customer is identified by their access token, not by a field in this payload.
   couponCode?: string;
   giftCardCode?: string;
+  createAccount?: boolean;
+  accountPassword?: string;
   deliveryLandmark?: string;
   deliveryCountry?: string;
   deliveryPlaceId?: string;
@@ -102,11 +104,31 @@ export interface CheckoutPayload {
 
 export async function createOrder(
   payload: CheckoutPayload,
+  customerAccessToken?: string | null,
 ): Promise<PublicApiResponse<OrderConfirmation>> {
   return apiFetch('/api/checkout', {
     method: 'POST',
     body: JSON.stringify(payload),
+    headers: customerAccessToken ? { Authorization: `Bearer ${customerAccessToken}` } : undefined,
   });
+}
+
+export async function verifyPaystackPayment(
+  reference: string,
+): Promise<PublicApiResponse<PaystackVerifyResult>> {
+  return apiFetch('/api/checkout/verify-payment', {
+    method: 'POST',
+    body: JSON.stringify({ reference }),
+  });
+}
+
+export async function fetchPaymentConfig(): Promise<{ paystackEnabled: boolean }> {
+  try {
+    const res = await apiFetch<PublicApiResponse<{ paystackEnabled: boolean }>>('/api/checkout/payment-config');
+    return { paystackEnabled: !!res.data?.paystackEnabled };
+  } catch {
+    return { paystackEnabled: false };
+  }
 }
 
 export async function fetchOrder(

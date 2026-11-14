@@ -18,8 +18,9 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 ENV NEXT_PUBLIC_TURNSTILE_SITE_KEY=0x4AAAAAAFZ_7Qph45mfl9bO
-# Card payments disabled until the server-side Paystack flow and secret key are in place.
-# (Public key was pk_live_2c4569d967e53a3c322d323c729c897f7164a030.)
+# No Paystack public key is needed: the API initializes each transaction with the secret key
+# and the browser resumes it with an access code (InlineJS v2). "Pay with Card" appears
+# automatically once PAYSTACK_SECRET_KEY is set in Admin → Credentials.
 ENV NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY=
 
 RUN corepack enable && corepack prepare pnpm@9.1.4 --activate

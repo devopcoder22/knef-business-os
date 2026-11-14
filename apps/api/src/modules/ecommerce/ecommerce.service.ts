@@ -3,6 +3,8 @@ import {
   NotFoundException,
   BadRequestException,
   UnauthorizedException,
+  ConflictException,
+  Logger,
 } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
 import { randomBytes, createHash } from 'crypto';
@@ -13,6 +15,10 @@ import { PrismaService } from '../../common/services/prisma.service';
 import { InventoryService } from '../inventory/inventory.service';
 import { CredentialService } from '../credentials/credential.service';
 import type { AppConfig } from '../../config/app.config';
+import { DiscountService } from '../discounts/discount.service';
+import { GiftCardService } from '../gift-cards/gift-card.service';
+import { StorefrontAuthService } from '../storefront/storefront-auth.service';
+import { PaystackService } from './paystack.service';
 import type { PublicProductsQueryDto } from './dto/public-products-query.dto';
 import type { CreatePublicOrderDto } from './dto/create-public-order.dto';
 import type { CreateApiKeyDto } from './dto/create-api-key.dto';
@@ -28,14 +34,28 @@ function publicResponse<T>(data: T, meta?: Record<string, unknown>) {
 
 import { generateReference } from '../../common/utils/references';
 
+export interface PublicCardPayment {
+  provider: 'paystack';
+  reference: string;
+  accessCode: string;
+  authorizationUrl: string;
+}
+export type CheckoutAccount = Awaited<ReturnType<StorefrontAuthService['createAccountForOrder']>>;
+
 @Injectable()
 export class EcommerceService {
+  private readonly logger = new Logger(EcommerceService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly inventoryService: InventoryService,
     private readonly eventEmitter: EventEmitter2,
     private readonly configService: ConfigService<AppConfig, true>,
     private readonly credentialService: CredentialService,
+    private readonly discountService: DiscountService,
+    private readonly giftCardService: GiftCardService,
+    private readonly paystackService: PaystackService,
+    private readonly storefrontAuth: StorefrontAuthService,
   ) {}
 
   /**
@@ -300,7 +320,13 @@ export class EcommerceService {
 
   // ── Public: Orders ────────────────────────────────────────────
 
-  async createPublicOrder(organizationId: string, dto: CreatePublicOrderDto) {
+  /**
+   * Public checkout.
+   *
+   * @param customerToken optional customer access token (from the Authorization header).
+   *   A logged-in customer is identified ONLY from this verified token, never from the body.
+   */
+  async createPublicOrder(organizationId: string, dto: CreatePublicOrderDto, customerToken?: string) {
     if (!dto.items || dto.items.length === 0) {
       throw new BadRequestException('Order must have at least one item');
     }
@@ -311,12 +337,37 @@ export class EcommerceService {
         where: { organizationId, idempotencyKey: dto.idempotencyKey },
       });
       if (existing) {
+        // Replay of the same submission: same order, same response shape (no new side effects).
         return publicResponse({
           orderId: existing.id,
           reference: existing.reference,
           totalAmount: existing.totalAmount.toString(),
+          discountAmount: (existing.discountAmount ?? 0).toString(),
+          giftCardAmount: '0',
+          amountDue: existing.totalAmount.toString(),
           status: existing.status,
+          payment: null as PublicCardPayment | null,
+          linkedToAccount: !!existing.customerAccountId,
+          account: null as CheckoutAccount | null,
+          accountError: null as string | null,
         });
+      }
+    }
+
+    const loggedInAccountId = customerToken
+      ? await this.storefrontAuth.resolveAccountIdFromToken(customerToken, organizationId)
+      : null;
+
+    // Guest asked to create an account: check up front so we fail before creating anything.
+    const wantsAccount = !loggedInAccountId && dto.createAccount === true;
+    if (wantsAccount) {
+      if (!dto.accountPassword || dto.accountPassword.length < 8) {
+        throw new BadRequestException('Choose a password of at least 8 characters to create your account');
+      }
+      if (await this.storefrontAuth.emailHasAccount(organizationId, dto.customerEmail)) {
+        throw new ConflictException(
+          'An account with this email already exists. Please log in to continue, or untick "Create an account".',
+        );
       }
     }
 
@@ -420,34 +471,34 @@ export class EcommerceService {
     // When Stage 25 adds courier/zone pricing, extend this helper.
     const deliveryFee = this.calculateDeliveryFee(dto.deliveryMethod);
 
-    const totalAmount = subtotal.add(deliveryFee);
-
-    // Verify Paystack payment before creating the order so we fail fast if invalid
-    if (dto.paymentMethod === 'PAYSTACK') {
-      if (!dto.paystackReference) {
-        throw new BadRequestException('Paystack payment reference is required');
-      }
-      const paystackKey = await this.credentialService.resolve('PAYSTACK_SECRET_KEY');
-      if (!paystackKey) {
-        throw new BadRequestException('Card payments are not configured on this store');
-      }
-      const verifyRes = await fetch(
-        `https://api.paystack.co/transaction/verify/${encodeURIComponent(dto.paystackReference)}`,
-        { headers: { Authorization: `Bearer ${paystackKey}` } },
+    // ── Coupon: validated and priced on the server against the item subtotal ──
+    let discountAmount = new Prisma.Decimal(0);
+    let discountCodeId: string | null = null;
+    if (dto.couponCode?.trim()) {
+      const result = await this.discountService.validate(
+        organizationId,
+        dto.couponCode,
+        subtotal.toNumber(),
+        dto.customerEmail,
       );
-      const verifyJson = (await verifyRes.json()) as {
-        status: boolean;
-        data?: { status: string; amount: number; currency: string };
-      };
-      if (!verifyJson.status || verifyJson.data?.status !== 'success') {
-        throw new BadRequestException('Card payment verification failed. Please try again.');
-      }
-      const paidKobo = verifyJson.data.amount;
-      const expectedKobo = Math.round(totalAmount.toNumber() * 100);
-      if (paidKobo < expectedKobo) {
-        throw new BadRequestException('Payment amount does not match order total.');
-      }
+      discountAmount = new Prisma.Decimal(result.discountAmount);
+      discountCodeId = (result.discountCode as { id: string }).id;
     }
+
+    const totalAmount = Prisma.Decimal.max(subtotal.add(deliveryFee).sub(discountAmount), 0);
+
+    // ── Gift card: covers as much as possible of what's left after the coupon ──
+    let giftCardAmount = new Prisma.Decimal(0);
+    let giftCard: { id: string; code: string } | null = null;
+    if (dto.giftCardCode?.trim()) {
+      const code = dto.giftCardCode.trim().toUpperCase();
+      const result = await this.giftCardService.validate(organizationId, code);
+      giftCardAmount = Prisma.Decimal.min(result.remainingAmount, totalAmount);
+      giftCard = { id: result.giftCard.id, code };
+    }
+
+    const amountDue = totalAmount.sub(giftCardAmount);
+    const needsCardPayment = dto.paymentMethod === 'PAYSTACK' && amountDue.gt(0);
 
     const reference = generateReference('WEB');
 
@@ -458,19 +509,37 @@ export class EcommerceService {
     });
     if (!orgUser) throw new BadRequestException('Organization has no active users');
 
-    const order = await this.prisma.salesOrder.create({
+    // Start the Paystack transaction before writing anything, so a provider failure
+    // leaves no half-created order. Amount and reference are server-generated.
+    let paystack: { reference: string; accessCode: string; authorizationUrl: string } | null = null;
+    if (needsCardPayment) {
+      const gatewayRef = `KNEF-${randomBytes(10).toString('hex').toUpperCase()}`;
+      const init = await this.paystackService.initialize({
+        email: dto.customerEmail,
+        amountKobo: Math.round(amountDue.toNumber() * 100),
+        reference: gatewayRef,
+        callbackUrl: dto.paystackCallbackUrl,
+        metadata: { orderReference: reference, customerName: dto.customerName, customerPhone: dto.customerPhone },
+      });
+      paystack = { reference: gatewayRef, ...init };
+    }
+
+    const customerId = customer.id;
+    const order = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.salesOrder.create({
       data: {
         id: createId(),
         organizationId,
         reference,
-        customerId: customer.id,
+        customerId: customerId,
         locationId: dto.locationId,
         userId: orgUser.id,
-        status: OrderStatus.CONFIRMED,
+        // Card orders wait in DRAFT until Paystack confirms payment.
+        status: needsCardPayment ? OrderStatus.DRAFT : OrderStatus.CONFIRMED,
         channel: 'ONLINE',
         currency: 'NGN',
         subtotal: subtotal.toString(),
-        discountAmount: '0',
+        discountAmount: discountAmount.toString(),
         taxAmount: '0',
         totalAmount: totalAmount.toString(),
         notes: dto.notes,
@@ -486,44 +555,145 @@ export class EcommerceService {
         deliveryLongitude: dto.deliveryLongitude ?? null,
         deliveryAddressSource: (dto.deliveryAddressSource as 'GOOGLE_PLACE' | 'MANUAL' | 'SAVED_ADDRESS' | undefined) ?? null,
         idempotencyKey: dto.idempotencyKey,
-        customerAccountId: dto.customerAccountId,
+        customerAccountId: loggedInAccountId ?? undefined,
         items: { create: itemsData },
       },
+      });
+
+      // Coupon usage — conditional increment so concurrent orders can't exceed maxUses
+      if (discountCodeId) {
+        const claimed = await tx.$executeRaw`
+          UPDATE discount_codes SET "usedCount" = "usedCount" + 1, "updatedAt" = NOW()
+          WHERE id = ${discountCodeId} AND "organizationId" = ${organizationId} AND "isActive" = true
+            AND ("maxUses" IS NULL OR "usedCount" < "maxUses")`;
+        if (claimed === 0) throw new BadRequestException('This discount code has reached its usage limit');
+        await tx.discountCodeUsage.create({
+          data: {
+            id: createId(),
+            discountCodeId,
+            orderId: created.id,
+            customerEmail: dto.customerEmail,
+            discountAmount,
+          },
+        });
+      }
+
+      // Gift card — conditional debit so the balance can never go negative
+      if (giftCard && giftCardAmount.gt(0)) {
+        const debited = await tx.giftCard.updateMany({
+          where: { id: giftCard.id, organizationId, isActive: true, remainingAmount: { gte: giftCardAmount } },
+          data: { remainingAmount: { decrement: giftCardAmount } },
+        });
+        if (debited.count === 0) {
+          throw new BadRequestException('Your gift card balance has changed. Please re-apply the gift card.');
+        }
+        await tx.giftCardRedemption.create({
+          data: { giftCardId: giftCard.id, orderId: created.id, amount: giftCardAmount },
+        });
+        await tx.payment.create({
+          data: {
+            id: createId(),
+            organizationId,
+            reference: generateReference('PAY'),
+            orderId: created.id,
+            customerId: customerId,
+            amount: giftCardAmount,
+            currency: 'NGN',
+            method: 'OTHER',
+            status: 'COMPLETED',
+            notes: `Gift card ${giftCard.code}`,
+            receivedAt: new Date(),
+          },
+        });
+      }
+
+      // Remaining balance: PENDING until Paystack confirms, or until staff record cash/transfer
+      if (amountDue.gt(0)) {
+        await tx.payment.create({
+          data: {
+            id: createId(),
+            organizationId,
+            reference: generateReference('PAY'),
+            orderId: created.id,
+            customerId: customerId,
+            amount: amountDue,
+            currency: 'NGN',
+            method: needsCardPayment ? 'PAYSTACK' : (dto.paymentMethod as 'CASH' | 'BANK_TRANSFER' | 'OTHER'),
+            status: 'PENDING',
+            gatewayRef: paystack?.reference ?? null,
+            receivedAt: null,
+          },
+        });
+      }
+
+      return created;
     });
 
-    const isPaystack = dto.paymentMethod === 'PAYSTACK';
-    await this.prisma.payment.create({
-      data: {
-        id: createId(),
+    // Card orders send their confirmation only once Paystack payment is verified.
+    if (!needsCardPayment) {
+      this.eventEmitter.emit('storefront.order.created', {
         organizationId,
-        reference: generateReference('PAY'),
         orderId: order.id,
-        customerId: customer.id,
-        amount: totalAmount,
-        currency: 'NGN',
-        method: isPaystack ? 'PAYSTACK' : (dto.paymentMethod as 'CASH' | 'BANK_TRANSFER' | 'OTHER'),
-        status: isPaystack ? 'COMPLETED' : 'PENDING',
-        gatewayRef: dto.paystackReference ?? null,
-        receivedAt: isPaystack ? new Date() : null,
-      },
-    });
+        reference: order.reference,
+        customerName: dto.customerName,
+        customerEmail: dto.customerEmail ?? null,
+        customerPhone: dto.customerPhone,
+        totalAmount: totalAmount.toString(),
+      });
+    }
 
-    this.eventEmitter.emit('storefront.order.created', {
-      organizationId,
-      orderId: order.id,
-      reference: order.reference,
-      customerName: dto.customerName,
-      customerEmail: dto.customerEmail ?? null,
-      customerPhone: dto.customerPhone,
-      totalAmount: totalAmount.toString(),
-    });
+    // Create the account after the order exists. If this fails the order still stands.
+    let account: CheckoutAccount | null = null;
+    let accountError: string | null = null;
+    if (wantsAccount && dto.accountPassword) {
+      const nameParts = dto.customerName.trim().split(/\s+/);
+      try {
+        account = await this.storefrontAuth.createAccountForOrder(organizationId, {
+          orderId: order.id,
+          customerId,
+          email: dto.customerEmail,
+          password: dto.accountPassword,
+          firstName: nameParts[0] ?? dto.customerName,
+          lastName: nameParts.slice(1).join(' ') || '-',
+          phone: dto.customerPhone,
+        });
+      } catch (err) {
+        this.logger.warn(`Checkout account creation failed for order ${order.reference}: ${(err as Error).message}`);
+        accountError = 'Your order was placed, but we could not create your account. You can register later.';
+      }
+    }
 
     return publicResponse({
       orderId: order.id,
       reference: order.reference,
       totalAmount: totalAmount.toString(),
+      discountAmount: discountAmount.toString(),
+      giftCardAmount: giftCardAmount.toString(),
+      amountDue: amountDue.toString(),
       status: order.status,
+      payment: (paystack
+        ? {
+            provider: 'paystack',
+            reference: paystack.reference,
+            accessCode: paystack.accessCode,
+            authorizationUrl: paystack.authorizationUrl,
+          }
+        : null) as PublicCardPayment | null,
+      linkedToAccount: !!loggedInAccountId || !!account,
+      account,
+      accountError,
     });
+  }
+
+  /** Storefront calls this after the Paystack popup reports success (or on return from Paystack). */
+  async verifyPaystackPayment(organizationId: string, reference: string) {
+    const result = await this.paystackService.verifyAndConfirm(reference, organizationId);
+    if (result.status === 'not_found') throw new NotFoundException('Payment not found');
+    return publicResponse(result);
+  }
+
+  async getPaymentConfig() {
+    return publicResponse({ paystackEnabled: await this.paystackService.isConfigured() });
   }
 
   async getPublicOrder(organizationId: string, reference: string, email: string) {

@@ -8,6 +8,7 @@ import {
   Query,
   Req,
   UseGuards,
+  Headers,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiSecurity } from '@nestjs/swagger';
 import { Request } from 'express';
@@ -23,7 +24,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { PERMISSIONS } from '@knef/constants';
 import type { AuthUser } from '@knef/types';
 import { PublicProductsQueryDto } from './dto/public-products-query.dto';
-import { CreatePublicOrderDto } from './dto/create-public-order.dto';
+import { CreatePublicOrderDto, VerifyPaystackPaymentDto } from './dto/create-public-order.dto';
 import { CreateApiKeyDto } from './dto/create-api-key.dto';
 import type { ListEcommerceOrdersDto } from './dto/list-ecommerce-orders.dto';
 
@@ -96,8 +97,28 @@ export class EcommercePublicController {
   createOrder(
     @Req() req: ApiKeyRequest,
     @Body() dto: CreatePublicOrderDto,
+    @Headers('authorization') authorization?: string,
   ) {
-    return this.ecommerceService.createPublicOrder(req.organizationId, dto);
+    // Optional customer access token — identifies a logged-in customer. Verified in the service.
+    const customerToken = authorization?.startsWith('Bearer ') ? authorization.slice(7) : undefined;
+    return this.ecommerceService.createPublicOrder(req.organizationId, dto, customerToken);
+  }
+
+  @Get('payment-config')
+  @RequireApiScope('products:read')
+  @ApiOperation({ summary: 'Which online payment methods are available (public)' })
+  getPaymentConfig() {
+    return this.ecommerceService.getPaymentConfig();
+  }
+
+  @Post('payments/paystack/verify')
+  @RequireApiScope('sales:write')
+  @ApiOperation({ summary: 'Verify a Paystack payment and confirm its order (public)' })
+  verifyPaystackPayment(
+    @Req() req: ApiKeyRequest,
+    @Body() dto: VerifyPaystackPaymentDto,
+  ) {
+    return this.ecommerceService.verifyPaystackPayment(req.organizationId, dto.reference);
   }
 
   @Get('orders/:reference')

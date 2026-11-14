@@ -5,6 +5,15 @@ const BACKEND = process.env.STOREFRONT_BACKEND_URL ?? 'http://localhost:4000';
 const API_KEY = process.env.STOREFRONT_API_KEY ?? '';
 const LOCATION_ID = process.env.STOREFRONT_ORG_LOCATION_ID ?? '';
 
+/** Public origin of the storefront (behind Caddy), e.g. https://knefgadgets.com */
+function publicOrigin(request: NextRequest): string {
+  const configured = process.env.STOREFRONT_PUBLIC_URL?.replace(/\/+$/, '');
+  if (configured) return configured;
+  const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? request.nextUrl.host;
+  const proto = request.headers.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https');
+  return `${proto.split(',')[0].trim()}://${host}`;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json() as Record<string, unknown>;
@@ -37,12 +46,17 @@ export async function POST(request: NextRequest) {
     // Server-authoritative monetary fields — strip anything the client sends
     // that would influence pricing. couponCode and giftCardCode are allowed
     // through so the backend can validate and apply them server-side.
+    // Identity and redirect targets are also server-controlled: the linked account comes
+    // from the customer's access token, and the Paystack return URL is set here.
     const {
       deliveryFee: _ignoredDeliveryFee,
       subtotal: _ignoredSubtotal,
       totalAmount: _ignoredTotalAmount,
       discountAmount: _ignoredDiscountAmount,
       taxAmount: _ignoredTaxAmount,
+      customerAccountId: _ignoredCustomerAccountId,
+      paystackCallbackUrl: _ignoredCallbackUrl,
+      paystackReference: _ignoredPaystackReference,
       ...sanitized
     } = bodyClean;
     void _ignoredDeliveryFee;
@@ -50,12 +64,22 @@ export async function POST(request: NextRequest) {
     void _ignoredTotalAmount;
     void _ignoredDiscountAmount;
     void _ignoredTaxAmount;
+    void _ignoredCustomerAccountId;
+    void _ignoredCallbackUrl;
+    void _ignoredPaystackReference;
 
-    const payload = { ...sanitized, locationId };
+    const payload: Record<string, unknown> = { ...sanitized, locationId };
+    if (payload.paymentMethod === 'PAYSTACK') {
+      payload.paystackCallbackUrl = `${publicOrigin(request)}/checkout/payment-return`;
+    }
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', 'x-api-key': API_KEY };
+    const auth = request.headers.get('authorization');
+    if (auth?.startsWith('Bearer ')) headers.Authorization = auth; // verified by the API
 
     const res = await fetch(`${BACKEND}/api/v1/ecommerce/public/orders`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+      headers,
       body: JSON.stringify(payload),
     });
 

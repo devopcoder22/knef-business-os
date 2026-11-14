@@ -10,6 +10,9 @@ import {
   Max,
   IsIn,
   MaxLength,
+  MinLength,
+  IsBoolean,
+  IsUrl,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -104,19 +107,48 @@ export class CreatePublicOrderDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(200)
-  paystackReference?: string;
-
-  @IsOptional()
-  @IsString()
   @MaxLength(128)
   idempotencyKey?: string;
 
-  @IsOptional()
-  @IsString()
-  customerAccountId?: string;
+  // NOTE: there is deliberately no customerAccountId field. A logged-in customer is
+  // identified only from their verified access token (Authorization header).
 
   @IsOptional()
   @IsIn(['PICKUP', 'DELIVERY'])
   deliveryMethod?: 'PICKUP' | 'DELIVERY';
+
+  /** Validated and priced on the server. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  couponCode?: string;
+
+  /** Validated and debited on the server. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  giftCardCode?: string;
+
+  /** Guest checkout: create a customer account with the order's email and this password. */
+  @IsOptional()
+  @IsBoolean()
+  createAccount?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(8)
+  @MaxLength(128)
+  accountPassword?: string;
+
+  /** Where Paystack returns the customer after a full-page payment (set by the storefront server). */
+  @IsOptional()
+  @IsUrl({ protocols: ['https', 'http'], require_protocol: true, require_tld: false })
+  @MaxLength(500)
+  paystackCallbackUrl?: string;
+}
+
+export class VerifyPaystackPaymentDto {
+  @IsString()
+  @MaxLength(100)
+  reference!: string;
 }
