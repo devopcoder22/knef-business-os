@@ -109,7 +109,7 @@ export class GiftCardService {
   async validate(orgId: string, code: string): Promise<{
     valid: boolean;
     remainingAmount: Prisma.Decimal;
-    giftCard: Awaited<ReturnType<typeof this.findByCode>>;
+    giftCard: Awaited<ReturnType<GiftCardService['findByCode']>>;
   }> {
     const card = await this.findByCode(orgId, code);
 
